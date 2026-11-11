@@ -181,6 +181,10 @@ class TurnBudget:
         self.bq_queries += 1
         self._ledger.add(bq_queries=1)
 
+    def queries_left(self) -> int:
+        """Queries that this turn can still run (the empty-result checks stop at 0)."""
+        return max(0, self._limits.max_bq_queries - self.bq_queries)
+
     def record_bytes(self, bytes_billed: int) -> None:
         self.bytes_billed += bytes_billed
         self._ledger.add(bq_bytes_billed=bytes_billed)
