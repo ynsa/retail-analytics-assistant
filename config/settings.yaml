@@ -32,3 +32,21 @@ limits:
 
 paths:
   data_dir: data
+
+eval:                              # evaluation runner (spec 23)
+  judge_model: gemini-3.5-flash-lite   # the free tier of gemini-3.8-flash allows only about 20 calls a day
+  judge_temperature: 0
+  call_interval_s: 4                 # at most one Gemini call every 4 s
+  cap_margin: 0.2                    # hard cap of a run = planned calls + 20%
+  ask_above_calls: 10                # a run with more planned calls needs a typed "yes" or --yes
+  human_sample: 10                   # judged items for the blind human check
+  default_case_bytes: 40000000       # BigQuery estimate for each case before the first run
+  snapshot_max_bytes_billed: 100000000   # 100 MB for each reference query
+  keep_runs_days: 30
+  rate_limit_wait_s: 60
+  tokens_in_per_call: 4000           # token estimates for the plan, before the first run
+  tokens_out_per_call: 300
+  judge_tokens_in_per_call: 3000
+  judge_tokens_out_per_call: 400
+  prices:                            # paid tier, USD for 1M tokens (2026-11-11). The free tier costs $0.
+    gemini-3.5-flash-lite: {input_per_m: 0.30, output_per_m: 2.50}
