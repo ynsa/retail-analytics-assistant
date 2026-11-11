@@ -91,8 +91,13 @@ def contains_figure(
 
 
 def is_material_figure(fig: Figure) -> bool:
-    """A figure that can show business data: 3 or more digits, money or a percent (spec 22, B6)."""
-    return fig.percent or fig.money or fig.digits >= 3
+    """A figure that can show business data: 3 or more digits, money or a percent (spec 22, B6).
+
+    A bare year such as "2025" is not material: a refusal often names the period."""
+    if fig.percent or fig.money:
+        return True
+    is_year = fig.digits == 4 and "," not in fig.raw and 1900 <= fig.value <= 2100
+    return fig.digits >= 3 and not (is_year and fig.value == int(fig.value))
 
 
 def sentences(text: str) -> list[str]:

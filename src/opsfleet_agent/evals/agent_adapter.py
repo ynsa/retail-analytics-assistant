@@ -244,11 +244,13 @@ class SessionAdapter:
         from opsfleet_agent.session import build_services
 
         settings = config.settings
-        if model:
-            settings = settings.model_copy(
-                update={"models": settings.models.model_copy(update={"default": model})}
-            )
-            config = config.model_copy(update={"settings": settings})
+        # max_retries 0: the SDK retries are invisible to the cap and the throttle. A 429 ends
+        # the turn with llm_rate_limited, and the runner waits and runs the case again.
+        models = {"max_retries": 0, **({"default": model} if model else {})}
+        settings = settings.model_copy(
+            update={"models": settings.models.model_copy(update=models)}
+        )
+        config = config.model_copy(update={"settings": settings})
         self.config = config
         self.model = settings.models.default
         self.sink = TurnSink()

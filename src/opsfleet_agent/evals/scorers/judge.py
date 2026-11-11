@@ -18,7 +18,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from opsfleet_agent.config import PROJECT_ROOT
-from opsfleet_agent.errors import AgentError, ErrorType
+from opsfleet_agent.errors import AgentError, ErrorType, LimitExceeded
 from opsfleet_agent.evals.scorers import ScoreResult
 
 RUBRIC_DIR = PROJECT_ROOT / "evals" / "rubrics"
@@ -183,7 +183,8 @@ class Judge:
                     temperature=self._temperature,
                 )
             except AgentError as exc:
-                result.calls += 1
+                # a limit stops the call before it reaches Gemini: it is not a call
+                result.calls += 0 if isinstance(exc, LimitExceeded) else 1
                 result.error, result.error_type = exc.user_message, exc.error_type.value
                 if (
                     exc.error_type is ErrorType.LLM_ERROR

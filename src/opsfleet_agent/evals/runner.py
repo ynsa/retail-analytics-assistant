@@ -136,6 +136,19 @@ def _judge_error(scores: dict[str, Any], error_type: str) -> bool:
     )
 
 
+def _logged_judge_results(state: RunState, case_id: str) -> dict[str, Any]:
+    """Judge results of this case from `judge.jsonl` (a run that paused in the judge step)."""
+    out: dict[str, Any] = {}
+    for item in state.store.judge_items(state.run_id):
+        if item["case_id"] == case_id and not item.get("error"):
+            out[item["key"]] = {
+                "pass": item["passed"],
+                "reason": None if item["passed"] else "judge_failed",
+                "details": {"criteria": item["criteria"], "rubric": item["rubric"]},
+            }
+    return out
+
+
 def _rate_limit_wait(state: RunState, case: Case) -> None:
     state.rate_limit_streak += 1
     if state.rate_limit_streak >= RATE_LIMIT_PAUSE_AFTER:
@@ -164,8 +177,16 @@ def run_one(state: RunState, case: Case) -> dict[str, Any]:
             continue
         state.rate_limit_streak = 0
         state.store.save_record(state.run_id, record)
+    reuse = _logged_judge_results(state, case.id)
     for _attempt in range(RATE_LIMIT_PAUSE_AFTER):
-        scores = score_case(case, record, state.scoring)
+        scores = score_case(case, record, state.scoring, reuse=reuse)
+        reuse.update(  # a judge result that worked is not asked again
+            {
+                k: v.to_json()
+                for k, v in scores.items()
+                if "judge" in k and v.reason != "judge_error"
+            }
+        )
         if _judge_error(scores, "limit_exceeded"):
             _check_limits(state)  # the cap or the daily limit stopped the judge: pause
         if not _judge_error(scores, "llm_rate_limited"):

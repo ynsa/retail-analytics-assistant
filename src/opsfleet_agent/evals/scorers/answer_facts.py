@@ -69,7 +69,7 @@ def time_words(value: Any, kind: str) -> list[str]:
     if kind == "month":
         year, month = norm.split("-")
         name = MONTH_NAMES[int(month) - 1]
-        return [norm, f"{name} {year}", f"{name[:3]} {year}", name]
+        return [norm, f"{name} {year}", f"{name[:3]} {year}"]
     if kind == "quarter":
         year, q = norm.split("-")
         return [norm, f"{q} {year}", f"{year} {q}"]
@@ -78,7 +78,13 @@ def time_words(value: Any, kind: str) -> list[str]:
 
 def _text_has(text: str, value: Any, kind: str) -> bool:
     if kind in TIME_KINDS:
-        return any(w.casefold() in text.casefold() for w in time_words(value, kind))
+        if any(w.casefold() in text.casefold() for w in time_words(value, kind)):
+            return True
+        norm = norm_key(value, kind)
+        if kind == "month" and norm and norm[:4] in text:
+            name = MONTH_NAMES[int(norm[5:7]) - 1]
+            return re.search(rf"\b{name}\b", text) is not None  # "May", not "may"
+        return False
     number = to_float(value)
     if number is not None and kind != "text":
         return contains_figure(text, number, kind=kind)

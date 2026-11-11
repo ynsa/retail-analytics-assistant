@@ -347,6 +347,38 @@ def _new_meta(
     }
 
 
+MAX_AUTO_REFRESH_BYTES = (
+    1_000_000_000  # the owner's rule: up to 1 GB runs without a "yes"
+)
+
+
+def _check_data_change(
+    env: EvalEnv, state: RunState, meta: dict[str, Any], cases: list[Case]
+) -> tuple[str, str]:
+    """After the last case: if the tables changed since the run started, refresh the snapshots
+    and score all stored records again (no Gemini call). Above 1 GB, only say what to do."""
+    end_times = table_times(env)
+    if not end_times or end_times == meta.get("table_times"):
+        return "done", ""
+    _, billed = plan_snapshots(env, cases)
+    meta["table_times_end"] = end_times
+    if billed > MAX_AUTO_REFRESH_BYTES:
+        return "data_changed", (
+            f" The data changed during the run. The snapshot refresh needs about"
+            f" {billed / 1e6:.0f} MB of BigQuery. Run: uv run opsfleet-eval snapshot --set"
+            f" {meta['set']}, then: uv run opsfleet-eval report --run {meta['run_id']} --rescore"
+        )
+    again = refresh_snapshots(env, cases)
+    actual = meta["actual"]
+    actual["snapshot_bytes"] = actual.get("snapshot_bytes", 0) + again.bytes_billed
+    rescore(state, cases)
+    meta["table_times"] = end_times
+    return "data_changed", (
+        " The data changed during the run: the snapshots are new, and the cases are"
+        " scored again."
+    )
+
+
 def execute_run(
     env: EvalEnv,
     *,
@@ -368,6 +400,7 @@ def execute_run(
     model = model or settings.models.default
     case_set, cases, skipped = select_cases(env, set_name, case_ids)
     judge = judge and case_set.judge
+    all_cases = list(cases)
     if meta is not None:
         done = {r["case_id"] for r in env.runs.results(resume or "")}
         cases = [c for c in cases if c.id not in done]
@@ -428,19 +461,13 @@ def execute_run(
         state.sleep = env.sleep
     status, message = run_cases(state, cases)
     env.stats.save()
-    if status == "done":
-        end_times = table_times(env)
-        if end_times and end_times != meta.get("table_times"):
-            status = "data_changed"
-            again = refresh_snapshots(env, cases)
-            meta["actual"]["snapshot_bytes"] += again.bytes_billed
-            rescore(state, cases)
-            message += " The data changed during the run: the snapshots are new, and the cases are scored again."
-            meta["table_times_end"] = end_times
     meta = {
         **env.runs.meta(run_id),
         **{k: meta[k] for k in ("skipped", "segments", "actual")},
     }
+    if status == "done":
+        status, note = _check_data_change(env, state, meta, all_cases)
+        message += note
     meta["status"] = status
     meta["actual"] = {**meta["actual"], **_actual(env, run_id, meta)}
     meta["calls_used"] = cap.used

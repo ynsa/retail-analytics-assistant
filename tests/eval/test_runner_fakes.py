@@ -192,6 +192,17 @@ def test_data_change_during_the_run_rescores(e: Env):
     assert e.env.runs.meta(out.run_id)["status"] == "data_changed"
 
 
+def test_large_data_change_is_not_refreshed_without_a_yes(e: Env):
+    def change() -> None:
+        e.runner.changed = True
+
+    e.adapter_kw = {"on_send": change}
+    e.runner.dry_run = lambda sql, params: 2_000_000_000  # type: ignore[method-assign]
+    out = e.run(set_name="accuracy", case_ids=SMALL)
+    assert out.status == "data_changed" and e.runner.runs == 0
+    assert "opsfleet-eval snapshot" in out.message and "--rescore" in out.message
+
+
 def test_wrong_answer_fails_with_reason_and_report_lists_it(e: Env):
     def wrong(case_id: str, text: str, n: int) -> TurnRecord:
         turn = perfect_turn(case_id, text)
@@ -238,6 +249,10 @@ def test_cap_in_the_judge_step_pauses_and_resume_scores_only(e: Env):
     again = e.run(resume=out.run_id, yes=True)
     assert again.status == "done"
     assert not set(e.adapters[-1].started) & set(paused)  # no second agent run
+    assert e.judge_llm.calls == 2  # one judge call for each case, none repeated
+    items = e.env.runs.judge_items(out.run_id)
+    assert len([i for i in items if not i.get("error")]) == 2
+    assert e.env.runs.meta(out.run_id)["actual"]["judge_calls"] == 2
     assert all(x["passed"] for x in e.lines(out.run_id))
 
 

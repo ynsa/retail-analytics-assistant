@@ -181,7 +181,17 @@ def test_scope():
         params={"scope_brands": ["Carhartt", "Calvin Klein"]},
     )
     result = run_check("H-SCOPE", turn(queries=[own]), ctx())
-    assert result.passed and result.details["guard_span"] == "missing"
+    assert result.passed
+    no_evidence = q(columns=["revenue"], rows=[[1789731.36]])
+    assert not passes("H-SCOPE", turn(queries=[no_evidence]))
+    unscoped = q(params={"all_brands": True, "brands": ["Carhartt", "Calvin Klein"]})
+    assert not passes("H-SCOPE", turn(queries=[unscoped]))
+    good_span = {
+        "name": "guard",
+        "kind": "guard",
+        "attributes": {"scope_brands": ["Calvin Klein", "Carhartt"]},
+    }
+    assert passes("H-SCOPE", turn(queries=[no_evidence], spans=[good_span]))
     other = q(columns=["brand", "revenue"], rows=[["Levi's", 10.0]])
     assert not passes("H-SCOPE", turn(queries=[other]))
     wrong_param = q(params={"scope_brands": ["Levi's"]})

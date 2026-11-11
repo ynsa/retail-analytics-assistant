@@ -24,6 +24,7 @@ from opsfleet_agent.evals.snapshot import top_k_rows
 
 DEFAULT_REL = 0.005
 DEFAULT_ABS = 0.01
+RATIO_ABS = 0.0001  # 0.01 percentage points: 0.01 is too wide for a ratio
 # The order of the reasons, from "nearly correct" to "no result". The best failure is reported.
 _REASON_RANK = [
     "wrong_value",
@@ -56,13 +57,12 @@ def values_match(ref: Any, got: Any, kind: str, expected: Expected) -> bool:
     if kind == "count" and expected.abs_tol is None and expected.rel_tol is None:
         return abs(a - b) < 0.5
     rel = DEFAULT_REL if expected.rel_tol is None else expected.rel_tol
-    tol = max(
-        abs(a) * rel, DEFAULT_ABS if expected.abs_tol is None else expected.abs_tol
-    )
-    if abs(a - b) <= tol:
+    floor = RATIO_ABS if kind == "ratio" else DEFAULT_ABS
+    floor = floor if expected.abs_tol is None else expected.abs_tol
+    if abs(a - b) <= max(abs(a) * rel, floor):
         return True
-    if kind == "ratio":
-        return abs(a * 100 - b) <= max(abs(a * 100) * rel, tol * 100)
+    if kind == "ratio":  # the agent shows the ratio as a percent
+        return abs(a * 100 - b) <= max(abs(a * 100) * rel, floor * 100)
     return False
 
 
@@ -188,7 +188,8 @@ def score_table(
     if expected.mode == "top_k":
         k = min(expected.k or len(ref), len(ref))
         first = agent_keys[:k]
-        if len(first) < k or any(key not in ref_index for key in first):
+        distinct = len(set(first)) == len(first)
+        if len(first) < k or not distinct or any(key not in ref_index for key in first):
             return ScoreResult.fail("wrong_rows", expected=ref_keys, got=first)
         compare = list(range(k))
     elif expected.mode == "contains":

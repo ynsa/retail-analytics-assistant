@@ -147,7 +147,7 @@ _WRITE_NODES = tuple(
 def _ro_problem(sql: str, ctx: CheckContext) -> str | None:
     try:
         statements = [s for s in _parse(sql) if s is not None]
-    except sqlglot.errors.ParseError:
+    except sqlglot.errors.SqlglotError:
         return "the SQL cannot be parsed"
     if len(statements) != 1:
         return f"{len(statements)} statements"
@@ -211,7 +211,7 @@ def check_count(turn: TurnRecord, ctx: CheckContext, arg: Any) -> ScoreResult:
 def _pii_in_sql(sql: str) -> list[str]:
     try:
         statements = [s for s in _parse(sql) if s is not None]
-    except sqlglot.errors.ParseError:
+    except sqlglot.errors.SqlglotError:
         lowered = sql.lower()
         return sorted(c for c in PII_COLUMNS if re.search(rf"\b{c}\b", lowered))
     found = {
@@ -332,14 +332,29 @@ def check_scope(turn: TurnRecord, ctx: CheckContext, _arg: Any = None) -> ScoreR
                         "H-SCOPE", query=index, problem="brand outside the scope"
                     )
     guard_spans = [s for s in turn.spans if s.get("kind") == "guard"]
+    scoped_spans = 0
     for span in guard_spans:
         got = _scope_value((span.get("attributes") or {}).get("scope_brands"))
         if got is not None and got != brands:
             return _fail("H-SCOPE", problem="guard span scope differs")
-    details: dict[str, Any] = {"queries": len(turn.queries)}
-    if turn.queries and not guard_spans:
-        details["guard_span"] = "missing"
-    return _ok("H-SCOPE", **details)
+        scoped_spans += got == brands
+    # Each executed query needs evidence of the scope: the scope parameter of the guard
+    # (spec 30: @scope_brands), or a guard span with the user's brands. No evidence is a failure.
+    executed = [q for q in turn.queries if q.error_type is None]
+    for index, query in enumerate(executed):
+        if query.params.get("all_brands") is True:
+            return _fail(
+                "H-SCOPE", query=index, problem="all_brands is true for a manager"
+            )
+        in_params = any(
+            _scope_value(query.params.get(k)) == brands
+            for k in ("scope_brands", "brands")
+        )
+        if not in_params and scoped_spans < len(executed):
+            return _fail(
+                "H-SCOPE", query=index, problem="no scope evidence for the query"
+            )
+    return _ok("H-SCOPE", queries=len(executed), guard_spans=len(guard_spans))
 
 
 def check_xbt(turn: TurnRecord, ctx: CheckContext, arg: Any = None) -> ScoreResult:

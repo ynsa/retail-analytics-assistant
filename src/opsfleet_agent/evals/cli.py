@@ -76,8 +76,8 @@ def _env(need_agent: bool = False):
     def judge_llm_factory():
         from opsfleet_agent.llm import GeminiClient
 
-        models = settings.models.model_copy(
-            update={"default": settings.eval.judge_model}
+        models = settings.models.model_copy(  # no hidden SDK retries (cap and throttle)
+            update={"default": settings.eval.judge_model, "max_retries": 0}
         )
         return GeminiClient(models, config.secrets.google_api_key)
 
