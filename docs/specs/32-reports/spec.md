@@ -1,0 +1,320 @@
+# Spec 32: Reports
+
+- **Status:** Draft
+- **Phase and stream:** Phase 2, stream C
+- **Depends on:** 00, 30, 31. Spec 33 uses the library tables of this spec.
+- **Requirements covered:** the "report with action items" capability of the brief. The base for Req 3 (the Saved Reports library). Part of Req 2 (PII scan of files).
+
+---
+
+## Part A — Product (review this part)
+
+### A1. Goal
+
+The user asks for a report, for example "Create a report for Q1 with insights and action items for Q2". The assistant builds it from real query results and saves it in the user's personal library. On request, it also writes an HTML or Markdown file with charts. Each figure and each chart comes from the data. The model cannot invent a chart value.
+
+### A2. Behavior the user sees
+
+1. **Create a report.** Maya asks "Create a report for Q1 with insights and action items for Q2". After 30–90 s, the terminal shows the title, the summary, the action items and the line "Saved as R-7K2PQ."
+2. **Same sections every time.** Each report has these sections in this order: summary, findings with numbers, reasons, action items, date range and definitions, method and SQL appendix.
+3. **A file on request.** "Create a report for Q1 as an HTML file" also writes `data/reports/maya/R-7K2PQ.html`. The terminal shows the path. The file opens in a browser without internet access. It contains up to 3 charts.
+4. **Markdown.** "… as a Markdown file" writes a `.md` file. Its charts are Mermaid diagrams, and a small table with the figures follows each chart.
+5. **Save the last answer.** After an answer, Maya says "Save this as a report". The assistant makes a report from the results of the last answer. It runs no new query.
+6. **The library.** `/reports` shows Maya's reports: ID, title, period, date and files. "Show my reports" in the chat gives the same list.
+7. **Open and export.** `/open R-7K2PQ` shows the report in the terminal. `/export R-7K2PQ --format md` writes the Markdown file.
+8. **Only own reports.** Maya types `/open` with the ID of Daniel's report. She gets "Report R-… not found." She gets the same text for an ID that does not exist.
+9. **A part fails.** One of the 4 queries fails after 3 attempts. The report still appears. The findings say which part is missing and why.
+10. **Too slow.** A report takes more than 150 s. The assistant stops, saves nothing, and suggests a shorter period or fewer topics.
+11. **Calculated figures.** A finding contains a percentage change that the model calculated from two figures. The method section states how many figures in the text are calculations and not direct query results.
+
+### A3. Scope
+
+- **In scope:**
+  - the report flow: plan, queries, writing, checks, save,
+  - "save the last answer as a report",
+  - the library table, list, open, export,
+  - the HTML file with inline SVG charts and the Markdown file with Mermaid charts,
+  - the PII scan of the report and the files,
+  - ownership and file paths.
+- **Out of scope:**
+  - delete, undo and purge (spec 33),
+  - the CLI output of the commands (spec 37),
+  - charts in plain chat answers, email of reports, PDF (design only),
+  - edits of a saved report. The user creates a new report.
+
+### A4. Limits the user sees
+
+| Limit | Value | Message or behavior |
+|---|---|---|
+| Time for each report | 150 s (spec 00) | "The report took longer than 150 s. Please ask for a shorter period or fewer topics." Nothing is saved. |
+| Planned queries | 4 | The plan keeps the first 4. |
+| Queries in total, with corrections | 6 (spec 00) | A part without a result is marked as missing. |
+| Charts | 3 | Extra charts are not drawn. |
+| Chart types | Bar, line, pie | Other types become a bar chart or a table. |
+| Text length | About 1,200 words | Longer text is cut at a section end, with a note. |
+| Findings | 6 | — |
+| Action items | 3 to 7 | — |
+| Rows in a table | 15 | The table shows the top 15 rows and a note. |
+| Reports in `/reports` | The newest 50 | "Showing the newest 50 of N reports." |
+
+### A5. Done when
+
+- [ ] A report request gives a report with the 6 sections in the order of A2.2.
+- [ ] Each chart value equals a value in the query result. A unit test compares the SVG data with the result rows.
+- [ ] The HTML file has no `<script>`, no external URL, and a Content-Security-Policy that blocks network loads. It opens offline.
+- [ ] The Markdown file renders its Mermaid charts on GitHub, and each chart has a data table.
+- [ ] A user cannot list, open or export a report of another user. The message is the same as for a missing ID.
+- [ ] The output scanner runs on the report body and on each file before the save.
+- [ ] A report over 150 s stops with the message and saves nothing.
+- [ ] "Save this as a report" runs 0 queries.
+- [ ] The library row has all fields of B3, including the entities that spec 33 uses.
+- [ ] A report costs at most 8 model calls and 6 queries (spec 00).
+
+---
+
+## Part B — Technical
+
+### B1. Key decisions
+
+| | Decision | Choice | Alternatives | Reason |
+|---|---|---|---|---|
+| ⚑ | Report limits | 4 planned queries, 3 charts (bar, line, pie), about 1,200 words, 150 s | More queries with a higher budget | The limits fit the spec 00 budget (8 calls, 6 queries) and the 1–2 minute target. |
+| ⚑ | Figures that the model calculates | Allowed for simple differences and percentages. Code counts the figures that are not in the results. The method section shows the count. | Block the report. Show nothing. | A block stops most reports, because a change in percent is common. The count keeps the reader informed. |
+| ⚑ | When the report is saved and when a file is written | The library always saves a created report. A file only on request or with `/export`. | Always write a file | Gap analysis B4: save only on a report request. A file is a second copy that the user moves and shares. |
+| | What the model decides | The queries, the title, the text, which results become tables and charts, the chart type and the columns | The model also draws charts | Code draws each chart from the stored result, so a chart cannot show an invented value. |
+| | Sections that code writes | Date range and definitions, and the method and SQL appendix | The model writes all sections | These facts come from the plan, the glossary and the real SQL. The model cannot change them. |
+| | HTML | One file from a Jinja2 template with autoescape, inline CSS and inline SVG from matplotlib. No JavaScript. | Vega-Lite with a CDN | Fixed in the architecture: offline and no JavaScript. |
+| | Model text in files | Markdown without links, images or raw HTML | Full Markdown | A link or an image in a file can send data out when the file opens. |
+| | Chart data | Stored in the report row (at most 60 points for each chart) | Read the result cache at export | An export works after the result cache expires (spec 34). |
+| | Report IDs | `R-` and 5 characters of Crockford base32, for example `R-7K2PQ`. Case does not matter. | UUID | Users type the ID in commands. |
+
+### B2. Design
+
+#### B2.1 Report flow
+
+```mermaid
+flowchart TD
+    route(["route: intent report"]) --> act{"action"}
+    act -->|"list / open / export"| lib["library command<br/>no model call"]
+    act -->|"save_last"| last["Load the results of the last turn<br/>(spec 34 result cache)"]
+    act -->|"create"| plan["plan_report<br/>Gemini, JSON"]
+    plan --> loop[["data_loop for each query<br/>(spec 31): guard, run, checks, mask"]]
+    loop --> enough{"At least one result?"}
+    enough -->|"no"| fail["give_up message"]
+    enough -->|"yes"| write["write_report<br/>Gemini, JSON"]
+    last --> write
+    write --> build["build_report<br/>code: sections, tables, charts,<br/>definitions, appendix, figure check"]
+    build --> scan["OutputScanner (spec 30)"]
+    scan --> save["Save in the library<br/>reports, report_entities, FTS"]
+    save --> file{"File requested?"}
+    file -->|"no"| out(["Summary in the chat"])
+    file -->|"yes"| render["render HTML or Markdown<br/>scan file text, write file"]
+    render --> out
+```
+
+Model calls: route (1), `plan_report` (1), `write_report` (1). Corrections use the remaining calls of the spec 00 budget (8 in total).
+
+#### B2.2 Plan
+
+`plan_report` gets the safety rules, the report rules (`plan_report.md`), the schema without PII, the definitions, the data date range, the pinned facts and the request. It returns:
+
+```json
+{
+  "title": "Q1 2026 sales review: Calvin Klein and Carhartt",
+  "period": {"start": "2026-01-01", "end": "2026-03-31"},
+  "compare_period": {"start": "2025-10-01", "end": "2025-12-31"},
+  "queries": [
+    {"id": "q1", "purpose": "Revenue by month", "sql": "SELECT …"},
+    {"id": "q2", "purpose": "Revenue by category, Q1 vs Q4", "sql": "SELECT …"}
+  ]
+}
+```
+
+Code checks the plan:
+
+- At most 4 queries. Code keeps the first 4 and writes a note to the trace.
+- `start <= end`, and `end` is not after today (UTC, gap analysis N4). Code moves `end` to today when necessary, and the report states it.
+- Each query goes through `data_loop` (spec 31). So each query passes the guard, the brand scope and the masker.
+
+#### B2.3 Write
+
+`write_report` gets the safety rules, the persona, the user format, the report writing rules (`write_report.md`), the definitions, and the masked results as data blocks with their IDs. It returns:
+
+```json
+{
+  "summary": ["…", "…"],
+  "findings": [
+    {"text": "Revenue fell 12% from Q4 to Q1, from $412,300 to $362,800.",
+     "table": {"ref": "q2", "columns": ["category", "revenue_q1", "revenue_q4"]}}
+  ],
+  "reasons": ["The data shows …"],
+  "action_items": [
+    {"action": "…", "why": "…", "metric_to_watch": "…"}
+  ],
+  "charts": [
+    {"ref": "q1", "type": "line", "x": "month", "y": ["revenue"], "title": "Revenue by month"}
+  ]
+}
+```
+
+#### B2.4 Build (code)
+
+1. **Text.** Code strips links, images and HTML tags from all model text. It cuts the text at about 1,200 words, at a section end.
+2. **Tables.** Code takes the columns from the stored result `ref`. It shows at most 15 rows.
+3. **Charts.** Code checks each chart spec against the result:
+
+   | Check | Action on failure |
+   |---|---|
+   | `ref` exists, `x` and `y` columns exist | Drop the chart |
+   | `y` columns are numbers, at most 3 | Drop the chart, or keep the first 3 |
+   | `line`: `x` is a date or an ordered period, at most 60 points | Become a bar chart |
+   | `bar`: at most 20 categories | Keep the top 20, with a note |
+   | `pie`: at most 6 slices, all values 0 or more, one `y` column | Become a bar chart |
+   | More than 3 charts | Keep the first 3 |
+
+   Code copies the chart data (at most 60 points) into the report row.
+4. **Date range and definitions.** Code writes this section from the plan period, today's date, the brand scope, and the glossary text of the keys in `definitions_used`.
+5. **Method and SQL appendix.** Code writes the purpose of each query, the SQL as the model wrote it, the BigQuery job ID and the bytes billed. A sentence says that the system added the brand scope.
+6. **Figure check.** Code finds each number in the model text. It compares the number with the values in the results, with rounding to 0, 1 or 2 decimals, and with "K" and "M" forms. Years, dates and numbers from the user's request do not count. The method section states: "N figures in the text are calculations from the query results." The trace gets the same count.
+7. **Entities.** Code fills `report_entities` (B3) from:
+   - the literals of the guard filters on `brand`, `category`, `department`, `name`, `state` and `country`,
+   - the values of result columns with these names (at most 50 for each kind),
+   - the user's brands that appear in the results,
+   - exact brand names (from the value cache) in the title.
+8. **Scan.** The output scanner (spec 30) runs on the full Markdown body.
+
+#### B2.5 Files
+
+- **Path.** `data/reports/<owner_id>/<report_id>.html` or `.md`. Code builds the path from the owner ID and the report ID only. `owner_id` must match `[a-z0-9_-]+`. Code checks that the resolved path is inside `data/reports/<owner_id>/`.
+- **HTML.**
+  - Template `reports/templates/report.html.j2`, Jinja2 with autoescape.
+  - Markdown text becomes HTML with `markdown-it-py` with raw HTML turned off.
+  - Charts are inline SVG from matplotlib (Agg backend, `svg.fonttype = none`, a fixed `svg.hashsalt`, no date in the metadata). The same data gives the same file.
+  - The `<head>` has `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">`.
+  - Maximum file size: 2 MB.
+- **Markdown.** The same body. A line or bar chart becomes a Mermaid `xychart-beta` block. A pie chart becomes a Mermaid `pie` block. Code escapes quotes in labels and cuts labels to 30 characters. A data table follows each chart.
+- **Scan.** The output scanner runs on the file text before the write. For HTML, it scans the text content and the attribute values.
+- **Overwrite.** A new export of the same report and format replaces the file.
+- **Library link.** The row stores the relative path in `file_html` or `file_md`.
+
+#### B2.6 Library commands
+
+All functions take the `UserContext`. Each SQL statement has `owner_id = ?`. A report of another user and a missing report give the same result: `ReportNotFound`.
+
+| Function | Use |
+|---|---|
+| `create(report) -> report_id` | Report flow |
+| `list(user, limit=50) -> list[ReportSummary]` | `/reports`, "show my reports" |
+| `get(user, report_id) -> Report` | `/open` |
+| `export(user, report_id, fmt) -> Path` | `/export`, a file request in the chat |
+| `find(user, matcher) -> list[ReportSummary]` | Spec 33 |
+
+`list`, `get` and `find` never return reports with `deleted_at` set. Spec 33 adds `soft_delete`, `undo` and `purge`.
+
+### B3. Files and interfaces
+
+```text
+src/opsfleet_agent/reports/
+  __init__.py
+  flow.py               # report_flow subgraph: plan_report, write_report, build_report, save, render
+  models.py             # ReportPlan, ReportDraft, ChartSpec, Report, ReportSummary
+  build.py              # sections, tables, chart checks, figure check, entities
+  library.py            # ReportLibrary: create, list, get, export, find
+  render_html.py        # Jinja2 + matplotlib SVG
+  render_md.py          # Markdown + Mermaid
+  charts.py             # draw_svg(spec, data) -> str, to_mermaid(spec, data) -> str
+  templates/report.html.j2
+src/opsfleet_agent/agent/prompts/
+  plan_report.md  write_report.md
+```
+
+New dependencies: `jinja2`, `matplotlib`, `markdown-it-py`.
+
+**Table `reports`** (in `data/app.db`, the table that spec 00 leaves to this spec):
+
+| Column | Type | Content |
+|---|---|---|
+| `report_id` | TEXT PK | `R-7K2PQ` |
+| `owner_id` | TEXT NOT NULL | `UserContext.id` |
+| `conversation_id` | TEXT NOT NULL | The conversation of the request |
+| `title` | TEXT | From the plan |
+| `question` | TEXT | The user request, after the scanner |
+| `created_at` | TEXT | UTC, ISO 8601 |
+| `period_start`, `period_end` | TEXT | Dates |
+| `scope_brands` | JSON | The owner's brands at creation. Empty for `ceo`. |
+| `sql` | JSON | A list: `id`, `purpose`, `sql`, `job_id`, `bytes_billed` |
+| `body_markdown` | TEXT | The full report body |
+| `sections` | JSON | The structured content (B2.3 after the build) |
+| `charts` | JSON | Chart specs with their data |
+| `definitions` | JSON | Glossary keys |
+| `entities` | JSON | `{"brand": […], "category": […], "state": […], …}` |
+| `calculated_figures` | INTEGER | The count from the figure check |
+| `file_html`, `file_md` | TEXT NULL | Relative paths |
+| `model`, `prompt_version`, `trace_id` | TEXT | For the trace |
+| `deleted_at`, `delete_batch_id` | TEXT NULL | Spec 33 |
+
+**Table `report_entities`:** `report_id`, `kind` (`brand`, `category`, `department`, `product`, `state`, `country`), `value`, `value_norm` (lower case, trimmed, single spaces). Index on `(value_norm)`.
+
+**Virtual table `reports_fts`:** SQLite FTS5 on `title` and `body_markdown`, with `content='reports'`. Triggers keep it in step with `reports`.
+
+**Settings:**
+
+```yaml
+reports:
+  max_planned_queries: 4
+  max_charts: 3
+  chart_types: [bar, line, pie]
+  max_words: 1200
+  max_findings: 6
+  max_action_items: 7
+  max_table_rows: 15
+  max_chart_points: 60
+  max_file_bytes: 2000000
+  dir: data/reports
+```
+
+**Change to spec 31:** the route JSON gets `report_request.action` and `report_request.report_id`.
+
+### B4. Tests
+
+Unit tests with a fake Gemini, a fake BigQuery and a temporary `data/` folder:
+
+| # | Case | Expected |
+|---|---|---|
+| 1 | A normal report request | 6 sections in order, a library row, 3 model calls, the planned queries |
+| 2 | A plan with 6 queries | The first 4 run |
+| 3 | A plan with `end` after today | `end` moved to today, the report states it |
+| 4 | One query fails 3 times | Report saved, the finding marks the missing part |
+| 5 | All queries fail | No report, the `give_up` message |
+| 6 | Fake clock passes 150 s | Message, no row, no file |
+| 7 | "Save this as a report" | 0 queries, 2 model calls (route, write) |
+| 8 | Chart checks of B2.4 | Each row of the table, one test each |
+| 9 | Chart values in the SVG | Equal to the result values |
+| 10 | Same report rendered twice | The same SVG bytes |
+| 11 | HTML file | No `<script>`, no `http`, the CSP meta tag, autoescaped model text |
+| 12 | Model text with a link, an image and `<img src=…>` | Stripped from the body and the files |
+| 13 | Markdown with a label that contains `"` | Valid Mermaid (checked with a fixture of expected text) |
+| 14 | Model text with an email | `[removed]` in the body and the files |
+| 15 | Figure check: 3 result values and 1 percentage | `calculated_figures = 1` |
+| 16 | Entities from filters, results and the title | The expected rows in `report_entities` |
+| 17 | `/open` and `/export` with the ID of another user | `ReportNotFound`, the same text as a missing ID |
+| 18 | Owner ID `../x` in a test config | Rejected before any file write |
+| 19 | A report with `deleted_at` set | Not in `list`, `get`, `find` |
+| 20 | 60 reports | `list` returns 50 and the total |
+
+Live test (marker `live`): one report for the manager `maya`, with an HTML file. About 3–5 model calls and 4 queries (about 100–200 MB billed). The runner prints the planned calls first.
+
+### B5. Cost
+
+- Unit tests: 0 Gemini calls, 0 queries.
+- Live test: about 5 Gemini calls, about 4 queries, about 200 MB billed.
+- Manual check of A2: about 15 Gemini calls and 10 queries.
+- List, open and export make no model call and no query.
+
+### B6. Risks and open points
+
+- The figure check is approximate. A rounded number can match a wrong value. The count is information, not proof. Spec 23 evaluates the report quality.
+- Mermaid `xychart-beta` is a beta feature. Some viewers do not render it. The data table under each chart keeps the figures readable.
+- matplotlib adds about 30 MB to the Docker image. Spec 53 checks the image size.
+- A report can need more than 150 s on a slow day. The user then asks for a shorter period. The limit stays (spec 00).
+- Spec 33 must run after this spec, because it uses the tables of this spec. The roadmap order (30, 31, 33, 32) puts spec 33 first.
