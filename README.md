@@ -6,7 +6,17 @@ This repository contains the design and a command-line prototype for the OpsFlee
 
 ## Status
 
-The project is in the design phase. The prototype code is not written yet.
+Phase 1 is done: the foundation (spec 00) and the walking skeleton (spec 01). A user can ask a simple data question in the terminal and get an answer from the real BigQuery data. The brand scope, the full PII protection, reports and the delete flow follow in Phase 2 (specs 30–37).
+
+## Run the prototype
+
+```bash
+uv run opsfleet-agent chat --user maya     # users: ceo, maya, alex (config/users.yaml)
+uv run pytest                              # unit tests, no network
+uv run pytest -m live                      # live smoke test: 2 Gemini calls, 1 small query
+```
+
+The cost limits for each answer and for each day are in `config/settings.yaml`. The traces of each answer are in `data/traces/`.
 
 ## Documents
 

@@ -12,8 +12,8 @@ Each part of the work has one spec. The phases and the order are in [the roadmap
 
 | # | Spec | Phase / stream | Depends on | ⚑ | Status |
 |---|---|---|---|---|---|
-| 00 | [Foundation](00-foundation/spec.md) | 1 | – | 2 | Approved |
-| 01 | [Walking skeleton](01-walking-skeleton/spec.md) | 1 | 00 | 0 | Approved |
+| 00 | [Foundation](00-foundation/spec.md) | 1 | – | 2 | Done |
+| 01 | [Walking skeleton](01-walking-skeleton/spec.md) | 1 | 00 | 0 | Done |
 | 10 | [Design document (HLD) and technical explanation](10-design-document/spec.md) | 2 / A | 00 | 3 | Approved |
 | 11 | [Draw.io diagrams](11-drawio-diagrams/spec.md) | 2 / A | 10 | 2 | Approved |
 | 20 | [Research: evaluation and agent best practices](20-eval-research/spec.md) | 2 / B | 00 | 2 | Approved |
