@@ -16,6 +16,14 @@ Phase 2 has started. Query safety (spec 30) is active:
 
 Self-correction, multi-step questions, reports, the delete flow and the conversation memory follow in Phase 2 (specs 31–37).
 
+The production design document and the diagrams (specs 10 and 11) are ready for review.
+
+## The prototype
+
+![Prototype on one machine](docs/design/diagrams/prototype.png)
+
+Source: [prototype.drawio](docs/design/diagrams/prototype.drawio). The production design on Google Cloud is in the [design document](docs/design/hld.md).
+
 ## Run the prototype
 
 ```bash
@@ -34,7 +42,9 @@ At the first start, the assistant builds `data/value_cache.json` with one small 
 | Document | Content |
 |---|---|
 | [Product definition](docs/product/product-definition.md) | What the product does, for whom, and the scope |
+| [Design document (HLD)](docs/design/hld.md) | Production design on Google Cloud and the technical explanation of each requirement |
 | [Architecture](docs/product/architecture.md) | Technology choices and diagrams |
+| [Framework choice](docs/framework-choice.md) | Why the project uses LangGraph, and how |
 | [Roadmap](docs/product/roadmap.md) | The phases and the parts of the work |
 | [Specs](docs/specs/README.md) | One spec for each part of the work, with its review status |
 | [Gap analysis](docs/analysis/gap-analysis.md) | Open points in the assignment, the answers from OpsFleet, and the decisions |
