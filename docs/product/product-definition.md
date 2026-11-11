@@ -91,6 +91,7 @@ This version is a working prototype with a command-line interface (CLI), plus a 
 - Delete of the user's own reports with a strict confirmation and a 30-day undo (Requirement 3).
 - Self-correction of query errors and empty results, clear error messages, and cost limits (Requirement 5).
 - A trace of each conversation, and metrics that show when and why the assistant fails (Requirement 7).
+- An evaluation harness: test questions with checked expected results, a safety and behavior test set, and an evaluation report. This is our addition, because the quality of the answers must be measured, not assumed.
 - The prototype runs on another machine with any operating system. The main way is a Docker image. The setup guide also explains a run without Docker.
 - A full design document for production, which also covers the items in section 3.2 that say "in the design".
 
@@ -99,7 +100,7 @@ This version is a working prototype with a command-line interface (CLI), plus a 
 - **In the design, not built in this version:**
   - Learning from approved analyst examples (the "golden knowledge") (Requirement 1).
   - Learning the preferences of each user, and learning from past conversations (Requirement 4).
-  - The test and evaluation process before each release (Requirement 6).
+  - The production test and evaluation process before each release (Requirement 6). The prototype already has an evaluation harness (section 3.1).
   - A change of report tone by non-developers, without a new release (Requirement 8).
   - New capabilities: charts in plain chat answers, reports by email, and web search for trends.
   - A production channel such as a web chat or Slack, with company sign-in.

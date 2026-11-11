@@ -26,5 +26,5 @@ build/
 .vscode/
 .idea/
 
-# Generated report files (may contain business data)
-reports/
+# Runtime data: databases, traces, report files (may contain business data)
+data/

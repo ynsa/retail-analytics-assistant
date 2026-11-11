@@ -7,7 +7,7 @@
 The architecture has two targets:
 
 - **Prototype:** a local CLI on one machine. It implements Requirements 2, 3, 5 and 7.
-- **Production:** a design on Google Cloud. It covers all requirements. The HLD describes it in detail.
+- **Production:** a design on Google Cloud. It covers all requirements. The HLD (`docs/design/hld.md`, spec 10) describes it in detail.
 
 Labels:
 
@@ -44,7 +44,7 @@ flowchart LR
     sqlite[("SQLite<br/>reports, checkpoints, audit")]
     cfg[/"config/users.yaml<br/>users, roles, brands"/]
     traces[("traces.jsonl")]
-    files[("reports/ folder<br/>HTML and Markdown files")]
+    files[("data/reports/<br/>HTML and Markdown files")]
 
     user --> cli
     user --> ui --> api
@@ -140,6 +140,7 @@ flowchart LR
 
     channels["Web chat, Google Chat<br/>or Slack"]
     iap["Identity-Aware Proxy<br/>SSO with OIDC"]
+    iapadmin["Identity-Aware Proxy<br/>admin access only"]
     runapi["Cloud Run<br/>FastAPI agent API + LangGraph"]
     admin["Admin page<br/>persona and tone"]
 
@@ -148,27 +149,32 @@ flowchart LR
     pg[("Cloud SQL PostgreSQL<br/>reports, checkpoints, preferences,<br/>audit, brand access")]
     persona[("Cloud Storage<br/>persona and prompt config")]
     golden[("Cloud Storage<br/>Golden Bucket trios")]
+    rfiles[("Cloud Storage<br/>report files, signed URLs")]
     vec[("BigQuery vector search<br/>index of trios")]
     ingest["Cloud Run job<br/>ingest and embed"]
     purge["Cloud Run job<br/>purge deleted reports"]
     sched["Cloud Scheduler"]
     secrets["Secret Manager"]
     obs["Cloud Logging, Trace<br/>and Monitoring"]
+    alerts["Alerts<br/>to the on-call channel"]
     logsbq[("BigQuery<br/>log sink")]
 
     users --> channels --> iap --> runapi
-    editor --> iap --> admin --> persona
+    editor --> iapadmin --> admin --> persona
     analysts --> golden
     runapi --> vertex
     runapi --> wh
     runapi --> pg
     runapi --> persona
     runapi --> vec
+    runapi --> rfiles
     golden --> ingest --> vec
+    ingest -->|"embeddings"| vertex
     sched --> ingest
     sched --> purge --> pg
     secrets --> runapi
     runapi --> obs --> logsbq
+    obs --> alerts
 ```
 
 ---
@@ -236,7 +242,7 @@ Reasons for the decision:
 4. Each node is a named step in the trace (Req 7).
 5. LangGraph exports the graph as a Mermaid diagram, so the HLD diagram matches the code.
 
-What we accept: we write more code ourselves. Evaluation (Req 6) and managed sessions are in the design only.
+What we accept: we write more code ourselves. We build our own evaluation harness with pytest (spec 20). Managed sessions are in the design only.
 
 ---
 
@@ -251,7 +257,7 @@ What we accept: we write more code ourselves. Evaluation (Req 6) and managed ses
   - Prototype: one local SQLite file. Reports use a soft delete with a 30-day undo. _(assumption)_
   - Production: Cloud SQL for PostgreSQL. _(assumption)_ Reasons: relational data, full-text search for "reports that mention Client X", and transactions for the delete. Alternative: Firestore, which has no built-in full-text search.
 - **Report files:**
-  - Prototype: a local `reports/<user>/` folder. Git ignores it. The library stores the path of each file. _(assumption)_
+  - Prototype: a local `data/reports/<user>/` folder. Git ignores the whole `data/` folder. The library stores the path of each file. _(assumption)_
   - Production: a Cloud Storage bucket. The user gets a short-lived signed URL. _(assumption)_
 - **Conversation state:** a LangGraph checkpointer. SQLite in the prototype, PostgreSQL in production. _(assumption)_
 - **Golden Bucket (design only):** a Cloud Storage bucket with one JSON file for each trio (question, SQL, analyst report). An ingest job embeds the questions with a Gemini embedding model into BigQuery vector search. At query time, the agent gets the most similar trios as examples. _(assumption)_ Alternative: Vertex AI Vector Search, which costs more at this small size.
@@ -268,8 +274,8 @@ What we accept: we write more code ourselves. Evaluation (Req 6) and managed ses
   - The container runs as a user without root rights.
   - The CLI needs an interactive terminal: `docker run -it`. The local web UI publishes one port, for example `-p 8000:8000`.
   - Secrets come from `--env-file .env`. The image does not contain them.
-  - BigQuery credentials: the container mounts the host's gcloud ADC folder read-only (`~/.config/gcloud`). A service-account key file is the alternative.
-  - A volume keeps the SQLite file and the `reports/` folder between runs.
+  - BigQuery credentials: the container mounts the host's gcloud folder read-only at `/gcloud`, and `CLOUDSDK_CONFIG=/gcloud` points the Google libraries to it. The host folder is `~/.config/gcloud` on macOS and Linux, and `%APPDATA%\gcloud` on Windows. On Linux, the container runs with the host user ID, because the ADC file has mode 600. Spec 53 gives the commands. A service-account key file is the alternative.
+  - One volume keeps the `data/` folder between runs: the SQLite files, the traces and the report files.
   - We build and test the image for both `linux/arm64` and `linux/amd64`. Our machine is arm64, and many reviewers use amd64.
   - A `compose.yaml` can start the CLI or the UI with the right mounts in one command. _(assumption)_
 - **Fallback without Docker:** uv, or `pip install -r requirements.txt` from `uv export`, as the brief describes. [repo: `requirements.txt`]
@@ -308,19 +314,19 @@ What we accept: we write more code ourselves. Evaluation (Req 6) and managed ses
 - **Brand scope:** the guard rewrites each table reference to a subquery that keeps only the order items of the user's brands. Brand names go in as query parameters, because some names contain an apostrophe. The `ceo` role has no filter. _(assumption)_
 - **PII protection:** _(assumption, rules confirmed by OpsFleet)_
   1. The guard blocks the PII columns in the query output: names, email, street address, postal code, latitude, longitude and `user_geom`.
-  2. The guard rejects an output row that puts a `user_id` next to city, state, country, age, gender or traffic source. These fields appear only in aggregates.
+  2. The guard rejects an output row that puts a `user_id` next to city, state, country, age, gender (in `users` and in `orders`) or traffic source. These fields appear only in aggregates.
   3. A result masker checks the rows before they go to the LLM. PII never reaches the model.
   4. An output scanner checks the final text for email, phone and address patterns.
 - **Analysis-only answers:** a short input check with the LLM, the system prompt, and a fixed list of tools. The agent treats database values as data, not as instructions. _(assumption)_
 - **Destructive operations:** the delete tool uses a LangGraph `interrupt()`. The code shows the exact list of reports. It binds the confirmation to a hash of the report IDs. It accepts only the typed answer, for example `delete 3`. The LLM cannot confirm a delete. Each delete writes an audit event. _(assumption)_
 - **Soft delete:** the delete writes a `deleted_at` date. The report disappears from the list and the search. The user can undo the delete for 30 days. Then a purge erases it permanently: a CLI command in the prototype, a scheduled job in production. _(assumption)_
-- **Report files:** a user can export only their own reports. Charts use only the masked, aggregated data. The output scanner checks the file before the code saves it. A delete also removes the files in `reports/<user>/`. It cannot remove a copy that the user moved to another place. _(assumption)_
+- **Report files:** a user can export only their own reports. Charts use only the masked, aggregated data. The output scanner checks the file before the code saves it. A delete also removes the files in `data/reports/<user>/`. It cannot remove a copy that the user moved to another place. _(assumption)_
 
 ---
 
 ## 6. Resilience & Cost Control
 
-- **Self-correction:** after a SQL error, the agent sends the error and the schema to the model and tries again. The maximum is 3 attempts for each question. _(assumption)_
+- **Self-correction:** after a SQL error, the agent sends the error and the schema to the model and tries again. The maximum is 3 attempts for each query step, and 3 query steps for each question. The turn budget of spec 00 is the outer limit. _(decision 2026-11-11, spec 31)_
 - **Empty-result checks:** a result with 0 rows can be a true answer or an error. The code runs small checks before it decides: _(assumption)_
   1. Do the filter values exist in the data? The guard already knows the values from the parsed SQL. A value that does not exist, for example `'completed'` in place of `'Complete'`, is an error.
   2. Is the date filter inside the date range of the data? If not, the answer is a true 0, and the agent states the available range.
@@ -332,7 +338,7 @@ What we accept: we write more code ourselves. Evaluation (Req 6) and managed ses
 - **Final failure:** after the last attempt, the agent tells the user that it cannot answer, and why. It also says what can help, for example another field or period. The chat continues, and the program does not stop.
 - **Retries for outside services:** exponential backoff with jitter on HTTP 429 and 5xx, with `tenacity`. _(assumption)_
 - **Fallbacks:** a fallback Gemini model, and a simple circuit breaker for each outside service. When a service is not available, the agent tells the user, and the chat continues. _(assumption)_
-- **BigQuery cost limits:** a dry run before each query, `maximum_bytes_billed` (1 GB), a timeout, and a maximum of 200 rows to the LLM. The SQL must aggregate the data. _(assumption)_
+- **BigQuery cost limits:** a dry run before each query, `maximum_bytes_billed` (1 GB in development, a separate production value in the HLD), a timeout, and a maximum of 200 rows to the LLM. The SQL must aggregate the data. _(assumption)_
 - **LLM cost limits:** a token budget and a maximum number of model calls for each turn. _(assumption)_
 
 ---
@@ -358,4 +364,4 @@ What we accept: we write more code ourselves. Evaluation (Req 6) and managed ses
 - **Type check:** pyright settings exist, but pyright is not a declared dependency. [repo: `pyproject.toml`]
 - **Pre-commit:** pre-commit 4.7.0 is a dependency, but there is no `.pre-commit-config.yaml` yet. [repo: `pyproject.toml`]
 - **Final checks:** before the submission, we run the tests and a manual demo inside the Docker image, on `linux/amd64` and `linux/arm64`. Local runs with uv are for development only. _(decision 2026-11-11)_
-- **Offline test set (design, Requirement 6):** test questions with reference SQL and expected figures. A safety set tests PII, cross-brand access, prompt injection and delete without confirmation. A live run makes a known, limited number of Gemini calls. _(assumption)_
+- **Evaluation harness (built in the prototype, specs 20–23 and 50–51):** test questions with reference SQL and expected figures. A safety set tests PII, cross-brand access, prompt injection and delete without confirmation. A live run makes a known, limited number of Gemini calls. _(assumption)_

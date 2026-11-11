@@ -119,6 +119,6 @@ The development uses the free-tier key and `gemini-3.5-flash-lite`. A call to Ve
 
 - Phase 1 runs first and alone. It ends with a first git commit (after the user's approval), because the parallel streams need separate git worktrees.
 - In Phase 2, at most three streams run at the same time: A (design and UI spec), B (evaluation) and C (prototype). Each stream works in its own worktree.
-- Stream C runs its parts in this order: 30, 31, 33, 32, 34, 36, 35, 37. Safety comes first, because every other part depends on it.
+- Stream C runs its parts in this order: 30, 31, 32, 33, 34, 36, 35, 37. Safety comes first, because every other part depends on it. Reports (32) come before delete (33), because the delete uses the report tables.
 - Stream B does not need the finished agent for parts 20–22. Part 21 uses BigQuery directly to get the expected results.
 - The streams share the Gemini free-tier rate limit. Evaluation runs and live tests do not run at the same time.
