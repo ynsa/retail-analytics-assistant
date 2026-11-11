@@ -191,8 +191,8 @@ def test_follow_up_question_gets_the_history(make_session):
     )
 
 
-def test_daily_limit_stops_the_turn_with_its_message(make_session, ledger):
-    ledger.add(llm_calls=300)
+def test_daily_limit_stops_the_turn_with_its_message(make_session, ledger, config):
+    ledger.add(llm_calls=config.settings.limits.per_day.max_llm_calls)
     session, llm, _ = make_session(llm=FakeLLM([]))
     result = session.ask("How many orders?")
     assert result.error_type == "limit_exceeded"

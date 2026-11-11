@@ -47,12 +47,13 @@ def test_daily_llm_limit_persists_after_restart(config):
     path = config.settings.data_path("app.db")
     first = connect(path)
     ledger = DailyLedger(first, config.settings.limits)
-    ledger.add(llm_calls=300)
+    daily = config.settings.limits.per_day.max_llm_calls
+    ledger.add(llm_calls=daily)
     first.close()
 
     second = connect(path)  # a restart: a new connection reads the same counters
     ledger2 = DailyLedger(second, config.settings.limits)
-    assert ledger2.today()["llm_calls"] == 300
+    assert ledger2.today()["llm_calls"] == daily
     with pytest.raises(LimitExceeded, match="per_day.max_llm_calls"):
         TurnBudget(config.settings.limits, ledger2).charge_llm()
     second.close()
@@ -68,7 +69,7 @@ def test_daily_bytes_limit(budget, ledger):
 def test_daily_counter_resets_on_a_new_utc_day(conn, config):
     day = [datetime(2026, 11, 11, 23, 0, tzinfo=UTC)]
     ledger = DailyLedger(conn, config.settings.limits, clock=lambda: day[0])
-    ledger.add(llm_calls=300)
+    ledger.add(llm_calls=config.settings.limits.per_day.max_llm_calls)
     day[0] = datetime(2026, 11, 12, 0, 1, tzinfo=UTC)
     assert ledger.today()["llm_calls"] == 0
     ledger.check_llm()  # no exception

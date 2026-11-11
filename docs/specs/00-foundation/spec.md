@@ -37,7 +37,7 @@ Proposed values for the development. All are in `config/settings.yaml`.
 | BigQuery queries for each answer | 6 | "This question needs more queries than allowed (6)." |
 | Tokens for each answer | 60,000 in, 8,000 out | "This question needs more text than allowed." |
 | Bytes billed for each query | 1 GB | "This query reads too much data (over 1 GB). Please narrow the period or the brands." |
-| Gemini calls for each day | 300 | "The daily limit of model calls is reached. The limit resets at midnight UTC." |
+| Gemini calls for each day | 480 (was 300, raised on 2026-11-11 by the owner's decision: the free tier of `gemini-3.5-flash-lite` allows about 500) | "The daily limit of model calls is reached. The limit resets at midnight UTC." |
 | BigQuery bytes billed for each day | 20 GB | "The daily limit of BigQuery data is reached. The limit resets at midnight UTC." |
 
 20 GB each day for 30 days is 600 GB, inside the free 1 TB each month.
@@ -61,7 +61,7 @@ Proposed values for the development. All are in `config/settings.yaml`.
 
 | | Decision | Choice | Alternatives | Reason |
 |---|---|---|---|---|
-| ⚑ | Development limits | The values in A4 | Lower or higher values | They allow normal development and keep the monthly BigQuery use far below the free 1 TB. Gemini free-tier limits are per minute and per day, so 300 calls each day leaves a margin. |
+| ⚑ | Development limits | The values in A4 | Lower or higher values | They allow normal development and keep the monthly BigQuery use far below the free 1 TB. Gemini free-tier limits are per minute and per day, so 480 calls each day stay under the free limit of about 500. |
 | ⚑ | Where the limits work | In code, before each call (a budget object) | Only in the prompt | A prompt cannot guarantee a limit. The code checks the budget before each Gemini call and each BigQuery query. |
 | | Trace format | OpenTelemetry SDK with a small JSONL file exporter | Own tracer, or LangSmith | OpenTelemetry is the standard in the architecture. The same spans go to Cloud Trace in production. Spec 35 decides about LangSmith. |
 | | Configuration | `config/settings.yaml` and `config/users.yaml`, checked by pydantic models. Secrets only in `.env`. | Environment variables only | Non-secret settings stay readable and in git. pydantic gives clear errors for a wrong file. |
@@ -200,7 +200,7 @@ Unit tests: 0 calls. One manual check: 1 Gemini call and 1 small BigQuery query 
 
 ### B6. Risks and open points
 
-- The Gemini free-tier limits for each model can change. The daily limit of 300 calls is our own limit, not Google's limit. A `llm_rate_limited` error shows when Google's limit is reached first.
+- The Gemini free-tier limits for each model can change. The daily limit of 480 calls is our own limit, not Google's limit. A `llm_rate_limited` error shows when Google's limit is reached first.
 - Later specs extend these interfaces and keep the formats above:
   - Spec 30 replaces the minimal guard with `SqlGuard(...).check(sql) -> GuardResult`.
   - Specs 31, 33 and 34 add fields to `AgentState` (`turn` details, `pinned`, `turn_no`, a fixed `pending_confirmation` structure).

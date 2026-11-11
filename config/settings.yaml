@@ -24,7 +24,10 @@ limits:
     timeout_s: 30
     max_rows_to_llm: 200
   per_day:                         # UTC day
-    max_llm_calls: 300
+    # Free tier of gemini-3.5-flash-lite: about 500 requests a day for each project (forum report,
+    # 2026-11). 480 keeps a margin. The key's project has no billing, so a call above Google's limit
+    # fails with HTTP 429 and is never billed.
+    max_llm_calls: 480
     max_bq_bytes_billed: 20000000000   # 20 GB
 
 paths:
