@@ -1,0 +1,1606 @@
+# Accuracy set (spec 21): 50 questions with a reference SQL and a scoring rule.
+#
+# Rules for every reference SQL (spec 21, B2.5):
+# - full table names, only the necessary columns, no PII column;
+# - the brand scope with the parameters @all_brands and @brands (never a brand list in the SQL);
+#   a brand that the question names goes in the parameter @focus_brands;
+# - the definitions of spec 21 B2.2 and spec 31 B2.6: revenue = SUM(sale_price) of items with
+#   status not Cancelled and not Returned; purchase = item not Cancelled; the date of a sale is
+#   order_items.created_at (UTC); closed periods before today.
+# - `expected.columns` lists the columns that the scorer compares. Other columns of the SQL are
+#   context for the reviewer and the judge.
+#
+# reviewed_by: claude-draft means: Claude checked the SQL and the snapshot of 2026-11-11.
+# The owner confirms each case and then writes the own name.
+
+set: accuracy
+kind: accuracy
+description: 50 questions on customers, products, time, schema, multi-step, reports and empty results.
+
+cases:
+  # ---------------------------------------------------------------- Customer behavior (CB)
+  - id: CB-01
+    user: ceo
+    turns: ["How many customers placed at least one order in 2025?"]
+    capability: customer_behavior
+    difficulty: easy
+    query_types: [aggregation]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT COUNT(DISTINCT oi.user_id) AS customers
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status != 'Cancelled'
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+    expected:
+      mode: value
+      columns:
+        customers: {role: value, kind: count}
+    facts:
+      - {column: customers}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    notes: A customer is a user with at least one purchase (item not Cancelled), as in the glossary.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: CB-02
+    user: ceo
+    turns: ["Who are the top 10 customers by total spend in 2025? Show the customer ID and the spend."]
+    capability: customer_behavior
+    difficulty: medium
+    query_types: [ranking]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT oi.user_id, SUM(oi.sale_price) AS spend
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY oi.user_id
+      QUALIFY RANK() OVER (ORDER BY SUM(oi.sale_price) DESC) <= 10
+      ORDER BY spend DESC
+    expected:
+      mode: top_k
+      k: 10
+      columns:
+        user_id: {role: key, kind: id}
+        spend: {role: value, kind: money}
+    facts:
+      - {column: spend, where: {user_id: "@rank1"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: CB-03
+    user: maya
+    turns: ["Who are the top 5 customers by spend on my brands in 2025?"]
+    capability: customer_behavior
+    difficulty: medium
+    query_types: [ranking, join]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT oi.user_id, SUM(oi.sale_price) AS spend
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY oi.user_id
+      QUALIFY RANK() OVER (ORDER BY SUM(oi.sale_price) DESC) <= 5
+      ORDER BY spend DESC
+    expected:
+      mode: top_k
+      k: 5
+      columns:
+        user_id: {role: key, kind: id}
+        spend: {role: value, kind: money}
+    facts:
+      - {column: spend, where: {user_id: "@rank1"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: CB-04
+    user: ceo
+    turns: ["What is the average spend per customer in each country in 2025?"]
+    capability: customer_behavior
+    difficulty: medium
+    query_types: [aggregation, join]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT u.country,
+        SUM(oi.sale_price) / COUNT(DISTINCT oi.user_id) AS spend_per_customer
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.users` AS u ON u.id = oi.user_id
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY u.country
+      ORDER BY spend_per_customer DESC
+    expected:
+      mode: rows
+      columns:
+        country: {role: key}
+        spend_per_customer: {role: value, kind: money}
+    facts:
+      - {column: spend_per_customer, where: {country: "United States"}}
+      - {column: spend_per_customer, where: {country: "China"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: CB-05
+    user: ceo
+    turns: ["Compare the average order value of female and male customers in 2025."]
+    capability: customer_behavior
+    difficulty: medium
+    query_types: [comparison]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT u.gender,
+        SUM(oi.sale_price) / COUNT(DISTINCT oi.order_id) AS average_order_value
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.users` AS u ON u.id = oi.user_id
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY u.gender
+    expected:
+      mode: rows
+      columns:
+        gender: {role: key}
+        average_order_value: {role: value, kind: money}
+    facts:
+      - {column: average_order_value, where: {gender: "F"}}
+      - {column: average_order_value, where: {gender: "M"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    notes: The scorer reads F and M as female and male.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: CB-06
+    user: maya
+    turns: ["What share of my brands' customers in 2025 bought again in the same year?"]
+    capability: customer_behavior
+    difficulty: hard
+    query_types: [ratio]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      WITH c AS (
+        SELECT oi.user_id, COUNT(DISTINCT oi.order_id) AS orders
+        FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+        JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+        WHERE oi.status != 'Cancelled'
+          AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+          AND (@all_brands OR p.brand IN UNNEST(@brands))
+        GROUP BY oi.user_id
+      )
+      SELECT SAFE_DIVIDE(COUNTIF(orders >= 2), COUNT(*)) AS repeat_rate,
+        COUNTIF(orders >= 2) AS repeat_customers, COUNT(*) AS customers
+      FROM c
+    expected:
+      mode: value
+      columns:
+        repeat_rate: {role: value, kind: ratio}
+    facts:
+      - {column: repeat_rate}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 4
+    notes: A repeat customer has purchases in 2 or more distinct orders of the user's brands in 2025.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: CB-07
+    user: ceo
+    turns: ["Which traffic source brings the customers with the highest spend per customer in 2025?"]
+    capability: customer_behavior
+    difficulty: medium
+    query_types: [ranking, join]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT u.traffic_source,
+        SUM(oi.sale_price) / COUNT(DISTINCT oi.user_id) AS spend_per_customer
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.users` AS u ON u.id = oi.user_id
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY u.traffic_source
+      ORDER BY spend_per_customer DESC
+    expected:
+      mode: top_k
+      k: 1
+      columns:
+        traffic_source: {role: key}
+        spend_per_customer: {role: value, kind: money}
+    facts:
+      - {column: spend_per_customer, where: {traffic_source: "@rank1"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: CB-08
+    user: alex
+    turns: ["How many different customers bought Levi's products in Q1 2026?"]
+    capability: customer_behavior
+    difficulty: easy
+    query_types: [aggregation]
+    period: {from: "2026-01-01", to: "2026-04-01"}
+    reference_sql: |
+      SELECT COUNT(DISTINCT oi.user_id) AS customers
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status != 'Cancelled'
+        AND oi.created_at >= TIMESTAMP '2026-01-01' AND oi.created_at < TIMESTAMP '2026-04-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+    expected:
+      mode: value
+      columns:
+        customers: {role: value, kind: count}
+    facts:
+      - {column: customers}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  # ---------------------------------------------------------------- Product performance (PP)
+  - id: PP-01
+    user: maya
+    turns: ["What was the revenue of each of my brands in 2025?"]
+    capability: product_performance
+    difficulty: easy
+    query_types: [aggregation, join]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT p.brand, SUM(oi.sale_price) AS revenue
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY p.brand
+    expected:
+      mode: rows
+      columns:
+        brand: {role: key}
+        revenue: {role: value, kind: money}
+    facts:
+      - {column: revenue, where: {brand: "Calvin Klein"}}
+      - {column: revenue, where: {brand: "Carhartt"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: PP-02
+    user: ceo
+    turns: ["Which 10 brands had the highest revenue in 2025?"]
+    capability: product_performance
+    difficulty: easy
+    query_types: [ranking]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT p.brand, SUM(oi.sale_price) AS revenue
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY p.brand
+      QUALIFY RANK() OVER (ORDER BY SUM(oi.sale_price) DESC) <= 20
+      ORDER BY revenue DESC
+    expected:
+      mode: top_k
+      k: 10
+      columns:
+        brand: {role: key}
+        revenue: {role: value, kind: money}
+    facts:
+      - {column: revenue, where: {brand: "@rank1"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    notes: The SQL returns the top 20, because the safety check H-XBT (spec 22) uses these 20 brands.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: PP-03
+    user: ceo
+    turns: ["Compare Calvin Klein and Carhartt in 2025: revenue, items sold and average sale price."]
+    capability: product_performance
+    difficulty: medium
+    query_types: [comparison]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    params: {focus_brands: ["Calvin Klein", "Carhartt"]}
+    reference_sql: |
+      SELECT p.brand, SUM(oi.sale_price) AS revenue, COUNT(*) AS items_sold,
+        AVG(oi.sale_price) AS average_sale_price
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+        AND p.brand IN UNNEST(@focus_brands)
+      GROUP BY p.brand
+    expected:
+      mode: rows
+      columns:
+        brand: {role: key}
+        revenue: {role: value, kind: money}
+        items_sold: {role: value, kind: count}
+        average_sale_price: {role: value, kind: money}
+    facts:
+      - {column: revenue, where: {brand: "Calvin Klein"}}
+      - {column: revenue, where: {brand: "Carhartt"}}
+      - {column: items_sold, where: {brand: "Carhartt"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: PP-04
+    user: maya
+    turns: ["Which 5 categories of my brands sold the most items in 2025?"]
+    capability: product_performance
+    difficulty: medium
+    query_types: [ranking]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT p.category, COUNT(*) AS items_sold
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY p.category
+      ORDER BY items_sold DESC
+    expected:
+      mode: top_k
+      k: 5
+      columns:
+        category: {role: key}
+        items_sold: {role: value, kind: count}
+    facts:
+      - {column: items_sold, where: {category: "@rank1"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: PP-05
+    user: ceo
+    turns: ["What is the return rate of each category in 2025?"]
+    capability: product_performance
+    difficulty: medium
+    query_types: [ratio]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT p.category,
+        SAFE_DIVIDE(COUNTIF(oi.status = 'Returned'), COUNTIF(oi.status != 'Cancelled')) AS return_rate
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY p.category
+      ORDER BY return_rate DESC
+    expected:
+      mode: rows
+      columns:
+        category: {role: key}
+        return_rate: {role: value, kind: ratio}
+    facts:
+      - {column: return_rate, where: {category: "@rank1"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: PP-06
+    user: alex
+    turns: ["What is the gross margin of Levi's products in each department in 2025?"]
+    capability: product_performance
+    difficulty: medium
+    query_types: [aggregation, join]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT p.department, SUM(oi.sale_price - p.cost) AS gross_margin,
+        SAFE_DIVIDE(SUM(oi.sale_price - p.cost), SUM(oi.sale_price)) AS gross_margin_rate
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY p.department
+    expected:
+      mode: rows
+      columns:
+        department: {role: key}
+        gross_margin: {role: value, kind: money}
+    alt_references:
+      - sql: |
+          SELECT p.department,
+            SAFE_DIVIDE(SUM(oi.sale_price - p.cost), SUM(oi.sale_price)) AS gross_margin_rate
+          FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+          JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+          WHERE oi.status NOT IN ('Cancelled', 'Returned')
+            AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+            AND (@all_brands OR p.brand IN UNNEST(@brands))
+          GROUP BY p.department
+        expected:
+          mode: rows
+          columns:
+            department: {role: key}
+            gross_margin_rate: {role: value, kind: ratio}
+    facts:
+      - {column: gross_margin, where: {department: "Men"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    notes: Gross margin is an amount in the glossary. A margin rate is also accepted (alternative reference).
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: PP-07
+    user: ceo
+    turns: ["Which 5 products had the highest revenue in Q3 2026? Show the brand and the category of each."]
+    capability: product_performance
+    difficulty: medium
+    query_types: [ranking, join]
+    period: {from: "2026-07-01", to: "2026-10-01"}
+    reference_sql: |
+      SELECT p.name, p.brand, p.category, SUM(oi.sale_price) AS revenue
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2026-07-01' AND oi.created_at < TIMESTAMP '2026-10-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY p.id, p.name, p.brand, p.category
+      QUALIFY RANK() OVER (ORDER BY SUM(oi.sale_price) DESC) <= 5
+      ORDER BY revenue DESC
+    expected:
+      mode: top_k
+      k: 5
+      columns:
+        name: {role: key}
+        brand: {role: key}
+        category: {role: key}
+        revenue: {role: value, kind: money}
+    facts:
+      - {column: revenue, where: {name: "@rank1"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: PP-08
+    user: maya
+    turns: ["Compare the cancellation rate of Calvin Klein and Carhartt in 2025."]
+    capability: product_performance
+    difficulty: medium
+    query_types: [comparison, ratio]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT p.brand,
+        SAFE_DIVIDE(COUNTIF(oi.status = 'Cancelled'), COUNT(*)) AS cancellation_rate
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY p.brand
+    expected:
+      mode: rows
+      columns:
+        brand: {role: key}
+        cancellation_rate: {role: value, kind: ratio}
+    facts:
+      - {column: cancellation_rate, where: {brand: "Calvin Klein"}}
+      - {column: cancellation_rate, where: {brand: "Carhartt"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: PP-09
+    user: ceo
+    turns: ["Which distribution center shipped the most items in 2025?"]
+    capability: product_performance
+    difficulty: medium
+    query_types: [ranking]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT p.distribution_center_id, COUNTIF(oi.shipped_at IS NOT NULL) AS items_shipped,
+        COUNTIF(oi.status NOT IN ('Cancelled', 'Returned')) AS items_sold
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY p.distribution_center_id
+      ORDER BY items_shipped DESC
+    expected:
+      mode: top_k
+      k: 1
+      columns:
+        distribution_center_id: {role: key, kind: id}
+        items_shipped: {role: value, kind: count}
+    facts:
+      - {column: distribution_center_id, where: {distribution_center_id: "@rank1"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    notes: >-
+      The table distribution_centers is not one of the four allowed tables, so the answer can give
+      only the distribution center ID. Items of 2025 sales with a shipped_at date count as shipped.
+      The column items_sold shows that the ranking is the same with the items_sold definition.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: PP-10
+    user: ceo
+    turns: ["Compare the Jeans category for men and for women in 2025, and explain the difference."]
+    capability: product_performance
+    difficulty: hard
+    query_types: [comparison, multi_query]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT p.department, SUM(oi.sale_price) AS revenue, COUNT(*) AS items_sold,
+        AVG(oi.sale_price) AS average_sale_price, COUNT(DISTINCT oi.user_id) AS customers
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND p.category = 'Jeans'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY p.department
+    expected:
+      mode: rows
+      columns:
+        department: {role: key}
+        revenue: {role: value, kind: money}
+    scoring: [execution_match, judge_answer]
+    expected_calls: 5
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  # ---------------------------------------------------------------- Time-based metrics (TM)
+  - id: TM-01
+    user: ceo
+    turns: ["What was the total revenue in 2025?"]
+    capability: time_metrics
+    difficulty: easy
+    query_types: [aggregation]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT SUM(oi.sale_price) AS revenue
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+    expected:
+      mode: value
+      columns:
+        revenue: {role: value, kind: money}
+    facts:
+      - {column: revenue}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: TM-02
+    user: ceo
+    turns: ["Show the monthly revenue for 2025."]
+    capability: time_metrics
+    difficulty: easy
+    query_types: [time_series]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT DATE_TRUNC(DATE(oi.created_at), MONTH) AS month, SUM(oi.sale_price) AS revenue
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY month
+      ORDER BY month
+    expected:
+      mode: rows_ordered
+      columns:
+        month: {role: key, kind: month}
+        revenue: {role: value, kind: money}
+    facts:
+      - {column: revenue, where: {month: "2025-01"}}
+      - {column: revenue, where: {month: "2025-12"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: TM-03
+    user: maya
+    turns: ["Show the monthly revenue of my brands from January to June 2026."]
+    capability: time_metrics
+    difficulty: easy
+    query_types: [time_series]
+    period: {from: "2026-01-01", to: "2026-07-01"}
+    reference_sql: |
+      SELECT DATE_TRUNC(DATE(oi.created_at), MONTH) AS month, SUM(oi.sale_price) AS revenue
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2026-01-01' AND oi.created_at < TIMESTAMP '2026-07-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY month
+      ORDER BY month
+    expected:
+      mode: rows_ordered
+      columns:
+        month: {role: key, kind: month}
+        revenue: {role: value, kind: money}
+    facts:
+      - {column: revenue, where: {month: "2026-01"}}
+      - {column: revenue, where: {month: "2026-06"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: TM-04
+    user: ceo
+    turns: ["What was the revenue in each quarter of 2025, and the growth compared to the quarter before?"]
+    capability: time_metrics
+    difficulty: medium
+    query_types: [time_series, window]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      WITH q AS (
+        SELECT DATE_TRUNC(DATE(oi.created_at), QUARTER) AS quarter, SUM(oi.sale_price) AS revenue
+        FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+        JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+        WHERE oi.status NOT IN ('Cancelled', 'Returned')
+          AND oi.created_at >= TIMESTAMP '2024-10-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+          AND (@all_brands OR p.brand IN UNNEST(@brands))
+        GROUP BY quarter
+      )
+      SELECT quarter, revenue, growth
+      FROM (
+        SELECT quarter, revenue,
+          SAFE_DIVIDE(revenue - LAG(revenue) OVER (ORDER BY quarter),
+                      LAG(revenue) OVER (ORDER BY quarter)) AS growth
+        FROM q
+      )
+      WHERE quarter >= DATE '2025-01-01'
+      ORDER BY quarter
+    expected:
+      mode: rows_ordered
+      columns:
+        quarter: {role: key, kind: quarter}
+        revenue: {role: value, kind: money}
+        growth: {role: value, kind: ratio}
+    facts:
+      - {column: revenue, where: {quarter: "2025-Q4"}}
+      - {column: growth, where: {quarter: "2025-Q4"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    notes: The growth of Q1 2025 compares with Q4 2024.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: TM-05
+    user: alex
+    turns: ["Compare Levi's revenue from January to October 2026 with the same months of 2025."]
+    capability: time_metrics
+    difficulty: medium
+    query_types: [comparison]
+    period: {from: "2025-01-01", to: "2026-11-01"}
+    reference_sql: |
+      SELECT EXTRACT(YEAR FROM oi.created_at) AS year, SUM(oi.sale_price) AS revenue
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND ((oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2025-11-01')
+          OR (oi.created_at >= TIMESTAMP '2026-01-01' AND oi.created_at < TIMESTAMP '2026-11-01'))
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY year
+      ORDER BY year
+    expected:
+      mode: rows
+      columns:
+        year: {role: key, kind: year}
+        revenue: {role: value, kind: money}
+    facts:
+      - {column: revenue, where: {year: "2025"}}
+      - {column: revenue, where: {year: "2026"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: TM-06
+    user: maya
+    turns: ["Which month of 2025 had the most orders with my brands?"]
+    capability: time_metrics
+    difficulty: easy
+    query_types: [ranking]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT DATE_TRUNC(DATE(oi.created_at), MONTH) AS month, COUNT(DISTINCT oi.order_id) AS orders
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY month
+      ORDER BY orders DESC
+    expected:
+      mode: top_k
+      k: 1
+      columns:
+        month: {role: key, kind: month}
+        orders: {role: value, kind: count}
+    facts:
+      - {column: orders, where: {month: "@rank1"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    notes: Orders = distinct orders with at least one revenue item of the user's brands (glossary `orders`).
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: TM-07
+    user: ceo
+    turns: ["What was last month's revenue in each department?"]
+    capability: time_metrics
+    difficulty: medium
+    query_types: [aggregation]
+    period: {relative: last_full_month}
+    reference_sql: |
+      SELECT p.department, SUM(oi.sale_price) AS revenue
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP(DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 1 MONTH), MONTH))
+        AND oi.created_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), MONTH))
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY p.department
+    expected:
+      mode: rows
+      columns:
+        department: {role: key}
+        revenue: {role: value, kind: money}
+    facts:
+      - {column: revenue, where: {department: "Men"}}
+      - {column: revenue, where: {department: "Women"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    notes: Last month = the last full calendar month before today (UTC). The snapshot refreshes in a new month.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: TM-08
+    user: maya
+    turns: ["How many orders with my brands were delivered in each month of Q3 2026?"]
+    capability: time_metrics
+    difficulty: medium
+    query_types: [time_series]
+    period: {from: "2026-07-01", to: "2026-10-01"}
+    reference_sql: |
+      SELECT DATE_TRUNC(DATE(oi.delivered_at), MONTH) AS month, COUNT(DISTINCT oi.order_id) AS orders_delivered
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.delivered_at >= TIMESTAMP '2026-07-01' AND oi.delivered_at < TIMESTAMP '2026-10-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY month
+      ORDER BY month
+    expected:
+      mode: rows_ordered
+      columns:
+        month: {role: key, kind: month}
+        orders_delivered: {role: value, kind: count}
+    facts:
+      - {column: orders_delivered, where: {month: "2026-07"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    notes: >-
+      The question asks about the delivery month, so this case uses order_items.delivered_at, not
+      the sale date. An order counts once in the month when an item of the user's brands arrived.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: TM-09
+    user: ceo
+    turns: ["What is the average number of days from order to delivery in each month of 2025?"]
+    capability: time_metrics
+    difficulty: hard
+    query_types: [time_series]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT DATE_TRUNC(DATE(oi.created_at), MONTH) AS month,
+        AVG(TIMESTAMP_DIFF(oi.delivered_at, oi.created_at, HOUR) / 24) AS avg_days_to_delivery
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.delivered_at IS NOT NULL
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY month
+      ORDER BY month
+    expected:
+      mode: rows_ordered
+      abs_tol: 0.15
+      columns:
+        month: {role: key, kind: month}
+        avg_days_to_delivery: {role: value, kind: number}
+    alt_references:
+      - sql: |
+          SELECT DATE_TRUNC(DATE(oi.created_at), MONTH) AS month,
+            AVG(TIMESTAMP_DIFF(oi.delivered_at, oi.created_at, DAY)) AS avg_days_to_delivery
+          FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+          JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+          WHERE oi.delivered_at IS NOT NULL
+            AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+            AND (@all_brands OR p.brand IN UNNEST(@brands))
+          GROUP BY month
+          ORDER BY month
+        expected:
+          mode: rows_ordered
+          abs_tol: 0.15
+          columns:
+            month: {role: key, kind: month}
+            avg_days_to_delivery: {role: value, kind: number}
+      - sql: |
+          SELECT DATE_TRUNC(DATE(oi.created_at), MONTH) AS month,
+            AVG(DATE_DIFF(DATE(oi.delivered_at), DATE(oi.created_at), DAY)) AS avg_days_to_delivery
+          FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+          JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+          WHERE oi.delivered_at IS NOT NULL
+            AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+            AND (@all_brands OR p.brand IN UNNEST(@brands))
+          GROUP BY month
+          ORDER BY month
+        expected:
+          mode: rows_ordered
+          abs_tol: 0.15
+          columns:
+            month: {role: key, kind: month}
+            avg_days_to_delivery: {role: value, kind: number}
+    facts:
+      - {column: avg_days_to_delivery, where: {month: "2025-01"}}
+    scoring: [execution_match]
+    expected_calls: 3
+    notes: >-
+      The main reference counts days as hours / 24. The two alternatives count whole days with
+      TIMESTAMP_DIFF(DAY) and DATE_DIFF. Each reference accepts 0.15 days of difference, so a query at
+      order level (table orders) also passes.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: TM-10
+    user: ceo
+    turns: ["What was the monthly churn rate from January to June 2026?"]
+    capability: time_metrics
+    difficulty: hard
+    query_types: [time_series, window]
+    period: {from: "2026-01-01", to: "2026-07-01"}
+    reference_sql: |
+      WITH purchases AS (
+        SELECT DISTINCT oi.user_id, DATE(oi.created_at) AS d
+        FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+        JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+        WHERE oi.status != 'Cancelled'
+          AND oi.created_at < TIMESTAMP '2026-07-01'
+          AND (@all_brands OR p.brand IN UNNEST(@brands))
+      ),
+      gaps AS (
+        SELECT user_id, d, LEAD(d) OVER (PARTITION BY user_id ORDER BY d) AS next_d
+        FROM purchases
+      ),
+      churn AS (
+        SELECT user_id, DATE_ADD(d, INTERVAL 90 DAY) AS churn_d
+        FROM gaps
+        WHERE next_d IS NULL OR next_d > DATE_ADD(d, INTERVAL 90 DAY)
+      ),
+      months AS (
+        SELECT m FROM UNNEST(GENERATE_DATE_ARRAY(DATE '2026-01-01', DATE '2026-06-01', INTERVAL 1 MONTH)) AS m
+      ),
+      active AS (
+        SELECT months.m, COUNT(DISTINCT purchases.user_id) AS active_customers
+        FROM months CROSS JOIN purchases
+        WHERE purchases.d >= DATE_SUB(months.m, INTERVAL 90 DAY) AND purchases.d < months.m
+        GROUP BY months.m
+      ),
+      churned AS (
+        SELECT DATE_TRUNC(churn_d, MONTH) AS m, COUNT(DISTINCT user_id) AS churned_customers
+        FROM churn
+        WHERE churn_d >= DATE '2026-01-01' AND churn_d < DATE '2026-07-01'
+        GROUP BY m
+      )
+      SELECT active.m AS month, churned.churned_customers, active.active_customers,
+        SAFE_DIVIDE(churned.churned_customers, active.active_customers) AS churn_rate
+      FROM active LEFT JOIN churned ON churned.m = active.m
+      ORDER BY month
+    expected:
+      mode: rows_ordered
+      columns:
+        month: {role: key, kind: month}
+        churn_rate: {role: value, kind: ratio}
+    facts:
+      - {column: churn_rate, where: {month: "2026-06"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 4
+    notes: >-
+      Churn (glossary): a customer churns on the day when 90 days pass after a purchase without a new
+      purchase. Monthly churn rate = customers who churn in the month / customers with a purchase in
+      the 90 days before the first day of the month.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  # ---------------------------------------------------------------- Schema questions (SC)
+  - id: SC-01
+    user: maya
+    turns: ["What data can I analyze with you?"]
+    capability: schema
+    difficulty: easy
+    query_types: [schema]
+    required:
+      - "Calvin Klein"
+      - "Carhartt"
+      - {any: ["order", "sales"]}
+      - {any: ["product"]}
+      - {any: ["customer", "user"]}
+    forbidden: ["Levi"]
+    scoring: [facts, judge_answer]
+    expected_calls: 2
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: SC-02
+    user: ceo
+    turns: ["Which columns does the orders table have?"]
+    capability: schema
+    difficulty: easy
+    query_types: [schema]
+    required:
+      - {any: ["order_id", "order id"]}
+      - {any: ["user_id", "user id"]}
+      - "status"
+      - "gender"
+      - {any: ["created_at", "created at"]}
+      - {any: ["returned_at", "returned at"]}
+      - {any: ["shipped_at", "shipped at"]}
+      - {any: ["delivered_at", "delivered at"]}
+      - {any: ["num_of_item", "number of items", "num of item"]}
+    scoring: [facts]
+    expected_calls: 2
+    notes: The nine columns of the table metadata (read on 2026-11-11).
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: SC-03
+    user: ceo
+    turns: ["What time period does the data cover?"]
+    capability: schema
+    difficulty: medium
+    query_types: [aggregation]
+    reference_sql: |
+      SELECT MIN(DATE(oi.created_at)) AS first_sale, MAX(DATE(oi.created_at)) AS last_sale
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.created_at < TIMESTAMP(DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY))
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+    expected:
+      mode: rows
+      columns:
+        first_sale: {role: value, kind: date}
+        last_sale: {role: value, kind: date}
+    required:
+      - "2019"
+      - "2026"
+      - {any: ["January 2019", "Jan 2019", "2019-01", "7 January 2019", "January 7, 2019"]}
+    scoring: [facts]
+    expected_calls: 2
+    notes: Rows with a date after today stay out (glossary `today`). The reference SQL records the range.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: SC-04
+    user: alex
+    turns: ["Which product attributes can I use to group sales?"]
+    capability: schema
+    difficulty: easy
+    query_types: [schema]
+    required:
+      - "category"
+      - "brand"
+      - "department"
+      - {any: ["retail price", "retail_price", "price"]}
+    forbidden: ["email", "street"]
+    scoring: [facts]
+    expected_calls: 2
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: SC-05
+    user: maya
+    turns: ["How do you calculate revenue?"]
+    capability: schema
+    difficulty: easy
+    query_types: [schema]
+    required:
+      - {any: ["sale price", "sale_price", "selling price"]}
+      - {any: ["cancel"]}
+      - {any: ["return"]}
+    scoring: [facts, judge_answer]
+    expected_calls: 2
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  # ---------------------------------------------------------------- Multi-step questions (MS)
+  - id: MS-01
+    user: ceo
+    turns: ["Compare the spend per customer in California and Texas in 2025, and explain the main differences."]
+    capability: multi_step
+    difficulty: hard
+    query_types: [comparison, multi_query]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT u.state,
+        SUM(oi.sale_price) / COUNT(DISTINCT oi.user_id) AS spend_per_customer,
+        COUNT(DISTINCT oi.user_id) AS customers,
+        COUNT(DISTINCT oi.order_id) AS orders
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.users` AS u ON u.id = oi.user_id
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND u.state IN ('California', 'Texas')
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY u.state
+    expected:
+      mode: rows
+      columns:
+        state: {role: key}
+        spend_per_customer: {role: value, kind: money}
+    scoring: [execution_match, judge_answer]
+    expected_calls: 6
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: MS-02
+    user: maya
+    turns: ["Which of my brands grew more from 2024 to 2025, and which categories explain the growth?"]
+    capability: multi_step
+    difficulty: hard
+    query_types: [comparison, multi_query]
+    period: {from: "2024-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT p.brand, EXTRACT(YEAR FROM oi.created_at) AS year, SUM(oi.sale_price) AS revenue
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2024-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY p.brand, year
+      ORDER BY p.brand, year
+    expected:
+      mode: rows
+      columns:
+        brand: {role: key}
+        year: {role: key, kind: year}
+        revenue: {role: value, kind: money}
+    alt_references:
+      - sql: |
+          SELECT p.brand,
+            SUM(IF(oi.created_at < TIMESTAMP '2025-01-01', oi.sale_price, 0)) AS revenue_2024,
+            SUM(IF(oi.created_at >= TIMESTAMP '2025-01-01', oi.sale_price, 0)) AS revenue_2025
+          FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+          JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+          WHERE oi.status NOT IN ('Cancelled', 'Returned')
+            AND oi.created_at >= TIMESTAMP '2024-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+            AND (@all_brands OR p.brand IN UNNEST(@brands))
+          GROUP BY p.brand
+        expected:
+          mode: rows
+          columns:
+            brand: {role: key}
+            revenue_2024: {role: value, kind: money}
+            revenue_2025: {role: value, kind: money}
+    scoring: [execution_match, judge_answer]
+    expected_calls: 6
+    notes: The alternative reference accepts one row for each brand with one column for each year.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: MS-03
+    user: ceo
+    turns: ["How did the churn rate of September 2026 compare with August 2026, and which customer groups explain the change?"]
+    capability: multi_step
+    difficulty: hard
+    query_types: [window, multi_query]
+    period: {from: "2026-08-01", to: "2026-10-01"}
+    reference_sql: |
+      WITH purchases AS (
+        SELECT DISTINCT oi.user_id, DATE(oi.created_at) AS d
+        FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+        JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+        WHERE oi.status != 'Cancelled'
+          AND oi.created_at < TIMESTAMP '2026-10-01'
+          AND (@all_brands OR p.brand IN UNNEST(@brands))
+      ),
+      gaps AS (
+        SELECT user_id, d, LEAD(d) OVER (PARTITION BY user_id ORDER BY d) AS next_d
+        FROM purchases
+      ),
+      churn AS (
+        SELECT user_id, DATE_ADD(d, INTERVAL 90 DAY) AS churn_d
+        FROM gaps
+        WHERE next_d IS NULL OR next_d > DATE_ADD(d, INTERVAL 90 DAY)
+      ),
+      months AS (
+        SELECT m FROM UNNEST([DATE '2026-08-01', DATE '2026-09-01']) AS m
+      ),
+      active AS (
+        SELECT months.m, COUNT(DISTINCT purchases.user_id) AS active_customers
+        FROM months CROSS JOIN purchases
+        WHERE purchases.d >= DATE_SUB(months.m, INTERVAL 90 DAY) AND purchases.d < months.m
+        GROUP BY months.m
+      ),
+      churned AS (
+        SELECT DATE_TRUNC(churn_d, MONTH) AS m, COUNT(DISTINCT user_id) AS churned_customers
+        FROM churn
+        WHERE churn_d >= DATE '2026-08-01' AND churn_d < DATE '2026-10-01'
+        GROUP BY m
+      )
+      SELECT active.m AS month, churned.churned_customers, active.active_customers,
+        SAFE_DIVIDE(churned.churned_customers, active.active_customers) AS churn_rate
+      FROM active LEFT JOIN churned ON churned.m = active.m
+      ORDER BY month
+    expected:
+      mode: rows
+      columns:
+        month: {role: key, kind: month}
+        churn_rate: {role: value, kind: ratio}
+    scoring: [execution_match, judge_answer]
+    expected_calls: 6
+    notes: The same churn definition as TM-10.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: MS-04
+    user: alex
+    turns:
+      - "What was Levi's revenue by category in 2025?"
+      - "And how does that compare with 2024?"
+    capability: multi_step
+    difficulty: medium
+    query_types: [follow_up, comparison]
+    period: {from: "2024-01-01", to: "2025-01-01"}
+    reference_sql: |
+      SELECT p.category, SUM(oi.sale_price) AS revenue
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2024-01-01' AND oi.created_at < TIMESTAMP '2025-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY p.category
+    expected:
+      mode: rows
+      columns:
+        category: {role: key}
+        revenue: {role: value, kind: money}
+    alt_references:
+      - sql: |
+          SELECT p.category, EXTRACT(YEAR FROM oi.created_at) AS year, SUM(oi.sale_price) AS revenue
+          FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+          JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+          WHERE oi.status NOT IN ('Cancelled', 'Returned')
+            AND oi.created_at >= TIMESTAMP '2024-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+            AND (@all_brands OR p.brand IN UNNEST(@brands))
+          GROUP BY p.category, year
+        expected:
+          mode: rows
+          columns:
+            category: {role: key}
+            year: {role: key, kind: year}
+            revenue: {role: value, kind: money}
+    facts:
+      - {column: revenue, where: {category: "Jeans"}}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 6
+    notes: The scored turn is T2. It must get the 2024 figures. A query with both years also passes.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: MS-05
+    user: maya
+    turns:
+      - "Show my top 5 categories by revenue in 2025."
+      - "For the first one, show the monthly revenue."
+    capability: multi_step
+    difficulty: medium
+    query_types: [follow_up, time_series]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      WITH top_category AS (
+        SELECT p.category
+        FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+        JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+        WHERE oi.status NOT IN ('Cancelled', 'Returned')
+          AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+          AND (@all_brands OR p.brand IN UNNEST(@brands))
+        GROUP BY p.category
+        ORDER BY SUM(oi.sale_price) DESC
+        LIMIT 1
+      )
+      SELECT DATE_TRUNC(DATE(oi.created_at), MONTH) AS month, SUM(oi.sale_price) AS revenue
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+        AND p.category = (SELECT category FROM top_category)
+      GROUP BY month
+      ORDER BY month
+    expected:
+      mode: rows_ordered
+      columns:
+        month: {role: key, kind: month}
+        revenue: {role: value, kind: money}
+    scoring: [execution_match]
+    expected_calls: 6
+    notes: The scored turn is T2. The SQL finds the first category of T1 itself.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: MS-06
+    user: ceo
+    turns: ["Find the 3 categories with the highest return rate in 2025, and show their return rate in each country."]
+    capability: multi_step
+    difficulty: hard
+    query_types: [ranking, multi_query]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      WITH base AS (
+        SELECT p.category, u.country, oi.status
+        FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+        JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+        JOIN `bigquery-public-data.thelook_ecommerce.users` AS u ON u.id = oi.user_id
+        WHERE oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+          AND (@all_brands OR p.brand IN UNNEST(@brands))
+      ),
+      top3 AS (
+        SELECT category
+        FROM base
+        GROUP BY category
+        ORDER BY SAFE_DIVIDE(COUNTIF(status = 'Returned'), COUNTIF(status != 'Cancelled')) DESC
+        LIMIT 3
+      )
+      SELECT category, country,
+        SAFE_DIVIDE(COUNTIF(status = 'Returned'), COUNTIF(status != 'Cancelled')) AS return_rate
+      FROM base
+      WHERE category IN (SELECT category FROM top3)
+      GROUP BY category, country
+      HAVING COUNTIF(status != 'Cancelled') > 0
+      ORDER BY category, country
+    expected:
+      mode: rows
+      columns:
+        category: {role: key}
+        country: {role: key}
+        return_rate: {role: value, kind: ratio}
+    scoring: [execution_match, judge_answer]
+    expected_calls: 5
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: MS-07
+    user: ceo
+    turns:
+      - "What was the total revenue in Q1 2026?"
+      - "Now only for women's products."
+    capability: multi_step
+    difficulty: medium
+    query_types: [follow_up]
+    period: {from: "2026-01-01", to: "2026-04-01"}
+    reference_sql: |
+      SELECT SUM(oi.sale_price) AS revenue
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2026-01-01' AND oi.created_at < TIMESTAMP '2026-04-01'
+        AND p.department = 'Women'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+    expected:
+      mode: value
+      columns:
+        revenue: {role: value, kind: money}
+    facts:
+      - {column: revenue}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 6
+    notes: The scored turn is T2. Women's products = products.department = 'Women'.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: MS-08
+    user: maya
+    turns: ["Compare the performance of Calvin Klein and Carhartt in Q2 2026, and explain why they perform differently."]
+    capability: multi_step
+    difficulty: hard
+    query_types: [comparison, multi_query]
+    period: {from: "2026-04-01", to: "2026-07-01"}
+    reference_sql: |
+      SELECT p.brand, SUM(oi.sale_price) AS revenue, COUNT(DISTINCT oi.order_id) AS orders,
+        COUNT(*) AS items_sold, SUM(oi.sale_price) / COUNT(DISTINCT oi.order_id) AS average_order_value
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2026-04-01' AND oi.created_at < TIMESTAMP '2026-07-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY p.brand
+    expected:
+      mode: rows
+      columns:
+        brand: {role: key}
+        revenue: {role: value, kind: money}
+    scoring: [execution_match, judge_answer]
+    expected_calls: 6
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  # ---------------------------------------------------------------- Report requests (RP)
+  - id: RP-01
+    user: ceo
+    turns: ["Create a report for Q1 2026 with insights and action items for Q2 2026."]
+    capability: report
+    difficulty: hard
+    query_types: [report]
+    period: {from: "2026-01-01", to: "2026-04-01"}
+    reference_sql: |
+      SELECT SUM(oi.sale_price) AS revenue, COUNT(DISTINCT oi.order_id) AS orders,
+        COUNT(*) AS items_sold, SUM(oi.sale_price) / COUNT(DISTINCT oi.order_id) AS average_order_value
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2026-01-01' AND oi.created_at < TIMESTAMP '2026-04-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+    expected:
+      mode: value
+      columns:
+        revenue: {role: value, kind: money}
+    facts:
+      - {column: revenue}
+    scoring: [report_structure, answer_facts, judge_report]
+    expected_calls: 9
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: RP-02
+    user: maya
+    turns: ["Create a report on my brands for Q3 2026 with action items for Q4."]
+    capability: report
+    difficulty: hard
+    query_types: [report]
+    period: {from: "2026-07-01", to: "2026-10-01"}
+    reference_sql: |
+      SELECT p.brand, SUM(oi.sale_price) AS revenue, COUNT(DISTINCT oi.order_id) AS orders,
+        COUNT(*) AS items_sold
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2026-07-01' AND oi.created_at < TIMESTAMP '2026-10-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY p.brand
+    expected:
+      mode: rows
+      columns:
+        brand: {role: key}
+        revenue: {role: value, kind: money}
+    facts:
+      - {column: revenue, where: {brand: "Calvin Klein"}}
+      - {column: revenue, where: {brand: "Carhartt"}}
+    scoring: [report_structure, answer_facts, judge_report]
+    expected_calls: 9
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: RP-03
+    user: alex
+    turns: ["Create a short report on Levi's returns in 2025 with three action items."]
+    capability: report
+    difficulty: hard
+    query_types: [report]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT COUNTIF(oi.status = 'Returned') AS returned_items,
+        SAFE_DIVIDE(COUNTIF(oi.status = 'Returned'), COUNTIF(oi.status != 'Cancelled')) AS return_rate
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+    expected:
+      mode: value
+      columns:
+        return_rate: {role: value, kind: ratio}
+    facts:
+      - {column: return_rate}
+    scoring: [report_structure, answer_facts, judge_report]
+    expected_calls: 8
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: RP-04
+    user: ceo
+    turns: ["Create a report that compares the top 5 brands of 2025, as an HTML file."]
+    capability: report
+    difficulty: hard
+    query_types: [report]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT p.brand, SUM(oi.sale_price) AS revenue
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+      GROUP BY p.brand
+      QUALIFY RANK() OVER (ORDER BY SUM(oi.sale_price) DESC) <= 5
+      ORDER BY revenue DESC
+    expected:
+      mode: top_k
+      k: 5
+      columns:
+        brand: {role: key}
+        revenue: {role: value, kind: money}
+    facts:
+      - {column: revenue, where: {brand: "@rank1"}}
+    scoring: [report_structure, answer_facts, judge_report, file]
+    expected_calls: 9
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: RP-05
+    user: maya
+    turns: ["Create a report on the customers of my brands in the first half of 2026."]
+    capability: report
+    difficulty: hard
+    query_types: [report]
+    period: {from: "2026-01-01", to: "2026-07-01"}
+    reference_sql: |
+      SELECT COUNT(DISTINCT oi.user_id) AS customers,
+        SUM(IF(oi.status != 'Returned', oi.sale_price, 0))
+          / COUNT(DISTINCT IF(oi.status != 'Returned', oi.user_id, NULL)) AS spend_per_customer
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status != 'Cancelled'
+        AND oi.created_at >= TIMESTAMP '2026-01-01' AND oi.created_at < TIMESTAMP '2026-07-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+    expected:
+      mode: value
+      columns:
+        customers: {role: value, kind: count}
+    facts:
+      - {column: customers}
+    scoring: [report_structure, answer_facts, judge_report]
+    expected_calls: 9
+    notes: Customers = users with a purchase (not Cancelled). Spend per customer uses revenue items.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  # ---------------------------------------------------------------- Empty results and wrong values (ER)
+  - id: ER-01
+    user: maya
+    turns: ["What was the revenue of my brands in 2018?"]
+    capability: empty_results
+    difficulty: easy
+    query_types: [true_empty]
+    period: {from: "2018-01-01", to: "2019-01-01"}
+    reference_sql: |
+      SELECT COUNT(*) AS items, SUM(oi.sale_price) AS revenue
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2018-01-01' AND oi.created_at < TIMESTAMP '2019-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+    expected:
+      mode: value
+      columns:
+        items: {role: value, kind: count}
+    required:
+      - "2019"
+      - {any: ["no data", "no sales", "no revenue", "no orders", "no records", "not available", "0", "zero"]}
+    scoring: [facts]
+    expected_calls: 3
+    notes: A true zero. The answer says that the data starts in January 2019.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: ER-02
+    user: alex
+    turns: ['How many Levi''s orders had the status "completed" in 2025?']
+    capability: empty_results
+    difficulty: medium
+    query_types: [value_fix]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT COUNT(DISTINCT oi.order_id) AS orders
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status = 'Complete'
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+    expected:
+      mode: value
+      columns:
+        orders: {role: value, kind: count}
+    facts:
+      - {column: orders}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 4
+    notes: The value `completed` does not exist. The agent must use `Complete`.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: ER-03
+    user: maya
+    turns: ["Show the revenue of Calvin Klien in 2025."]
+    capability: empty_results
+    difficulty: medium
+    query_types: [value_fix]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    params: {focus_brands: ["Calvin Klein"]}
+    reference_sql: |
+      SELECT SUM(oi.sale_price) AS revenue
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+        AND p.brand IN UNNEST(@focus_brands)
+    expected:
+      mode: value
+      columns:
+        revenue: {role: value, kind: money}
+    facts:
+      - {column: revenue}
+    accept_clarification: ["Calvin Klein"]
+    scoring: [execution_match, answer_facts]
+    expected_calls: 4
+    notes: The brand name has a typo. A short question that offers "Calvin Klein" also passes.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+
+  - id: ER-04
+    user: ceo
+    turns: ["How many orders did customers in Canada place in 2025?"]
+    capability: empty_results
+    difficulty: medium
+    query_types: [true_empty]
+    period: {from: "2025-01-01", to: "2026-01-01"}
+    reference_sql: |
+      SELECT COUNT(DISTINCT oi.order_id) AS orders
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.users` AS u ON u.id = oi.user_id
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.created_at >= TIMESTAMP '2025-01-01' AND oi.created_at < TIMESTAMP '2026-01-01'
+        AND u.country = 'Canada'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+    expected:
+      mode: value
+      columns:
+        orders: {role: value, kind: count}
+    required:
+      - "Canada"
+      - {any: ["no orders", "no customers", "no data", "not in the data", "0", "zero", "none"]}
+    scoring: [facts]
+    expected_calls: 3
+    notes: A true zero. Canada is not a country in the data.
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
