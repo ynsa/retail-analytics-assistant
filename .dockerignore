@@ -1,0 +1,30 @@
+# Secrets and credentials
+.env
+*.json.key
+*-key.json
+service-account*.json
+application_default_credentials.json
+
+# Personal local files (Claude instructions and notes)
+CLAUDE.local.md
+docs/local/
+.claude/
+
+# Git, Python, and tool caches
+.git/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Generated report files (may contain business data)
+reports/

@@ -1,0 +1,35 @@
+[project]
+name = "opsfleet-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "db-dtypes>=1.9.0",
+    "google-cloud-bigquery>=3.47.0",
+    "google-genai>=3.0.0",
+    "pandas>=3.1.1",
+    "python-dotenv>=1.2.4",
+]
+
+[project.scripts]
+opsfleet-agent = "opsfleet_agent:main"
+
+[build-system]
+requires = ["uv_build>=0.13.7,<0.14.0"]
+build-backend = "uv_build"
+
+# bq_client.py is a file from the client (OpsFleet). Keep it unchanged.
+[tool.ruff]
+extend-exclude = ["src/opsfleet_agent/bq_client.py"]
+force-exclude = true  # also exclude it when a tool passes the file path directly (pre-commit, editor)
+
+[tool.pyright]
+ignore = ["src/opsfleet_agent/bq_client.py"]
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.7.0",
+    "pytest>=9.2.0",
+    "ruff>=0.17.4",
+]
