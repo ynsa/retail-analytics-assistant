@@ -1,0 +1,31 @@
+# Settings of the assistant. Secrets are not here: they are in .env.
+# Spec 00 explains each section.
+
+models:
+  default: gemini-3.5-flash-lite   # development model (spec 51 chooses the final one)
+  timeout_s: 30                    # for each Gemini call, capped by the time left in the turn
+  max_retries: 2                   # only on HTTP 429 and 5xx
+
+bigquery:
+  dataset: bigquery-public-data.thelook_ecommerce
+  tables: [orders, order_items, products, users]
+  location: US
+
+limits:
+  per_turn:
+    max_llm_calls: 8
+    max_seconds_question: 60
+    max_seconds_report: 150
+    max_bq_queries: 6
+    max_input_tokens: 60000
+    max_output_tokens: 8000
+  per_query:
+    max_bytes_billed: 1000000000   # 1 GB
+    timeout_s: 30
+    max_rows_to_llm: 200
+  per_day:                         # UTC day
+    max_llm_calls: 300
+    max_bq_bytes_billed: 20000000000   # 20 GB
+
+paths:
+  data_dir: data
