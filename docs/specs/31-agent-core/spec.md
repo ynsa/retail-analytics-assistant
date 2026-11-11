@@ -222,7 +222,7 @@ The answer rules:
 
 1. Answer the question in the first sentence.
 2. Give each figure with its unit and its period.
-3. Use only figures from the data blocks. Do not calculate new figures, except simple differences and percentages of two figures in the data.
+3. Use only figures from the data blocks. Never calculate a figure in the text. For a derived figure, compute it in the SQL query (preferred), or write a calculation placeholder (see "Calculated figures" below).
 4. Mark reasons as findings from the data ("The data shows …"), not as proven causes.
 5. End with one line: the date range, the brands (for a manager) and the definitions used.
 6. At most about 250 words. Tables in Markdown, at most 20 rows.
@@ -280,6 +280,18 @@ The contents of the request hold the context, the data blocks and the user messa
 #### B2.8 Schema answers
 
 `schema_answer` gets the schema without PII columns, the date range of the data and a short description of each table from `agent/prompts/schema_overview.md`. For a manager it also states the brands, and that customer statistics cover only customers of these brands. No query runs.
+
+#### Calculated figures
+
+The model never calculates a figure. A language model can make arithmetic errors, so code computes every derived figure. (Owner's decision, 2026-11-11.)
+
+1. **SQL first.** When a derived figure is necessary for many rows (for example the change for each brand), the SQL query computes it.
+2. **Calculation placeholder.** For a few figures in the text, the model writes a placeholder, for example `{{calc:pct_change(r1.revenue@2026-10, r1.revenue@2026-09)}}`.
+   - `r1` is the ID of a stored query result. `revenue` is a column. The part after `@` selects the row by its key value.
+   - Allowed operations: `diff`, `pct_change`, `ratio`, `share`, `sum`, `avg`.
+   - The inputs are references to stored result values. The model cannot write a number as an input.
+3. **Code replaces each placeholder** with the computed value, rounded for display, before the figure check. A placeholder with an unknown reference becomes `[not available]`, and the trace records `calc_error`.
+4. **Figure check.** Each number in the final text must match a result value, a computed value, a date or year, or a number from the user's question. Spec 32 (step 6) gives the rule, and the chat answers use the same check.
 
 ### B3. Files and interfaces
 

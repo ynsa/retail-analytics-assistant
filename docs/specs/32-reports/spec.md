@@ -25,7 +25,7 @@ The user asks for a report, for example "Create a report for Q1 with insights an
 8. **Only own reports.** Maya types `/open` with the ID of Daniel's report. She gets "Report R-… not found." She gets the same text for an ID that does not exist.
 9. **A part fails.** One of the 4 queries fails after 3 attempts. The report still appears. The findings say which part is missing and why.
 10. **Too slow.** A report takes more than 150 s. The assistant stops, saves nothing, and suggests a shorter period or fewer topics.
-11. **Calculated figures.** A finding contains a percentage change that the model calculated from two figures. The method section states how many figures in the text are calculations and not direct query results.
+11. **Calculated figures.** A finding needs a percentage change of two figures. The model does not calculate it. The SQL query computes it, or code computes it from a calculation placeholder (spec 31). The method section states how many figures came from code calculations. A number that the system cannot trace to a result or a calculation does not appear in the report.
 
 ### A3. Scope
 
@@ -79,7 +79,7 @@ The user asks for a report, for example "Create a report for Q1 with insights an
 | | Decision | Choice | Alternatives | Reason |
 |---|---|---|---|---|
 | ⚑ | Report limits | 4 planned queries, 3 charts (bar, line, pie), about 1,200 words, 150 s | More queries with a higher budget | The limits fit the spec 00 budget (8 calls, 6 queries) and the 1–2 minute target. |
-| ⚑ | Figures that the model calculates | Allowed for simple differences and percentages. Code counts the figures that are not in the results. The method section shows the count. | Block the report. Show nothing. | A block stops most reports, because a change in percent is common. The count keeps the reader informed. |
+| ⚑ | Calculated figures | The model never calculates a figure. A derived figure comes from the SQL query, or from a calculation placeholder that code computes from stored result values (spec 31). The figure check accepts only traceable numbers. | Let the model calculate simple differences and percentages | A language model can make arithmetic errors. Code computes every derived figure from real values, so each number in a report is traceable. (Owner's decision, 2026-11-11.) |
 | ⚑ | When the report is saved and when a file is written | The library always saves a created report. A file only on request or with `/export`. | Always write a file | Gap analysis B4: save only on a report request. A file is a second copy that the user moves and shares. |
 | | What the model decides | The queries, the title, the text, which results become tables and charts, the chart type and the columns | The model also draws charts | Code draws each chart from the stored result, so a chart cannot show an invented value. |
 | | Sections that code writes | Date range and definitions, and the method and SQL appendix | The model writes all sections | These facts come from the plan, the glossary and the real SQL. The model cannot change them. |
@@ -175,7 +175,12 @@ Code checks the plan:
    Code copies the chart data (at most 60 points) into the report row.
 4. **Date range and definitions.** Code writes this section from the plan period, today's date, the brand scope, and the glossary text of the keys in `definitions_used`.
 5. **Method and SQL appendix.** Code writes the purpose of each query, the SQL as the model wrote it, the BigQuery job ID and the bytes billed. A sentence says that the system added the brand scope.
-6. **Figure check.** Code finds each number in the model text. It compares the number with the values in the results, with rounding to 0, 1 or 2 decimals, and with "K" and "M" forms. Years, dates and numbers from the user's request do not count. The method section states: "N figures in the text are calculations from the query results." The trace gets the same count.
+6. **Calculations and figure check.**
+   - Code first replaces each calculation placeholder with its computed value (spec 31).
+   - Then code finds each number in the text. It compares the number with the values in the results and with the computed values. The comparison allows rounding to 0, 1 or 2 decimals, and the "K" and "M" forms. Years, dates and numbers from the user's request do not count.
+   - If a number does not match, code sends the model one request to rewrite the sentence with traceable figures. This counts in the turn budget.
+   - A number that still does not match is replaced by `[figure removed: not traceable]`. The trace records the count as `unverified_figures`.
+   - The method section states: "N figures in the text are code calculations from the query results."
 7. **Entities.** Code fills `report_entities` (B3) from:
    - the literals of the guard filters on `brand`, `category`, `department`, `name`, `state` and `country`,
    - the values of result columns with these names (at most 50 for each kind),
@@ -295,7 +300,8 @@ Unit tests with a fake Gemini, a fake BigQuery and a temporary `data/` folder:
 | 12 | Model text with a link, an image and `<img src=…>` | Stripped from the body and the files |
 | 13 | Markdown with a label that contains `"` | Valid Mermaid (checked with a fixture of expected text) |
 | 14 | Model text with an email | `[removed]` in the body and the files |
-| 15 | Figure check: 3 result values and 1 percentage | `calculated_figures = 1` |
+| 15 | Figure check: 3 result values and 1 calculation placeholder | `calculated_figures = 1`, `unverified_figures = 0` |
+| 15a | Model text with a percentage that is not in the results and not a placeholder | One rewrite request. If the number stays: `[figure removed: not traceable]`, `unverified_figures = 1` |
 | 16 | Entities from filters, results and the title | The expected rows in `report_entities` |
 | 17 | `/open` and `/export` with the ID of another user | `ReportNotFound`, the same text as a missing ID |
 | 18 | Owner ID `../x` in a test config | Rejected before any file write |
@@ -313,7 +319,7 @@ Live test (marker `live`): one report for the manager `maya`, with an HTML file.
 
 ### B6. Risks and open points
 
-- The figure check is approximate. A rounded number can match a wrong value. The count is information, not proof. Spec 23 evaluates the report quality.
+- The figure check compares numbers with rounding, so a rounded number can match a wrong value by chance. Spec 23 evaluates the report quality.
 - Mermaid `xychart-beta` is a beta feature. Some viewers do not render it. The data table under each chart keeps the figures readable.
 - matplotlib adds about 30 MB to the Docker image. Spec 53 checks the image size.
 - A report can need more than 150 s on a slow day. The user then asks for a shorter period. The limit stays (spec 00).
