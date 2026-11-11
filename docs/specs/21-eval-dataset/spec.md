@@ -119,6 +119,20 @@ The agent glossary (spec 31) must use the same definitions. The base is gap anal
 | Churned customer, monthly churn rate | As in N4 (90 days without a purchase) |
 | Last month | The last full calendar month before today (UTC). Rows with an `order_items.created_at` after today stay out (gap analysis N4). |
 
+#### B2.2a. Group OS: the owner's test session (2026-11-11)
+
+A regression conversation from the owner's first test of the walking skeleton. It runs as one conversation for the user `maya`, in this order. It needs about 8 Gemini calls and 1 query.
+
+| ID | Message | Expected behavior |
+|---|---|---|
+| OS-01 | `hi` | A short prepared reply. 0 queries. |
+| OS-02 | `yes, what projects I have access to?` | An access answer: role brand manager, brands Calvin Klein and Carhartt, the data and its date range, example questions. No mention of Google Cloud projects. 0 queries. |
+| OS-03 | `what companies I can check in the data?` | The same scope answer: the two brands by name. 0 queries. |
+| OS-04 | `give me the stats for the last nmonth` | No clarifying question. The default overview (revenue, orders, items sold, average order value) for the last full calendar month, with the change against the month before, for the two brands only. Formatted numbers. A footer with the period, the brands and the assumptions. |
+| OS-05 | `last month` | The same figures as OS-04, or a short note that they were already given. No new definitions. |
+
+Scoring: code checks the route of each turn, the query count, the brand filter in the SQL, the number format (no value with more than 2 decimals) and the footer. The judge checks that OS-02 and OS-03 answer the access question.
+
 #### B2.3. Mix of the cases
 
 | Capability | Code | Cases | Easy | Medium | Hard |
