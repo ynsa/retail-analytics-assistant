@@ -1,4 +1,4 @@
-"""Live smoke test (spec 01): 2 Gemini calls and 1 small BigQuery query (about 10 MB billed).
+"""Live smoke test (spec 01, with the agent core of spec 31): 3 Gemini calls and 1 small BigQuery query (about 10 MB billed).
 
 Run by hand: uv run pytest -m live
 """
@@ -21,4 +21,4 @@ def test_one_question_end_to_end():
     result = session.ask("How many orders were placed in 2024?")
     assert result.error_type is None, result.answer
     assert re.search(r"\d", result.answer)
-    assert result.totals["llm_calls"] == 2 and result.totals["bq_queries"] == 1
+    assert result.totals["llm_calls"] == 3 and result.totals["bq_queries"] == 1
