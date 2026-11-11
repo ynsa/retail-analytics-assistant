@@ -1,6 +1,6 @@
 # Spec 10: Design document (HLD) and technical explanation
 
-- **Status:** Approved (owner review, 2026-11-11)
+- **Status:** Done for Phase 2 (2026-11-11): `docs/design/hld.md`. Phase 3 adds the measured figures (specs 50, 51) and the unit prices.
 - **Phase and stream:** Phase 2, stream A. A final update in Phase 3, after specs 50 and 51.
 - **Depends on:** 00, 01. It uses the results of 11 (diagrams), 51 (model choice), 54 (setup guide) and 55 (experience document).
 - **Requirements covered:** Req 1–8 in the design. Deliverable 1 (architecture diagram with explanations) and deliverable 2 (detailed technical explanation).
