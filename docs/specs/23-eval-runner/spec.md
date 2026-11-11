@@ -21,12 +21,13 @@ The owner runs one command and gets an evaluation report. The report shows how m
    Set: accuracy (50 cases, 0 skipped)      Agent model: gemini-3.5-flash-lite
    Gemini calls: 236 planned (agent 206, judge 30). Hard cap for this run: 283.
    Daily budget left: 300 calls. This run fits.
+   Tokens: about 0.9M in, 0.07M out. Price at the paid tier: about $0.45. Free tier: $0.
    BigQuery: 1.9 GB planned (snapshot refresh 0.9 GB, agent 1.0 GB).
    Time: about 25 minutes (one call every 4 s).
    Type "yes" to start:
    ```
 
-2. **The "yes".** A run with more than 20 planned Gemini calls starts only after the owner types `yes`. Any other answer stops it. A run with 20 calls or fewer starts at once.
+2. **The cost estimate and the "yes".** The plan always shows the calls for each model, the estimated tokens, the price at the paid tier and the BigQuery bytes. A run with more than 10 planned Gemini calls starts only after the owner types `yes`, or after the owner approved this plan in the conversation and the command has `--yes`. A run with 10 calls or fewer starts at once.
 3. **Progress.** The runner shows one line for each case: the ID, pass or fail, the time and the calls.
 4. **A controlled stop.** The run stops before it passes the hard cap or the daily limit. It says how to continue: `uv run opsfleet-eval run --resume <run_id>`. The finished cases stay scored.
 5. **The report.** At the end, the runner writes `data/eval/runs/<run_id>/report.md` and prints its summary table.
@@ -44,7 +45,7 @@ The owner runs one command and gets an evaluation report. The report shows how m
 
 | Limit | Value | Message |
 |---|---|---|
-| A "yes" is necessary | More than 20 planned Gemini calls | `This run plans 236 Gemini calls. Type "yes" to start:` |
+| A "yes" is necessary | More than 10 planned Gemini calls | `This run plans 236 Gemini calls. Type "yes" to start:` |
 | Hard cap for each run | Planned calls plus 20% | `The run reached its cap of 283 calls. 41 cases are scored. Continue with: opsfleet-eval run --resume <run_id>` |
 | Daily limit (spec 00) | 300 calls, 20 GB | `The daily limit is reached. Continue tomorrow with: opsfleet-eval run --resume <run_id>` |
 | Rate limit of the free tier | 3 `llm_rate_limited` errors in a row | `Gemini refuses calls for rate. The run is paused. Continue later with --resume.` |
@@ -54,13 +55,13 @@ The owner runs one command and gets an evaluation report. The report shows how m
 ### A5. Done when
 
 - [ ] `opsfleet-eval plan` shows the calls, the bytes, the cap and the time, and makes no Gemini call.
-- [ ] A run with more than 20 planned calls does not start without the typed `yes`. No option skips this question.
+- [ ] A run with more than 10 planned calls does not start without the typed `yes` or `--yes`. The run log records the plan, the cost estimate and how the run was approved.
 - [ ] A run stops at its hard cap, and `--resume` continues it without a second run of the scored cases.
 - [ ] The report has all the metrics in B2.6 and the per-case table.
 - [ ] `opsfleet-eval review` stores human labels, and the report shows the agreement with the judge.
 - [ ] `opsfleet-eval compare` shows the metric changes and the cases that changed.
 - [ ] The offline tests pass without network access.
-- [ ] The live smoke test runs with at most 20 Gemini calls.
+- [ ] The live smoke test runs with at most 10 Gemini calls.
 - [ ] The owner approved the ⚑ rows in B1.
 
 ---
@@ -71,7 +72,7 @@ The owner runs one command and gets an evaluation report. The report shows how m
 
 | | Decision | Choice | Alternatives | Reason |
 |---|---|---|---|---|
-| ⚑ | "Yes" and cap | A typed `yes` above 20 planned calls. Each run has a hard cap of the plan plus 20%. No flag skips the question. | A `--yes` flag, or no cap | The owner's rule asks for a "yes" above 20 calls. The cap makes the plan binding. |
+| ⚑ | Approval and cap | A cost estimate in every plan. A "yes" above 10 planned calls: typed, or `--yes` after the owner approved the plan in the conversation. Each run has a hard cap of the plan plus 20%. | No estimate, or no cap | The owner's rule (2026-11-11): small checks of up to 10 calls run freely, and a full run needs a cost estimate and a "yes". The cap makes the plan binding. |
 | ⚑ | Judge model | `gemini-3.8-flash`, temperature 0, set in `config/settings.yaml` (`eval.judge_model`). The same judge for all runs and both models in spec 51. | The agent model as judge, or a judge from another provider | A stronger model judges better. The same judge keeps the runs comparable. We have only a Gemini key. |
 | ⚑ | Report format | Markdown `report.md` in the run folder. Spec 50 copies the final report to `docs/evaluation/`. | HTML, or only JSON | Markdown shows well on GitHub and in the terminal. The reviewers read the repository. HTML can come later. |
 | | Framework | pytest and our own scorers (spec 20) | DeepEval, Inspect AI | Spec 20 gives the reasons. |
@@ -88,7 +89,7 @@ flowchart TD
     cmd(["opsfleet-eval run --set accuracy"]) --> load["Load the set<br/>skip draft and needs_review"]
     load --> snap["Check the snapshots (spec 21)<br/>plan a refresh if the data changed"]
     snap --> plan["Make the plan<br/>calls, bytes, time, cap"]
-    plan --> yes{"More than 20 calls?"}
+    plan --> yes{"More than 10 calls?"}
     yes -->|"yes"| ask{{"Type yes"}}
     yes -->|"no"| refresh
     ask -->|"yes"| refresh["Refresh the snapshots if necessary"]
@@ -249,7 +250,7 @@ data/eval/call_stats.json    # median calls and bytes for each case
 ```text
 evals/
   rubrics/answer.md, report.md, safety.md
-  sets/smoke.yaml              # 5 accuracy and 3 safety case IDs, at most 20 calls
+  sets/smoke.yaml              # 3 accuracy and 2 safety case IDs, at most 10 calls
 src/opsfleet_agent/evals/
   cli.py                       # Typer app: plan, run, snapshot, review, report, compare
   plan.py                      # make_plan(set, settings, ledger) -> RunPlan
@@ -304,7 +305,7 @@ eval:
   - The plan: the sum, the cap, the daily check, the "yes" rule with a fake input.
   - The runner with a fake Gemini and a fake BigQuery: a full run, a pause at the cap, a resume, a `data_changed` status.
   - The metrics, the report and the comparison on stored result files.
-- **Live smoke test (marker `live`):** runs `evals/sets/smoke.yaml`. The plan is at most 20 calls, so no "yes" is necessary. It checks that the run finishes and that the report exists.
+- **Live smoke test (marker `live`):** runs `evals/sets/smoke.yaml`. The plan is at most 10 calls, so no "yes" is necessary. It checks that the run finishes and that the report exists.
 
 ### B5. Cost
 

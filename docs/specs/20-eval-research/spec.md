@@ -80,7 +80,7 @@ The checks:
 #### B2.2. Why we recommend pytest and our own scorers
 
 1. The main score is execution match on BigQuery. No option gives it for BigQuery out of the box. We write this scorer in all cases.
-2. The owner's rule says that a run with more than 20 Gemini calls needs a "yes" first. The runner must know the exact number of calls. Our own judge makes one call for each judged turn. The library options make their own calls.
+2. The owner's rule says that a run with more than 10 Gemini calls needs a cost estimate and a "yes" first. The runner must know the exact number of calls. Our own judge makes one call for each judged turn. The library options make their own calls.
 3. Spec 00 already has the budget, the daily counter, the trace and the error types. Our scorers use them directly.
 4. The safety checks are mostly code checks on the trace, the recorded queries and the report library. A framework does not help with these checks.
 5. The project uses pytest 9.2.0 and needs no new runtime and no account.

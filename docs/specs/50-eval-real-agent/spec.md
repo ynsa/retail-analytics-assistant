@@ -15,7 +15,7 @@ The owner gets proof that the finished assistant meets set targets for correct a
 
 ### A2. Behavior the user sees
 
-1. **A first full run.** The team runs the accuracy set, the safety set and the long conversation on the finished agent. The owner gets the first reports.
+1. **A first full run.** The team runs the accuracy set and the safety set on the finished agent. The long conversation runs only in the final run. The owner gets the first reports.
 2. **A judge check.** A person labels 30 judged answers. The team adjusts the judge rubric until the judge agrees with the person. Then the rubric does not change.
 3. **Rounds of corrections.** In each round, the team groups the failures by cause, corrects the causes, and runs the failed cases again. A log shows each round: what failed, why, what changed, and the new figures.
 4. **A final run.** On the final version of the code, the team runs all sets again. The final report shows each target and its result.
@@ -30,7 +30,7 @@ The owner gets proof that the finished assistant meets set targets for correct a
 
 - At most 4 correction rounds. After round 4, the open gaps go into the final report.
 - The full sets need about 520 Gemini calls. The daily limit is 300 calls, so a full set of runs takes 2 days.
-- Each run with more than 20 calls needs the owner's "yes" (spec 23).
+- Each run with more than 10 calls needs a cost estimate and the owner's "yes" (spec 23).
 
 ### A5. Done when
 
@@ -51,7 +51,7 @@ The owner gets proof that the finished assistant meets set targets for correct a
 |---|---|---|---|---|
 | ⚑ | Exit criteria | The table in B2.4. The main targets: zero safety failures, 90% execution match, p95 latency of 30 s for questions and 120 s for reports. | Lower targets, or only safety | The 90% and the latency come from the product definition and from OpsFleet. |
 | ⚑ | Number of rounds | At most 4 correction rounds | No limit | The assignment has a time budget of 6–12 hours. Each round costs Gemini calls. |
-| | Re-runs in a round | Only the failed cases and the smoke set | The full sets each time | A full run takes most of a day of calls. The final run checks all cases. |
+| | Re-runs in a round | Only the failed cases and the smoke set, with no judge calls. The free code checks (result match, safety rules) score them. | The full sets each time, with the judge | Fewer calls. The judge runs in the first and the final run only. The final run checks all cases. (Owner's choice, 2026-11-11.) |
 | | Changes of cases | A case changes only if the case is wrong. A person reviews the change and writes the reason in the log. | Change cases freely | A test set that changes to fit the agent proves nothing. |
 
 ### B2. Design
@@ -60,7 +60,7 @@ The owner gets proof that the finished assistant meets set targets for correct a
 
 ```mermaid
 flowchart TD
-    prep["Preparation<br/>specs 30–37 done, cases ready,<br/>smoke test passes"] --> base["Baseline runs<br/>accuracy, safety, long"]
+    prep["Preparation<br/>specs 30–37 done, cases ready,<br/>smoke test passes"] --> base["Baseline runs<br/>accuracy, safety"]
     base --> cal["Judge calibration<br/>30 human labels, freeze the rubric"]
     cal --> ana["Failure analysis<br/>one cause for each failure"]
     ana --> corr["Corrections<br/>one change set, regression tests"]
@@ -146,13 +146,13 @@ The run folders stay in `data/eval/runs/` with the mark `keep` in `run.json`. Th
 | Step | Gemini calls | BigQuery | Days |
 |---|---|---|---|
 | Baseline: accuracy | about 235 | about 2.5 GB with the refresh | 1 |
-| Baseline: safety and long conversation | about 285 | about 1.6 GB | 1 |
+| Baseline: safety | about 200 | about 1.4 GB | 1 |
 | Judge calibration: 10 items scored again | about 10 | 0 | — |
-| Each round: failed cases and smoke set | about 40–80 | about 0.5 GB | — |
-| Final runs | about 520 | about 4 GB | 2 |
-| **Total with 4 rounds** | **about 1,300** | **about 10 GB** | **about 6** |
+| Each round: failed cases and smoke set, no judge | about 30–60 | about 0.5 GB | — |
+| Final runs, with the long conversation | about 520 | about 4 GB | 2 |
+| **Total with 4 rounds** | **about 1,150** | **about 9.5 GB** | **about 5** |
 
-All BigQuery figures are far below the free 1 TB each month. The Gemini calls stay inside the daily limit of 300, so the work spreads over about 6 days. The owner can raise the daily limit in `config/settings.yaml` for the evaluation days, inside the free-tier limits of Google.
+All BigQuery figures are far below the free 1 TB each month. The Gemini calls stay inside the daily limit of 300, so the work spreads over about 5 days. On the free tier, the cost is $0. At the paid tier, the estimate is about $2–4 (prices of 2026-11-11). Each run starts only after its cost estimate and the owner's "yes" (spec 23). The owner can raise the daily limit in `config/settings.yaml` for the evaluation days, inside the free-tier limits of Google.
 
 ### B6. Risks and open points
 

@@ -109,7 +109,7 @@ These limits protect the budget while we build. The code enforces them. They are
 | Bytes billed for each query | 1 GB (`maximum_bytes_billed`) | BigQuery rejects the query |
 | Tokens for each answer | a set input and output budget | Stops and tells the user |
 | Gemini calls and BigQuery bytes for each day | a local counter with a daily maximum | All calls stop until the next day or until the user raises the limit |
-| An evaluation run | shows the planned number of calls first, and waits for a "yes" above 20 calls | Does not start |
+| An evaluation run | shows the planned calls and a cost estimate first, and waits for a "yes" above 10 calls | Does not start |
 
 The development uses the free-tier key and `gemini-3.5-flash-lite`. A call to Vertex AI or to a paid tier needs the user's approval first.
 

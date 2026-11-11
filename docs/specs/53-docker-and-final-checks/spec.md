@@ -38,7 +38,7 @@ The "user" is an OpsFleet reviewer with Docker, a Gemini key and Google Cloud cr
   - The README text (spec 54). This spec gives the commands. Spec 54 writes them for the reviewer.
   - A published image in a registry.
   - Production deployment on Cloud Run (design only, spec 10).
-  - CI with GitHub Actions. It is an option that needs the owner's approval.
+  - CI with GitHub Actions. The owner decided on 2026-11-11 that emulation on the Mac is enough.
 
 ### A4. Limits the user sees
 
@@ -88,7 +88,7 @@ The "user" is an OpsFleet reviewer with Docker, a Gemini key and Google Cloud cr
 |---|---|---|---|---|
 | ⚑ | The `data/` volume | A bind mount of the host folder `./data` to `/app/data` | A named Docker volume | The reviewer must open the HTML report files in a browser on the host. A named volume hides the files inside Docker. |
 | ⚑ | Image distribution | The reviewer builds the image from the repository. We publish no image. | A public image in GitHub Container Registry or Docker Hub | A published image needs a push and a public registry. The owner approves each GitHub action. The build from source also shows the reviewer what is in the image. |
-| ⚑ | `linux/amd64` test | On this arm64 Mac, with emulation in OrbStack. A native amd64 run on GitHub Actions only if the owner approves it. | A native amd64 machine | We have no amd64 machine. Emulation runs the same image. It is slower, and it can hide rare CPU-specific problems (B6). |
+| | `linux/amd64` test | On this arm64 Mac, with emulation in OrbStack. No GitHub Actions run (owner's decision, 2026-11-11). | A native amd64 machine | We have no amd64 machine. Emulation runs the same image. It is slower, and it can hide rare CPU-specific problems (B6). |
 | | Base image and uv | `python:3.12-slim`. uv 0.13.7 copied from the official uv image. `UV_PYTHON_DOWNLOADS=never`, so uv uses the Python of the image. | uv from pip. Another Python image. | Architecture section 3. uv 0.13.7 is the same version as in the pre-commit configuration and in local development. |
 | | Dependencies | `uv sync --frozen --no-dev` in two steps: first only the dependencies, then the project | One step | The dependency layer stays in the cache when only the code changes. `--frozen` uses `uv.lock` exactly. |
 | | Tests | A second target `test` in the same `Dockerfile`, with the dev group (`uv sync --frozen`) and `tests/` | Tests in the runtime image | The runtime image stays small and has no test tools. The test image uses the same lock file and the same base. |
@@ -271,8 +271,7 @@ The `.dockerignore` file in the repository already excludes `.env`, the key file
 - Part 1 and the unit tests: 0 Gemini calls, 0 BigQuery queries.
 - Live smoke test: 2 Gemini calls and 1 query (about 10 MB billed) for each platform.
 - Manual demo: about 30 Gemini calls and about 15 queries for each platform. The queries bill about 10–50 MB each, so less than 1 GB for each platform.
-- Total for both platforms: about 64 Gemini calls (free-tier key) and less than 2 GB of BigQuery. This is more than 20 Gemini calls, so the owner approves the run first. The steps run slowly, because the free tier has a limit for each minute.
-- Optional native amd64 run on GitHub Actions: the private repository has a free monthly allowance of minutes. It needs the owner's approval, because it is a GitHub action.
+- Total for both platforms: about 64 Gemini calls (free-tier key) and less than 2 GB of BigQuery. This is more than 10 Gemini calls, so the owner gets a cost estimate and approves the run first. The steps run slowly, because the free tier has a limit for each minute.
 
 ### B6. Risks and open points
 
