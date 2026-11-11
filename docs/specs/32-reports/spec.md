@@ -1,6 +1,6 @@
 # Spec 32: Reports
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 2, stream C
 - **Depends on:** 00, 30, 31. Spec 33 uses the library tables of this spec.
 - **Requirements covered:** the "report with action items" capability of the brief. The base for Req 3 (the Saved Reports library). Part of Req 2 (PII scan of files).

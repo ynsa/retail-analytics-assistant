@@ -1,6 +1,6 @@
 # Spec 23: Evaluation runner and scoring
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 2, stream B (evaluation)
 - **Depends on:** 00, 01, 20, 21, 22
 - **Requirements covered:** Req 6 (quality assurance). The metrics also use the traces of Req 7.

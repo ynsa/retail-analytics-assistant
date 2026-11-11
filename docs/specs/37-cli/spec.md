@@ -1,6 +1,6 @@
 # Spec 37: CLI
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 2, stream C (last part of the stream)
 - **Depends on:** 00, 01, 31, 32, 33, 34, 35, 36
 - **Requirements covered:** Deliverable 4 (CLI-based chat). The user side of Req 3 (the confirmation panel), Req 5 (no crash, clear errors) and Req 7 (`/trace`, `/stats`).

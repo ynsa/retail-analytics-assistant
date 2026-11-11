@@ -1,6 +1,6 @@
 # Spec 21: Evaluation dataset: questions and reference SQL
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 2, stream B (evaluation)
 - **Depends on:** 00, 20
 - **Requirements covered:** Req 6 (quality assurance). The set checks the expected capabilities from the brief and Req 2 (brand scope) and Req 5 (empty results, self-correction).

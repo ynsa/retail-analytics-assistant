@@ -1,6 +1,6 @@
 # Spec 52: Local test UI — build
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 3 (after the prototype works in the CLI)
 - **Depends on:** 40 (screens and API), 31–37
 - **Requirements covered:** none from OpsFleet. Our own tool for manual testing.

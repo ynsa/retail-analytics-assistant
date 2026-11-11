@@ -1,6 +1,6 @@
 # Spec 35: Observability and statistics
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 2, stream C
 - **Depends on:** 00 (trace format, error types), 30 (output scanner), 31 (nodes), 34 (`conversation_turns`), 36 (retry and breaker events)
 - **Requirements covered:** Req 7 (observability). Part of Req 2 (no PII in logs and traces).

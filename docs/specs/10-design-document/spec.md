@@ -1,6 +1,6 @@
 # Spec 10: Design document (HLD) and technical explanation
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 2, stream A. A final update in Phase 3, after specs 50 and 51.
 - **Depends on:** 00, 01. It uses the results of 11 (diagrams), 51 (model choice), 54 (setup guide) and 55 (experience document).
 - **Requirements covered:** Req 1–8 in the design. Deliverable 1 (architecture diagram with explanations) and deliverable 2 (detailed technical explanation).
@@ -225,6 +225,7 @@ The content below is mandatory.
   - The safety set (spec 22). The release gate for the safety set is zero failures.
   - The answer and report scores with an LLM judge and a written rubric (spec 23).
   - A person checks a sample of the judge scores.
+  - **Full regression on every change.** In production, each change to the code, a prompt, the persona or the model runs the full accuracy set and the full safety set automatically in CI before the release. A re-run of only the failed cases is a development shortcut of the prototype (spec 50), not a release check. (Owner's decision, 2026-11-11.)
 - **Report intent:**
   - A rubric with these checks:
     1. The report covers the asked period and the scope.

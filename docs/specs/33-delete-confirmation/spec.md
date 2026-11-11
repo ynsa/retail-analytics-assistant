@@ -1,6 +1,6 @@
 # Spec 33: Delete with confirmation
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 2, stream C
 - **Depends on:** 00, 31, 32 (the `reports` and `report_entities` tables)
 - **Requirements covered:** Req 3 (destructive operations with a strict confirmation flow)

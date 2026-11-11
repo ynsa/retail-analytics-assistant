@@ -1,6 +1,6 @@
 # Spec 01: Walking skeleton
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 1 (together, after spec 00)
 - **Depends on:** 00
 - **Requirements covered:** a first, thin version of Req 2 (read-only), Req 5 (no crash) and Req 7 (trace)

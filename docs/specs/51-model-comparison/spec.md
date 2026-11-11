@@ -1,6 +1,6 @@
 # Spec 51: Model comparison
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 3 (together)
 - **Depends on:** 23, 36, 50
 - **Requirements covered:** Req 6 (quality assurance) and Req 5 (the fallback model). It also gives the reasons for the model choice in the technical explanation (Deliverable 2.1).

@@ -1,6 +1,6 @@
 # Spec 11: Draw.io diagrams
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 2, stream A
 - **Depends on:** 00, 01. Spec 10 uses the images.
 - **Requirements covered:** deliverable 1 (architecture diagram). The diagrams show the components of Req 1–8.

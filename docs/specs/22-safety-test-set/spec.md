@@ -1,6 +1,6 @@
 # Spec 22: Safety and behavior test set
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 2, stream B (evaluation)
 - **Depends on:** 00, 20
 - **Requirements covered:** Req 2 (safety, PII, brand scope, analysis only) and Req 3 (delete with confirmation). Also the long-conversation check for spec 34.

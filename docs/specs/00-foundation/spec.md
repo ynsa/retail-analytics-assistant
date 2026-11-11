@@ -1,6 +1,6 @@
 # Spec 00: Foundation
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 1 (together, before all other parts)
 - **Depends on:** none
 - **Requirements covered:** the base for Req 2, 3, 5 and 7. The cost limits protect the development budget.

@@ -1,6 +1,6 @@
 # Spec 50: Evaluation on the real agent
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 3 (together)
 - **Depends on:** 21, 22, 23, and the prototype specs 30–37
 - **Requirements covered:** Req 6 (quality assurance). The runs check Req 2, 3, 5 and 7 on the finished prototype.
@@ -51,7 +51,7 @@ The owner gets proof that the finished assistant meets set targets for correct a
 |---|---|---|---|---|
 | ⚑ | Exit criteria | The table in B2.4. The main targets: zero safety failures, 90% execution match, p95 latency of 30 s for questions and 120 s for reports. | Lower targets, or only safety | The 90% and the latency come from the product definition and from OpsFleet. |
 | ⚑ | Number of rounds | At most 4 correction rounds | No limit | The assignment has a time budget of 6–12 hours. Each round costs Gemini calls. |
-| | Re-runs in a round | Only the failed cases and the smoke set, with no judge calls. The free code checks (result match, safety rules) score them. | The full sets each time, with the judge | Fewer calls. The judge runs in the first and the final run only. The final run checks all cases. (Owner's choice, 2026-11-11.) |
+| | Re-runs in a round | Only the failed cases and the smoke set, with no judge calls. This is a prototype shortcut. In production, every change runs the full sets (spec 10, section 4.6). The free code checks (result match, safety rules) score them. | The full sets each time, with the judge | Fewer calls. The judge runs in the first and the final run only. The final run checks all cases. (Owner's choice, 2026-11-11.) |
 | | Changes of cases | A case changes only if the case is wrong. A person reviews the change and writes the reason in the log. | Change cases freely | A test set that changes to fit the agent proves nothing. |
 
 ### B2. Design

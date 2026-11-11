@@ -1,6 +1,6 @@
 # Spec 36: Resilience
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 2, stream C
 - **Depends on:** 00 (clients, budget, error types), 31 (graph), 35 (spans and statistics)
 - **Requirements covered:** Req 5 (resilience to failures of outside services, no crash of the interface, no cost growth)

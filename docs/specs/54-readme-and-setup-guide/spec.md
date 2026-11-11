@@ -1,6 +1,6 @@
 # Spec 54: README and setup guide
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 3 (together), after spec 53
 - **Depends on:** 53 (the Docker commands and the demo transcript), 10 (the HLD link), 11 (the images), 55 (the experience document link)
 - **Requirements covered:** deliverable 5 (setup instructions) and deliverable 2.4 (setup instructions and an example run)

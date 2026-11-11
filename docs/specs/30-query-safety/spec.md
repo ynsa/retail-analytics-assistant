@@ -1,6 +1,6 @@
 # Spec 30: Query safety
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 2, stream C (first part of the stream)
 - **Depends on:** 00, 01
 - **Requirements covered:** Req 2 (safety, PII masking, brand scope). Part of Req 5 (empty-result checks).

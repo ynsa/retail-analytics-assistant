@@ -1,6 +1,6 @@
 # Spec 31: Agent core
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 2, stream C
 - **Depends on:** 00, 01, 30
 - **Requirements covered:** Req 2 (analysis-only answers, prompt-injection defense) and Req 5 (self-correction). Also the expected capabilities of the brief: customer behavior, product performance, time-based metrics, schema questions and multi-step questions.

@@ -12,26 +12,26 @@ Each part of the work has one spec. The phases and the order are in [the roadmap
 
 | # | Spec | Phase / stream | Depends on | ⚑ | Status |
 |---|---|---|---|---|---|
-| 00 | [Foundation](00-foundation/spec.md) | 1 | – | 2 | Draft |
-| 01 | [Walking skeleton](01-walking-skeleton/spec.md) | 1 | 00 | 0 | Draft |
-| 10 | [Design document (HLD) and technical explanation](10-design-document/spec.md) | 2 / A | 00 | 3 | Draft |
-| 11 | [Draw.io diagrams](11-drawio-diagrams/spec.md) | 2 / A | 10 | 2 | Draft |
-| 20 | [Research: evaluation and agent best practices](20-eval-research/spec.md) | 2 / B | 00 | 2 | Draft |
-| 21 | [Evaluation dataset](21-eval-dataset/spec.md) | 2 / B | 20 | 3 | Draft |
-| 22 | [Safety and behavior test set](22-safety-test-set/spec.md) | 2 / B | 20 | 3 | Draft |
-| 23 | [Evaluation runner and scoring](23-eval-runner/spec.md) | 2 / B | 20, 21, 22, 37 | 3 | Draft |
-| 30 | [Query safety](30-query-safety/spec.md) | 2 / C | 00, 01 | 3 | Draft |
-| 31 | [Agent core](31-agent-core/spec.md) | 2 / C | 30 | 3 | Draft |
-| 32 | [Reports](32-reports/spec.md) | 2 / C | 31 | 3 | Draft |
-| 33 | [Delete with confirmation](33-delete-confirmation/spec.md) | 2 / C | 32 | 3 | Draft |
-| 34 | [Long conversations and memory](34-long-conversations/spec.md) | 2 / C | 31 | 3 | Draft |
-| 35 | [Observability and statistics](35-observability/spec.md) | 2 / C | 00 | 3 | Draft |
-| 36 | [Resilience](36-resilience/spec.md) | 2 / C | 00, 31 | 3 | Draft |
-| 37 | [CLI](37-cli/spec.md) | 2 / C | 31–36 | 2 | Draft |
-| 40 | [Local test UI: screens and behavior](40-local-ui/spec.md) | 2 / A | 31–35 | 2 | Draft |
-| 50 | [Evaluation on the real agent](50-eval-real-agent/spec.md) | 3 | 21–23, 30–37 | 2 | Draft |
-| 51 | [Model comparison](51-model-comparison/spec.md) | 3 | 50 | 2 | Draft |
-| 52 | [Local test UI: build](52-local-ui-build/spec.md) | 3 | 40 | 0 | Draft |
-| 53 | [Docker and final checks](53-docker-and-final-checks/spec.md) | 3 | 37 | 3 | Draft |
-| 54 | [README and setup guide](54-readme-and-setup-guide/spec.md) | 3 | 53 | 3 | Draft |
-| 55 | [Framework choice and experience document](55-experience-document/spec.md) | 3 | – | 0 | Draft |
+| 00 | [Foundation](00-foundation/spec.md) | 1 | – | 2 | Approved |
+| 01 | [Walking skeleton](01-walking-skeleton/spec.md) | 1 | 00 | 0 | Approved |
+| 10 | [Design document (HLD) and technical explanation](10-design-document/spec.md) | 2 / A | 00 | 3 | Approved |
+| 11 | [Draw.io diagrams](11-drawio-diagrams/spec.md) | 2 / A | 10 | 2 | Approved |
+| 20 | [Research: evaluation and agent best practices](20-eval-research/spec.md) | 2 / B | 00 | 2 | Approved |
+| 21 | [Evaluation dataset](21-eval-dataset/spec.md) | 2 / B | 20 | 3 | Approved |
+| 22 | [Safety and behavior test set](22-safety-test-set/spec.md) | 2 / B | 20 | 3 | Approved |
+| 23 | [Evaluation runner and scoring](23-eval-runner/spec.md) | 2 / B | 20, 21, 22, 37 | 3 | Approved |
+| 30 | [Query safety](30-query-safety/spec.md) | 2 / C | 00, 01 | 3 | Approved |
+| 31 | [Agent core](31-agent-core/spec.md) | 2 / C | 30 | 3 | Approved |
+| 32 | [Reports](32-reports/spec.md) | 2 / C | 31 | 3 | Approved |
+| 33 | [Delete with confirmation](33-delete-confirmation/spec.md) | 2 / C | 32 | 3 | Approved |
+| 34 | [Long conversations and memory](34-long-conversations/spec.md) | 2 / C | 31 | 3 | Approved |
+| 35 | [Observability and statistics](35-observability/spec.md) | 2 / C | 00 | 3 | Approved |
+| 36 | [Resilience](36-resilience/spec.md) | 2 / C | 00, 31 | 3 | Approved |
+| 37 | [CLI](37-cli/spec.md) | 2 / C | 31–36 | 2 | Approved |
+| 40 | [Local test UI: screens and behavior](40-local-ui/spec.md) | 2 / A | 31–35 | 2 | Approved |
+| 50 | [Evaluation on the real agent](50-eval-real-agent/spec.md) | 3 | 21–23, 30–37 | 2 | Approved |
+| 51 | [Model comparison](51-model-comparison/spec.md) | 3 | 50 | 2 | Approved |
+| 52 | [Local test UI: build](52-local-ui-build/spec.md) | 3 | 40 | 0 | Approved |
+| 53 | [Docker and final checks](53-docker-and-final-checks/spec.md) | 3 | 37 | 3 | Approved |
+| 54 | [README and setup guide](54-readme-and-setup-guide/spec.md) | 3 | 53 | 3 | Approved |
+| 55 | [Framework choice and experience document](55-experience-document/spec.md) | 3 | – | 0 | Approved |

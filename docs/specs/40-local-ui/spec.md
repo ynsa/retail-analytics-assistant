@@ -1,6 +1,6 @@
 # Spec 40: Local test UI — screens and behavior
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 2, stream A (spec and sketches). Phase 3 builds it (spec 52).
 - **Depends on:** 00, 31, 32, 33, 35
 - **Requirements covered:** none from OpsFleet. This is our own tool for manual testing (product definition, section 3.3).

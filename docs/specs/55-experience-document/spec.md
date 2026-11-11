@@ -1,6 +1,6 @@
 # Spec 55: Framework choice and experience document
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 3
 - **Depends on:** the architecture decision N21 (LangGraph)
 - **Requirements covered:** deliverable 6 of the brief: "Use a framework of your choice, explain why you choose it and your level of experience with it."

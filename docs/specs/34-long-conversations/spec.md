@@ -1,6 +1,6 @@
 # Spec 34: Long conversations and memory
 
-- **Status:** Draft
+- **Status:** Approved (owner review, 2026-11-11)
 - **Phase and stream:** Phase 2, stream C
 - **Depends on:** 00, 31, 32 (the result references for "save this as a report"), 33 (the pending confirmation at resume)
 - **Requirements covered:** "discuss about it" in the brief. Part of Req 5 (no cost growth in long chats). Part of Req 7 (the conversation log).
