@@ -1,0 +1,107 @@
+# Prepared texts (spec 31, B1 and B2.2). They cost no model call and cannot leak data.
+# Each value is a Jinja2 template. Code fills the variables. Keep the texts in plain English.
+
+capabilities: >-
+  I can help with the analysis of the company's sales data: orders, products, customers and
+  reports.
+
+chitchat:
+  greeting: >-
+    Hello, {{ first_name }}. I can answer questions about the sales data: revenue, orders,
+    products, customers and trends. Do you want to know what data you can check?
+  thanks: You are welcome. Ask me another question about the sales data when you are ready.
+  acknowledgement: OK. Ask me a question about the sales data when you are ready.
+  format_only: OK. I will use this format for the next answers.
+
+off_topic: >-
+  I can only help with the analysis of the company's sales data: orders, products, customers and
+  reports.
+
+unsafe:
+  prompt_request: >-
+    I cannot share my instructions or my configuration. I can tell you what I do: I answer
+    questions about the company's sales data and I write reports.
+  identity_change: >-
+    Your user and your access come from the start of this session. A message cannot change them.
+    You are {{ name }}, {{ role_text }}.
+  rule_change: My rules stay the same for the full conversation. I am glad to help with a question about the sales data.
+  other: I cannot do that. I can help with the analysis of the company's sales data.
+
+clarify: |-
+  {{ question }}
+
+  {% for option in options %}
+  {{ loop.index }}. {{ option }}
+  {% endfor %}
+
+too_long: Your message is too long. Please keep it under {{ limit }} characters.
+
+not_built: This part is not built yet. You can ask questions about the sales data now. Reports and the delete of saved items come in a later version.
+
+give_up: >-
+  I could not get a valid result after {{ attempts }} attempts. I tried to answer this:
+  {{ purpose }}. {{ reason }} {{ help }}
+
+give_up_reasons:
+  guard_parse_error: The query did not pass the safety checks.
+  bq_syntax: The data service did not accept the query.
+  bq_not_found: The query used a field that does not exist.
+  bq_bytes_cap: The query had to read too much data.
+  empty_result: The query found no rows because of a wrong filter.
+  default: The query failed.
+
+give_up_help:
+  bq_bytes_cap: A shorter period or fewer fields can help.
+  empty_result: Other filter values or another period can help.
+  default: A simpler question, another period or other fields can help.
+
+# Feedback to the model on a retry (spec 31, B2.4).
+retry:
+  bq_bytes_cap: The query reads too much data. Filter by date or select fewer columns.
+
+notes:
+  steps_missing: >-
+    The question needed more than {{ max_steps }} query steps. The answer uses only the results
+    above. Say which part is missing.
+  cannot_answer: "The data cannot answer this part: {{ reason }}"
+
+figure_removed: "[figure removed: not traceable]"
+
+footer:
+  all_brands: all brands
+  no_period: all data up to {{ today }}
+
+scope_phrase:
+  manager: 'Write "Your brands had …" or "{{ brands }} had …", never "our store".'
+  ceo: 'Write "The company had …", never "our store".'
+
+scope_rule:
+  manager: >-
+    The user is a brand manager for {{ brands }}. All figures cover only these brands. Customer
+    statistics cover only the customers who bought these brands.
+  ceo: The user is the CEO and can see all brands.
+
+# The user format layer of the system instruction (spec 31, B2.7). The route sets the key.
+formats:
+  table: Show figures in Markdown tables when the answer has more than one figure.
+  bullets: Use short bullet points.
+  short: Keep the answer to at most three sentences.
+  detailed: Give more detail, up to about 250 words.
+
+roles:
+  manager: brand manager
+  ceo: CEO with access to all brands
+
+examples:
+  manager:
+    - What was the revenue of {{ first_brand }} last month, and how did it change against the month before?
+    - Which {{ first_brand }} products sold best in the last quarter?
+    - "How do {{ brands }} compare on orders and average order value this year?"
+  manager_single:
+    - What was the revenue of {{ first_brand }} last month, and how did it change against the month before?
+    - Which {{ first_brand }} products sold best in the last quarter?
+    - What was the return rate of {{ first_brand }} for each month this year?
+  ceo:
+    - Which 10 brands had the highest revenue last month?
+    - How did revenue and orders change month by month this year?
+    - Why do customers in Texas spend less than customers in California?

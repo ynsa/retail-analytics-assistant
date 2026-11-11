@@ -61,11 +61,27 @@ class Paths(_Strict):
     data_dir: Path
 
 
+class AgentSettings(_Strict):
+    """The agent core (spec 31, B3)."""
+
+    max_attempts_per_step: int = Field(default=3, gt=0)
+    max_steps_per_question: int = Field(default=3, gt=0)
+    max_user_message_chars: int = Field(default=4000, gt=0)
+    answer_max_rows: int = Field(default=20, gt=0)
+    persona_file: Path = Path("config/persona.md")
+    persona_max_chars: int = Field(default=2000, gt=0)
+
+
 class Settings(_Strict):
     models: ModelSettings
     bigquery: BigQuerySettings
     limits: Limits
     paths: Paths
+    agent: AgentSettings = Field(default_factory=AgentSettings)
+
+    def project_path(self, path: Path) -> Path:
+        """A path from the settings: relative paths start at the project root."""
+        return path if path.is_absolute() else PROJECT_ROOT / path
 
     def data_path(self, *parts: str) -> Path:
         base = self.paths.data_dir

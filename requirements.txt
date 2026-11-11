@@ -87,6 +87,8 @@ idna==3.20
     #   httpx
     #   httpx2
     #   requests
+jinja2==3.1.6
+    # via opsfleet-agent
 jsonpatch==1.47
     # via langchain-core
 jsonpointer==3.12
@@ -118,6 +120,8 @@ langsmith==0.14.17
     # via langchain-core
 markdown-it-py==4.3.0
     # via rich
+markupsafe==3.0.4
+    # via jinja2
 mdurl==0.1.2
     # via markdown-it-py
 numpy==2.5.4

@@ -32,3 +32,11 @@ limits:
 
 paths:
   data_dir: data
+
+agent:                             # spec 31
+  max_attempts_per_step: 3         # SQL attempts for each query step
+  max_steps_per_question: 3        # query steps for each question
+  max_user_message_chars: 4000
+  answer_max_rows: 20              # rows of a table in a chat answer
+  persona_file: config/persona.md  # company tone, read at each turn
+  persona_max_chars: 2000
