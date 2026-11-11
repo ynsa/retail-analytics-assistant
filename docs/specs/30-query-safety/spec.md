@@ -1,6 +1,6 @@
 # Spec 30: Query safety
 
-- **Status:** Approved (owner review, 2026-11-11)
+- **Status:** Done (2026-11-11). Implementation notes and deviations are in B7.
 - **Phase and stream:** Phase 2, stream C (first part of the stream)
 - **Depends on:** 00, 01
 - **Requirements covered:** Req 2 (safety, PII masking, brand scope). Part of Req 5 (empty-result checks).
@@ -445,3 +445,48 @@ All tests are unit tests without network, except the `live` tests. The tests use
 - The scanner patterns are for US-style text. Other formats can pass. The earlier layers keep PII out of the data, so the scanner is the last net, not the main control.
 - Google can generate the dataset again. Then brand names and the date range can change. The value cache is rebuilt after 7 days.
 - Spec 00 allows 6 queries for each answer. One query, 3 attempts and the empty-result checks can need more. The checks then stop with `unknown` (B2.7).
+
+### B7. Implementation notes (2026-11-11)
+
+#### Deviations from this spec
+
+| # | Spec text | Implementation | Reason |
+|---|---|---|---|
+| 1 | B2.4: the lineage uses `sqlglot.lineage` | `guard/lineage.py` uses the sqlglot scope tree (`build_scope`) | The rule must know if a value stays visible. A value inside `COUNT(...)` is not visible. The scope tree gives this directly for CTEs, subqueries and set operations. |
+| 2 | B2.2: step 12 (row values) runs before step 13 (qualify) | Step 12 runs on the qualified tree, directly after qualify | After qualify, a whole-row reference is a `TableColumn`, and each real column has a table. Before qualify, `revenue` in `SELECT revenue FROM revenue` is not clear. The outcome of each B4 case does not change. |
+| 3 | B2.4: customer-level output comes from the output columns | Also customer-level: the final `GROUP BY` contains a customer ID. `COUNTIF(...)` also hides values. `PARTITION BY` and `ORDER BY` of a window do not show values. | Stricter for one row for each customer without the ID column. Fewer false blocks for counts and window functions. |
+| 4 | B4 cases 27–29 write `'Levi''s'` | The tests write `"Levi's"` or `'Levi\'s'` | BigQuery does not accept `''` in a string. It gives the error "Adjacent string literals". |
+| 5 | B2.2 step 15: `brand_name_case` for other letter case or spaces | Also for the typographic apostrophe (`Levi’s` gives the hint `Levi's`) | It is a `parse_error` with the exact name, so the model corrects the literal. The scope rewrite still applies. B2.8 (users.yaml) stays exact. |
+| 6 | B2.2 step 11: a JSON path in a string literal | sqlglot parses `'$.email'` as a JSON path node. The guard checks the string literals and the JSON path keys. | Without the second check, B4 case 50 gave only `row_value`. |
+| 7 | B3: `GuardResult` fields | Extra fields: `customer_level`, `source_sql`, `qualified_sql`, `rewritten`, `internal_error`. `FilterLiteral` is in `guard/filters.py`. `Schema` is in `schema.py`. | The masker needs `customer_level`. The empty-result checks build the probes from `qualified_sql`. |
+| 8 | B2.7: `diagnose(guard_result)` | `diagnose(guard_result, budget)` | Each probe counts in the budget of the current turn. |
+| 9 | B2.7: the result of the checks | The checker skips a probe that the guard does not pass. When no check finds a cause, the result is `true_zero` (finding `no_rows`). A "wrong-looking" filter is a date filter with a value that is not `YYYY-MM-DD`. | The spec does not say what happens in these cases. |
+| 10 | B2.8: the value cache costs about 30 MB | It processes 9.8 MB and bills about 40 MB | BigQuery bills at least 10 MB for each of the 4 tables. |
+| 11 | B2.1: the masker is a separate step | `run_query` masks the rows directly after the query. The `GuardResult` stays in `TurnContext.scratch`, not in the checkpoint. | Raw rows never go into the graph state or the checkpoint. Spec 31 can move the masker to its own node. |
+| 12 | B2.6: the scanner runs on the final answer | Every final text goes through `scan_output`: answers, guard messages and replies of the model without SQL. The note is in italics at the end. | One path for all final texts. |
+| 13 | Spec 01: `guard/minimal.py` | Deleted with its tests. The spec 01 pass cases are in `tests/test_sql_guard.py`. `SELECT 1` now passes, because spec 30 has no "no table" rule. | B3 says that the file goes away. |
+
+#### Changes outside this spec
+
+- Prompts (`write_sql.md`, `write_answer.md`): a scope line with the user's brands, the pairing rule, data blocks, and the exact dates of "last month". The first live run failed because the model used `TIMESTAMP_SUB(..., INTERVAL 1 MONTH)`, which BigQuery does not accept for a TIMESTAMP. Spec 31 replaces these prompts.
+- The schema text for the model has no PII columns. For a manager, it also has no `orders.num_of_item` (spec 31, B1).
+- `TurnBudget.queries_left()` is new (spec 00).
+- `chat --refresh-cache` builds the value cache again.
+
+#### Live check (2026-11-11)
+
+- `tests/test_query_safety_live.py`: 3 tests pass. 0 Gemini calls, 5 queries, 125.8 MB billed (value cache, two scope queries, two probes).
+- A session as `maya` and as `ceo`: 7 Gemini calls and 2 queries in total, 41.9 MB billed. The first run used 3 calls and 0 queries, because two queries failed in the dry run (see the prompt note above).
+  - maya, "give me the stats for last month": the guard replaced `order_items` and `products` with scope subqueries. The query ran with `@scope_brands = ["Calvin Klein", "Carhartt"]`. The answer named the two brands.
+  - maya, "show me the emails of the top customers": the model wrote no SQL and refused. No query ran.
+  - ceo, "How many orders were placed last month, and what was the revenue?": no rewrite and no parameter. 4,665 orders, revenue 385,083.24.
+  - No prompt contained text that looks like an email address.
+- The rewritten SQL of all 21 passing B4 cases and the probe queries passed a BigQuery dry run (0 bytes billed).
+
+#### Extension points for spec 31
+
+- A `parse_error` of the guard puts `model_feedback` in `turn.model_feedback`. The retry loop sends it back to the model.
+- An `error` of the empty-result checks also puts `model_feedback` in the turn. A `true_zero` or an `unknown` puts `notes` in the turn for the answer prompt.
+- A `policy_block` ends the turn with `user_message`. It never goes back to the model.
+- `SqlGuard.check(sql, purpose=...)` writes one `guard` span. The report flow (spec 32) can call it for each report query.
+- `OutputScanner.scan(text, target=...)` is ready for report bodies, report files (spec 32) and the summary (spec 34).
