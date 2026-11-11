@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "deny": [
+      "mcp__awos-recruitment__report_gap",
+      "Edit(**/bq_client.py)",
+      "Write(**/bq_client.py)",
+      "NotebookEdit(**/bq_client.py)"
+    ]
+  },
+  "disabledMcpjsonServers": [
+    "awos-recruitment"
+  ],
+  "env": {
+    "AWOS_TELEMETRY": "0"
+  }
+}
