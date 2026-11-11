@@ -16,8 +16,9 @@ app = typer.Typer(
 console = Console()
 
 DEV_NOTE = (
-    "Development build: brand scope and personal-data protection are active. "
-    "Self-correction, multi-step questions, reports and conversation memory are not active yet."
+    "Development build: brand scope, personal-data protection, self-correction and multi-step "
+    "questions are active. Reports, the delete flow and the long-conversation memory are not "
+    "active yet."
 )
 
 

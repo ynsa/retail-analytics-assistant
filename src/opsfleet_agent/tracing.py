@@ -113,8 +113,11 @@ def span(name: str, kind: str, **attributes: Any) -> Generator[Span]:
                 sp.set_attribute("error_detail", exc.detail[:300])
             sp.set_status(Status(StatusCode.ERROR, exc.error_type.value))
             raise
-        except Exception:
+        except Exception as exc:
             sp.set_attribute("error_type", ErrorType.INTERNAL_ERROR.value)
+            sp.set_attribute(
+                "error_detail", type(exc).__name__
+            )  # the type only: no values
             sp.set_status(Status(StatusCode.ERROR, ErrorType.INTERNAL_ERROR.value))
             raise
 

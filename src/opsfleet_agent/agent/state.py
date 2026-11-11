@@ -1,7 +1,7 @@
-"""LangGraph state and per-turn context (spec 00, B3).
+"""LangGraph state and per-turn context (spec 00, B3, extended by spec 31, B3).
 
 The state goes into the checkpoint (SQLite), so it holds only plain data.
-Objects that must not be stored (the budget, the clients) go in `TurnContext`.
+Objects that must not be stored (the budget, the clients, raw rows) go in `TurnContext`.
 """
 
 from __future__ import annotations
@@ -10,6 +10,8 @@ import operator
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal, TypedDict
 
+from opsfleet_agent.agent.context import PromptLibrary
+from opsfleet_agent.agent.formatting import ResultData
 from opsfleet_agent.guard.empty_result import EmptyResultChecker
 from opsfleet_agent.guard.masker import ResultMasker
 from opsfleet_agent.guard.scanner import OutputScanner
@@ -19,29 +21,81 @@ from opsfleet_agent.identity import UserContext
 from opsfleet_agent.limits import TurnBudget
 from opsfleet_agent.schema import Schema
 
+Intent = Literal[
+    "analysis",
+    "schema",
+    "clarify",
+    "report",
+    "delete",
+    "chitchat",
+    "off_topic",
+    "unsafe",
+]
+LoopOutcome = Literal["answer", "give_up", "policy_block"]
+
 
 class Message(TypedDict):
     role: Literal["user", "assistant"]
     text: str
 
 
+class StepRecord(TypedDict, total=False):
+    """One query step of a question (spec 31, B3)."""
+
+    purpose: str
+    sql: str  # the SQL of the model (the guard's scoped SQL is not stored)
+    guard_outcome: str
+    reason_code: str
+    result_ref: str
+    row_count: int
+    error_type: str
+    attempts: int
+    brands: list[str]  # brand literals of the guard filters, for the footer
+
+
+class RetryInfo(TypedDict):
+    """The feedback of a failed attempt for the next `write_sql` call (spec 31, B2.4)."""
+
+    sql: str
+    error_type: str
+    message: str
+
+
 class TurnState(TypedDict, total=False):
     question: str
     trace_id: str
-    sql: str  # the SQL of the model (the guard's scoped SQL is not stored)
-    explanation: str
+    # route (B2.2)
+    intent: str
+    route: dict[str, Any]
+    # data loop (B2.3, B2.4)
+    steps: list[StepRecord]
+    step_index: int  # the current step, 0 to max_steps - 1
+    attempt: int  # the SQL attempts of the current step
+    plan: dict[str, Any]  # the write_sql output of the current attempt
+    plans: list[dict[str, Any]]  # the write_sql output of each finished step
+    sql: str
+    next: str  # the next node inside the data loop
+    loop_outcome: str  # LoopOutcome, set when the data loop ends normally
+    retry: RetryInfo | None
     guard_outcome: str  # spec 30: pass, policy_block or parse_error
     reason_code: str
     model_feedback: (
-        str  # spec 30: for the retry of spec 31 (parse error or empty-result error)
+        str  # spec 30: the feedback of a parse error or an empty-result error
     )
-    result_table: str  # the masked rows as a data block for the answer prompt
+    block_message: str  # the guard message of a policy block
+    results: list[ResultData]  # masked and formatted results of this turn (r1, r2, ...)
     row_count: int
-    truncated: bool
-    notes: str  # spec 30: the note of the empty-result checks for the answer prompt
-    scanner_hits: int  # spec 30: text that the output scanner removed
+    notes: list[str]  # notes for the answer prompt (empty-result checks, missing steps)
+    cannot_answer: str
+    # answer (B2.5)
     error_type: str
     answer: str
+    footer: str
+    calc_errors: int
+    unverified_figures: int
+    scanner_hits: int
+    prompt_leak: bool
+    final_text: str
 
 
 class AgentState(TypedDict, total=False):
@@ -49,6 +103,9 @@ class AgentState(TypedDict, total=False):
     user: dict[str, Any]  # UserContext as plain data, set by the CLI
     conversation_id: str
     turn: TurnState
+    pinned: dict[
+        str, Any
+    ]  # spec 34 owns it. Spec 31 writes format, filters and definitions.
     pending_confirmation: dict[str, Any] | None  # spec 33
     summary: str  # spec 34
 
@@ -62,7 +119,7 @@ class Services:
     bq: Any  # bq.BigQueryService
     schema: Schema
     values: ValueCache  # spec 30: filter values, date range and brand list
-    prompts: dict[str, str]
+    prompts: PromptLibrary
     masker: ResultMasker = field(default_factory=ResultMasker)
     scanner: OutputScanner = field(default_factory=OutputScanner)
 
@@ -76,6 +133,7 @@ class TurnContext:
     user: UserContext
     guard: SqlGuard  # spec 30: built once for each session, with the user's scope
     empty_checker: EmptyResultChecker
-    # Objects of this turn that the checkpoint must not store, for example the GuardResult with
-    # its query parameters. A node that does not find an entry builds it again from the state.
+    # Objects of this turn that the checkpoint must not store: the GuardResult with its query
+    # parameters, the raw query result before the masker, the persona text of this turn, and the
+    # scoped SQL that ran. A node that does not find an entry builds it again from the state.
     scratch: dict[str, Any] = field(default_factory=dict)

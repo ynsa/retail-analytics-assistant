@@ -104,9 +104,10 @@ class FakeLLM:
         schema=None,
         purpose: str = "",
         temperature: float = 0.0,
+        **_: Any,
     ) -> LlmResponse:
         budget.charge_llm()
-        self.calls.append({"purpose": purpose, "prompt": prompt})
+        self.calls.append({"purpose": purpose, "prompt": prompt, "system": system})
         reply = self.replies.pop(0)
         if isinstance(reply, BaseException):
             raise reply
@@ -157,3 +158,85 @@ def frame_result(frame: pd.DataFrame) -> QueryResult:
         job_id="job-1",
         duration_ms=5.0,
     )
+
+
+# --- The agent with fakes (spec 31) ---------------------------------------------------------------
+
+
+def route_reply(intent: str = "analysis", **fields: Any) -> dict[str, Any]:
+    """A route JSON for the fake model (spec 31, B2.2)."""
+    return {"intent": intent, **fields}
+
+
+def sql_reply(
+    sql: str | None,
+    *,
+    final: bool = True,
+    purpose: str = "Count the orders",
+    period: str | None = "2026-10-01..2026-10-31",
+    definitions: list[str] | None = None,
+    assumptions: list[str] | None = None,
+    cannot_answer: str | None = None,
+) -> dict[str, Any]:
+    """A write_sql JSON for the fake model (spec 31, B2.3)."""
+    return {
+        "purpose": purpose,
+        "sql": sql,
+        "final": final,
+        "definitions_used": definitions if definitions is not None else ["orders"],
+        "active_filters": {"period": period, "brands": [], "other": []},
+        "assumptions": assumptions or [],
+        "cannot_answer": cannot_answer,
+    }
+
+
+@pytest.fixture
+def persona_file(tmp_path: Path) -> Path:
+    path = tmp_path / "persona.md"
+    path.write_text("Tone: friendly and direct.", encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def make_session(config: AppConfig, conn, persona_file: Path):
+    """Build an AssistantSession with a fake Gemini, a fake BigQuery and an in-memory checkpoint."""
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    from opsfleet_agent.agent.context import PromptLibrary
+    from opsfleet_agent.agent.state import Services
+    from opsfleet_agent.identity import resolve_user
+    from opsfleet_agent.session import AssistantSession
+
+    def _make(
+        user_id: str = "maya",
+        llm: FakeLLM | None = None,
+        bq: FakeBQ | None = None,
+        values: ValueCache | None = None,
+    ):
+        llm = llm or FakeLLM()
+        bq = bq or FakeBQ()
+        services = Services(
+            settings=config.settings,
+            llm=llm,
+            bq=bq,
+            schema=load_test_schema(),
+            values=values or load_test_values(),
+            prompts=PromptLibrary(persona_path=persona_file),
+        )
+        session = AssistantSession(
+            config,
+            resolve_user(config.users, user_id),
+            services,
+            conn=conn,
+            checkpointer=InMemorySaver(),
+        )
+        return session, llm, bq
+
+    return _make
+
+
+def read_spans(config: AppConfig) -> list[dict[str, Any]]:
+    out = []
+    for f in config.settings.data_path("traces").glob("*.jsonl"):
+        out += [json.loads(line) for line in f.read_text().splitlines()]
+    return out

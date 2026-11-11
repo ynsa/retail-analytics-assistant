@@ -8,6 +8,8 @@ import pytest
 from jinja2 import UndefinedError
 
 from opsfleet_agent.agent.context import PROMPT_DIR, PromptLibrary, parse_definitions
+from opsfleet_agent.agent.nodes.route import RouteDecision
+from opsfleet_agent.agent.nodes.write_sql import SqlPlan
 
 GLOSSARY_KEYS = {
     "revenue",
@@ -66,6 +68,25 @@ def test_parse_definitions_ignores_text_outside_entries():
 def test_a_missing_template_value_is_an_error(lib):
     with pytest.raises(UndefinedError):
         lib.render("route")
+
+
+def test_task_prompts_render_with_their_values(lib):
+    assert "Role: manager. Brands: A, B." in lib.render(
+        "route", role="manager", brands="A, B"
+    )
+    sql = lib.render(
+        "write_sql",
+        today="2026-11-11",
+        scope="all brands",
+        max_steps=3,
+        last_month_start="2026-10-01",
+        last_month_end_exclusive="2026-11-01",
+        last_month_text="1–31 Oct 2026",
+    )
+    assert "TIMESTAMP('2026-11-01')" in sql and "up to 3 query steps" in sql
+    answer = lib.render("write_answer", max_rows=20, scope_phrase="Write X.")
+    assert "{{calc:pct_change(r1.revenue@2026-10, r1.revenue@2026-09)}}" in answer
+    assert "at most 20 rows" in answer
 
 
 def test_every_prepared_reply_renders(lib):
@@ -144,6 +165,14 @@ def test_persona_is_read_at_each_call_and_comments_are_removed(tmp_path: Path):
     assert PromptLibrary(persona_path=tmp_path / "none.md").read_persona().missing
 
 
+def test_the_persona_file_of_the_repository_is_short_enough():
+    from opsfleet_agent.config import load_config
+    from opsfleet_agent.session import build_prompts
+
+    persona = build_prompts(load_config().settings).read_persona()
+    assert persona.text and not persona.cut and not persona.missing
+
+
 def test_leak_check_finds_a_run_of_12_words(lib):
     words = lib.text("safety").split()
     assert lib.leaks_prompt("Here: " + " ".join(words[30:42]) + " and more.")
@@ -157,3 +186,24 @@ def test_leak_check_ignores_normal_answers(lib):
         "by 6.4% against September. Customers in Texas bought fewer items per order."
     )
     assert not lib.leaks_prompt(answer)
+
+
+def test_structured_output_models_have_the_spec_fields():
+    route = set(RouteDecision.model_fields)
+    assert {
+        "intent",
+        "follow_up",
+        "format_request",
+        "report_request",
+        "delete_request",
+    } <= route
+    assert "unsafe_kind" in route
+    plan = set(SqlPlan.model_fields)
+    assert {
+        "purpose",
+        "sql",
+        "final",
+        "definitions_used",
+        "active_filters",
+        "cannot_answer",
+    } <= plan

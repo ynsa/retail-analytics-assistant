@@ -8,16 +8,17 @@ from __future__ import annotations
 
 import sqlite3
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 
-from opsfleet_agent.agent.graph import build_graph, load_prompts
+from opsfleet_agent.agent.context import PromptLibrary
+from opsfleet_agent.agent.graph import build_graph
 from opsfleet_agent.agent.state import Services, TurnContext
 from opsfleet_agent.bq import BigQueryService
-from opsfleet_agent.config import AppConfig
+from opsfleet_agent.config import AppConfig, Settings
 from opsfleet_agent.errors import ConfigError
 from opsfleet_agent.guard.empty_result import EmptyResultChecker
 from opsfleet_agent.guard.masker import ResultMasker
@@ -37,10 +38,31 @@ from opsfleet_agent.tracing import current_trace_id, init_tracing, span
 
 @dataclass(frozen=True)
 class TurnResult:
-    answer: str
-    error_type: str | None
+    """The result of one turn, for the CLI, the UI and the evaluation runner (spec 23)."""
+
+    answer: str  # the final text after all checks, with the footer
+    error_type: str | None  # spec 00 error type, None for a normal answer
     trace_id: str | None
-    totals: dict[str, float | int]
+    totals: dict[
+        str, float | int
+    ]  # llm_calls, bq_queries, tokens_in/out, bytes_billed, seconds
+    intent: str | None = (
+        None  # the route intent (spec 31, B2.2), None when no route ran
+    )
+    route: dict[str, Any] = field(default_factory=dict)  # the full route JSON
+    steps: tuple[dict[str, Any], ...] = ()  # StepRecord of each query step
+    executed_sql: tuple[str, ...] = ()  # the scoped SQL that BigQuery ran, in order
+    footer: str = ""  # period, brands, definitions and assumptions
+    unverified_figures: int = 0  # numbers that the figure check replaced
+    calc_errors: int = 0  # placeholders that became "[not available]"
+
+
+def build_prompts(settings: Settings) -> PromptLibrary:
+    """The prompt files. The persona file is read again at each turn."""
+    return PromptLibrary(
+        persona_path=settings.project_path(settings.agent.persona_file),
+        persona_max_chars=settings.agent.persona_max_chars,
+    )
 
 
 def build_services(
@@ -81,7 +103,7 @@ def build_services(
         bq=bq,
         schema=Schema.from_cache(raw_schema, settings.bigquery.dataset),
         values=values,
-        prompts=load_prompts(),
+        prompts=build_prompts(settings),
         masker=ResultMasker(max_rows=settings.limits.per_query.max_rows_to_llm),
     )
 
@@ -161,9 +183,18 @@ class AssistantSession:
                 sp.set_attribute(key, value)
             if turn.get("error_type"):
                 sp.set_attribute("error_type", turn["error_type"])
+            if turn.get("intent"):
+                sp.set_attribute("intent", turn["intent"])
         return TurnResult(
             answer=state["messages"][-1]["text"],
             error_type=turn.get("error_type"),
             trace_id=trace_id,
             totals=totals,
+            intent=turn.get("intent"),
+            route=dict(turn.get("route") or {}),
+            steps=tuple(dict(s) for s in turn.get("steps") or []),
+            executed_sql=tuple(context.scratch.get("executed_sql") or ()),
+            footer=turn.get("footer") or "",
+            unverified_figures=int(turn.get("unverified_figures") or 0),
+            calc_errors=int(turn.get("calc_errors") or 0),
         )

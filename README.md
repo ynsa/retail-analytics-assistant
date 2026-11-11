@@ -8,13 +8,18 @@ This repository contains the design and a command-line prototype for the OpsFlee
 
 Phase 1 is done: the foundation (spec 00) and the walking skeleton (spec 01). A user can ask a simple data question in the terminal and get an answer from the real BigQuery data.
 
-Phase 2 has started. Query safety (spec 30) is active:
+Phase 2 has started. Query safety (spec 30) and the agent core (spec 31) are active:
 
 - Each manager sees only the data of their brands. Code rewrites every query to the brand scope.
 - Personal data never reaches the model or the user. The SQL guard blocks PII columns, and it blocks a single customer together with a location, age, gender or traffic source. The result masker cleans the rows, and the output scanner cleans the answer.
 - When a query returns no rows, the assistant checks if the data is really empty or if the query has an error.
+- A small model call routes each message. Greetings, off-topic messages and requests for the system prompt get a prepared reply. Questions about the user's access ("Which brands do I have?") get an answer from the user list, without a query.
+- The assistant corrects its own query errors (3 attempts for each step) and can use up to 3 queries for one question.
+- Code formats every figure before the model sees it, computes derived figures, and removes figures that do not come from the data. Each data answer ends with a footer: the period, the brands, the definitions and the assumptions.
+- Vague requests get a default, not a question: "the stats for last month" gives revenue, orders, items sold and average order value against the month before.
+- The company tone is in `config/persona.md`. A change applies to the next answer, without a restart.
 
-Self-correction, multi-step questions, reports, the delete flow and the conversation memory follow in Phase 2 (specs 31–37).
+Reports, the delete flow and the long-conversation memory follow in Phase 2 (specs 32–37). The `report` and `delete` requests get the answer "This part is not built yet".
 
 The production design document and the diagrams (specs 10 and 11) are ready for review.
 
@@ -33,7 +38,11 @@ uv run pytest                              # unit tests, no network
 uv run pytest -m live                      # live tests: see the cost in each test file
 ```
 
-The cost limits for each answer and for each day are in `config/settings.yaml`. The traces of each answer are in `data/traces/`.
+Example questions: "What can I check?", "Give me the stats for last month", "Which 5 categories had the highest revenue last quarter?", "Why are customers in Texas spending less than customers in California?".
+
+A simple question costs 3 Gemini calls (route, SQL, answer) and 1 query. A greeting or an access question costs 1 call and no query.
+
+The cost limits for each answer and for each day are in `config/settings.yaml`, and the agent limits (attempts, steps, message length) are in its `agent` section. The prompts are in `src/opsfleet_agent/agent/prompts/`. The traces of each answer are in `data/traces/`.
 
 At the first start, the assistant builds `data/value_cache.json` with one small query (about 40 MB billed). The cache holds the brand names, the filter values and the date range of the data. The assistant builds it again after 7 days. The start stops when a brand in `config/users.yaml` does not exist in the data, and the message gives the close names.
 

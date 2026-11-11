@@ -20,6 +20,9 @@ from opsfleet_agent.tracing import span
 
 RETRY_STATUS_CODES = [429, 500, 502, 503, 504]
 MIN_TIMEOUT_S = 2.0
+# The detail of the error when the structured output does not match the schema. The route node
+# (spec 31) retries once on this error.
+SCHEMA_MISMATCH = "structured output did not match the schema"
 
 
 @dataclass(frozen=True)
@@ -96,6 +99,7 @@ class GeminiClient:
         schema: type[BaseModel] | None = None,
         purpose: str = "generate",
         temperature: float = 0.0,
+        prompt_version: str | None = None,
     ) -> LlmResponse:
         """One model call. The budget is charged first. The timeout never exceeds the time left in the turn."""
         budget.charge_llm()
@@ -112,7 +116,13 @@ class GeminiClient:
         if schema is not None:
             config.response_mime_type = "application/json"
             config.response_schema = schema
-        with span(f"llm.{purpose}", "llm", model=model, purpose=purpose) as sp:
+        with span(
+            f"llm.{purpose}",
+            "llm",
+            model=model,
+            purpose=purpose,
+            prompt_version=prompt_version,
+        ) as sp:
             try:
                 response = self._get_client().models.generate_content(
                     model=model, contents=prompt, config=config
@@ -130,7 +140,7 @@ class GeminiClient:
                 raise AgentError(
                     ErrorType.LLM_ERROR,
                     "The language model returned an answer in a wrong format.",
-                    "structured output did not match the schema",
+                    SCHEMA_MISMATCH,
                 )
             return LlmResponse(
                 text=response.text or "",
