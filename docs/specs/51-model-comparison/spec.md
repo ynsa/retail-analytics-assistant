@@ -47,7 +47,7 @@ The owner gets a clear choice of the default model and the fallback model, with 
 | | Decision | Choice | Alternatives | Reason |
 |---|---|---|---|---|
 | ⚑ | Decision rule | The rule in B2.3: safety first, then a paired count of the correct answers, then the cost for each answer. | Choose by the highest pass rate | 50 cases give a large uncertainty. A small difference is not a real difference. Then the cost decides. |
-| ⚑ | Judge in the comparison | The judge of spec 23 (`gemini-3.8-flash`). The decision rule uses only code-based metrics. The judge scores are in the report, but they do not decide. | A judge from another model family | A judge can prefer answers of its own model. We have only a Gemini key. |
+| ⚑ | Judge in the comparison | The judge of spec 23 (`gemini-3.5-flash-lite` since 2026-11-11, see B7). The decision rule uses only code-based metrics. The judge scores are in the report, but they do not decide. | A judge from another model family | A judge can prefer answers of its own model. We have only a Gemini key. |
 | | Reuse of the spec 50 runs | The final runs of spec 50 count for `gemini-3.5-flash-lite` if they use the same commit. | Run both models again | This saves about 435 calls. Each run is scored against its own snapshot, so a data change between days does not make the results unfair. |
 | | Production cost | Tokens for each answer multiplied by the paid prices on the Google pricing page on the day of the decision | Free-tier cost (0) | Production uses the paid tier (architecture section 4). |
 
@@ -126,4 +126,11 @@ Each run needs the owner's "yes". The free-tier daily limit of `gemini-3.8-flash
 - `gemini-3.8-flash` can use more tokens for each answer. Then the token budget of spec 00 (60,000 in) can stop more answers. The table shows `limit_exceeded` in the failures by error type.
 - Paid prices and free-tier limits change. The document states the date of the prices and the limits.
 - The rule "`b - c` is 4 or more" is a simple threshold, not a statistical test. With 50 cases, it avoids a choice based on one or two cases.
-- The judge can prefer `gemini-3.8-flash`. The decision does not use the judge scores for this reason.
+- The judge (`gemini-3.5-flash-lite`) can prefer the answers of `gemini-3.5-flash-lite`. The decision does not use the judge scores for this reason.
+
+### B7. Notes
+
+**Change of the judge model (2026-11-11).** Spec 23 changed the judge model from `gemini-3.8-flash` to `gemini-3.5-flash-lite`. The free tier of `gemini-3.8-flash` allows only about 20 requests each day, and these requests are necessary for the agent runs of this spec. Consequences:
+
+- The judge is now the same model as one of the two compared models. It can prefer its answers. The decision rule (B2.3) does not use the judge scores, so the decision does not change.
+- The runs on `gemini-3.8-flash` (B5) use about 20 calls each day of the free tier. The accuracy set needs about 205 agent calls, so a run on `gemini-3.8-flash` takes many days on the free tier, or a paid key. The owner decides this before the runs.
