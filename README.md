@@ -15,6 +15,7 @@ The project is in the design phase. The prototype code is not written yet.
 | [Product definition](docs/product/product-definition.md) | What the product does, for whom, and the scope |
 | [Architecture](docs/product/architecture.md) | Technology choices and diagrams |
 | [Roadmap](docs/product/roadmap.md) | The phases and the parts of the work |
+| [Specs](docs/specs/README.md) | One spec for each part of the work, with its review status |
 | [Gap analysis](docs/analysis/gap-analysis.md) | Open points in the assignment, the answers from OpsFleet, and the decisions |
 | [Assignment](docs/brief/Original%20task.md) | The original task |
 
