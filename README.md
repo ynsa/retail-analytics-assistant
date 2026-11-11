@@ -8,6 +8,8 @@ This repository contains the design and a command-line prototype for the OpsFlee
 
 Phase 1 is done: the foundation (spec 00) and the walking skeleton (spec 01). A user can ask a simple data question in the terminal and get an answer from the real BigQuery data. The brand scope, the full PII protection, reports and the delete flow follow in Phase 2 (specs 30–37).
 
+The evaluation is ready (specs 20–23): the test sets, the reference results and the runner. The runs on the finished agent follow in Phase 3 (spec 50).
+
 ## Run the prototype
 
 ```bash
@@ -17,6 +19,22 @@ uv run pytest -m live                      # live smoke test: 2 Gemini calls, 1 
 ```
 
 The cost limits for each answer and for each day are in `config/settings.yaml`. The traces of each answer are in `data/traces/`.
+
+## Evaluate the assistant
+
+The evaluation sets are in `evals/sets/`: 50 accuracy questions with checked reference SQL (spec 21), 61 safety cases and a 32-turn conversation (spec 22). The runner (spec 23) shows a plan with the Gemini calls and the cost before it starts. A run with more than 10 planned calls starts only after you type `yes`.
+
+```bash
+uv run opsfleet-eval plan --set accuracy          # the plan only: no Gemini call, free BigQuery dry runs
+uv run opsfleet-eval run --set smoke              # 5 cases, at most 10 Gemini calls, no judge
+uv run opsfleet-eval run --set accuracy           # asks for "yes" (about 216 calls)
+uv run opsfleet-eval run --resume <run_id>        # continue a run that stopped at its cap or the daily limit
+uv run opsfleet-eval snapshot --set accuracy      # refresh the reference results after a data change
+uv run opsfleet-eval review --run <run_id>        # label 10 judged answers blind
+uv run opsfleet-eval compare <run_a> <run_b>      # metric changes and the cases that changed
+```
+
+Each run writes `data/eval/runs/<run_id>/report.md`.
 
 ## Documents
 

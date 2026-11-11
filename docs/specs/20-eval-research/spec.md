@@ -1,6 +1,6 @@
 # Spec 20: Research: evaluation framework and agent best practices
 
-- **Status:** Approved (owner review, 2026-11-11)
+- **Status:** Done (2026-11-11)
 - **Phase and stream:** Phase 2, stream B (evaluation)
 - **Depends on:** 00
 - **Requirements covered:** Req 6 (quality assurance). The best practices also apply to Req 2, 5 and 7 through specs 30, 31, 34 and 36.

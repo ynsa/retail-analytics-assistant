@@ -16,10 +16,10 @@ Each part of the work has one spec. The phases and the order are in [the roadmap
 | 01 | [Walking skeleton](01-walking-skeleton/spec.md) | 1 | 00 | 0 | Done |
 | 10 | [Design document (HLD) and technical explanation](10-design-document/spec.md) | 2 / A | 00 | 3 | Approved |
 | 11 | [Draw.io diagrams](11-drawio-diagrams/spec.md) | 2 / A | 10 | 2 | Approved |
-| 20 | [Research: evaluation and agent best practices](20-eval-research/spec.md) | 2 / B | 00 | 2 | Approved |
-| 21 | [Evaluation dataset](21-eval-dataset/spec.md) | 2 / B | 20 | 3 | Approved |
-| 22 | [Safety and behavior test set](22-safety-test-set/spec.md) | 2 / B | 20 | 3 | Approved |
-| 23 | [Evaluation runner and scoring](23-eval-runner/spec.md) | 2 / B | 20, 21, 22, 37 | 3 | Approved |
+| 20 | [Research: evaluation and agent best practices](20-eval-research/spec.md) | 2 / B | 00 | 2 | Done |
+| 21 | [Evaluation dataset](21-eval-dataset/spec.md) | 2 / B | 20 | 3 | Done |
+| 22 | [Safety and behavior test set](22-safety-test-set/spec.md) | 2 / B | 20 | 3 | Done |
+| 23 | [Evaluation runner and scoring](23-eval-runner/spec.md) | 2 / B | 20, 21, 22, 37 | 3 | Done |
 | 30 | [Query safety](30-query-safety/spec.md) | 2 / C | 00, 01 | 3 | Approved |
 | 31 | [Agent core](31-agent-core/spec.md) | 2 / C | 30 | 3 | Approved |
 | 32 | [Reports](32-reports/spec.md) | 2 / C | 31 | 3 | Approved |
