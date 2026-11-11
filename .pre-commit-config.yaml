@@ -1,0 +1,58 @@
+# Automatic checks before every commit.
+# Install once:   uv run pre-commit install
+# Run on all files: uv run pre-commit run --all-files
+# Update versions:  uv run pre-commit autoupdate
+
+# Files that the hooks must never change:
+# - bq_client.py is the client's file and stays as delivered.
+# - docs/brief/ holds the original assignment text.
+exclude: ^(src/opsfleet_agent/bq_client\.py|docs/brief/)
+
+repos:
+  # General file hygiene and safety
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+      - id: detect-private-key
+
+  # Secret scan of the staged changes (API keys, tokens, credentials)
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.0
+    hooks:
+      - id: gitleaks
+
+  # Python: lint and format
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.4
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
+
+  # uv: the lock file matches pyproject.toml, and requirements.txt matches the lock file
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.13.7
+    hooks:
+      - id: uv-lock
+      - id: uv-export
+        args: [--frozen, --no-dev, --no-hashes, --format=requirements-txt, --output-file=requirements.txt]
+
+  # JavaScript, CSS and JSON for the local UI: lint and format
+  - repo: https://github.com/biomejs/pre-commit
+    rev: v2.6.4
+    hooks:
+      - id: biome-check
+        # Only JS and CSS. Markdown, YAML and JSON keep their own format.
+        files: \.(js|mjs|cjs|ts|css)$
+        additional_dependencies: ["@biomejs/biome@2.6.6"]
