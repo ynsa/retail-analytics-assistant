@@ -1,6 +1,6 @@
 # Spec 31: Agent core
 
-- **Status:** Approved (owner review, 2026-11-11)
+- **Status:** Done (2026-11-11). Implementation notes and deviations are in B7.
 - **Phase and stream:** Phase 2, stream C
 - **Depends on:** 00, 01, 30
 - **Requirements covered:** Req 2 (analysis-only answers, prompt-injection defense) and Req 5 (self-correction). Also the expected capabilities of the brief: customer behavior, product performance, time-based metrics, schema questions and multi-step questions.
@@ -418,3 +418,59 @@ agent:
 - Spec 00 allows 8 model calls for each answer. 3 steps with errors can need more. The budget then stops the turn with the spec 00 message.
 - The architecture (section 6) says "3 attempts for each question". This spec uses 3 for each step. See B1.
 - Spec 21 (B2.2) defines "last month" by the latest `order_items.created_at`. Gap analysis N4 now defines it by today. This spec follows N4. Spec 21 must use the same rule, or the evaluation fails on these cases.
+
+### B7. Implementation notes (2026-11-11)
+
+#### Deviations from this spec
+
+| # | Spec text | Implementation | Reason |
+|---|---|---|---|
+| 1 | B2.2: the route JSON | Four more fields: `schema_kind` (`access` or `data`), `chitchat_kind`, `clarify_question` and `clarify_options`. | Code selects the prepared text and the kind of schema answer from these fields. No second model call is necessary. |
+| 2 | B2.1 and B2.8: `schema_answer` is a model call | An access question (`schema_kind = access`) gets an answer that code writes from `UserContext`, `value_cache.json` and `access_answer.md`. No model call. Other schema questions use the model with `schema_answer.md`. | The access answer must come from the `UserContext` (B2.8). Code text cannot mention a cloud project or a key, and it costs no call. |
+| 3 | B2.1: `explain_block`, `give_up` and the flows go to `finish` | They go to `scan_output`, then to `finish`. | One path for all final texts (spec 30, note 12). |
+| 4 | B2.4: the `give_up` text | "I could not get a valid result after 3 attempts. I tried to answer this: <purpose>. <reason> <help>". Reasons and help texts for each error type are in `replies.yaml`. | It has the three parts of A2.6 and A4. |
+| 5 | "Calculated figures" rule 4: the figure check of spec 32 sends one rewrite request | The chat answer has no rewrite request. A number that no value explains becomes `[figure removed: not traceable]`. The trace records `unverified_figures`. | A simple question must stay at 3 model calls (A5). |
+| 6 | "Calculated figures" rule 4: the numbers that pass | Also: integers from 0 to 12 without a unit ("top 5", "2 brands"), the row counts, the number of the user's brands, numbers in the notes, and numbers in the last 6 answers of the conversation. Dates and years never count as figures. | These numbers are counting words or figures that passed the check before. Without them, normal answers lose words. |
+| 7 | "Calculated figures" rule 2: the placeholder key | `@key` selects a row by a value of a text, ID or year column. An exact match comes first, then a prefix match (`2026-10` matches `2026-10-01`). `&` joins two keys: `r1.revenue@Carhartt&2026-10`. Without `@key`, the reference is the full column (for `sum` and `avg`) or the single row. | A result often has two key columns (brand and month). |
+| 8 | B2.9: the default overview | `write_sql.md` asks for one row with the current figures, the `_prev` figures and the `_change_pct` columns. The SQL computes the changes. | "SQL first" (rule 1 of "Calculated figures"). The model only copies formatted values, so the default overview needs no placeholder. |
+| 9 | B2.3: `active_filters.period` | `period` is the main period of the question. A comparison period goes to `other`. The footer shows the main period. | The footer of the owner's example shows "1–31 Oct 2026", not the two months of the comparison. |
+| 10 | B2.3: the context of `write_sql` | Code adds a `<calendar>` block: today, last month, the month before, this and the last quarter, this and the last year, each with its `TIMESTAMP` condition. | The model copies exact dates and does no date arithmetic. The first live run of spec 30 failed on date arithmetic. |
+| 11 | B2.5: number formatting from the column type and name | The column kind comes from the values and from whole name parts: `pct` or `percent` means percent units, `rate` or `share` with values from 0 to 1 means a fraction, money words (`revenue`, `price`, `cost`, `spend`, `order_value` and others), count words, `_id` and `year`. | BigQuery returns FLOAT64 for money and rates, so the type alone cannot decide. |
+| 12 | B2.7 #6: the prompt-leak check compares with `safety.md` | It compares with `safety.md`, `route.md`, `write_sql.md`, `write_answer.md` and `schema_answer.md`. | The task prompts are also not for the user. `schema_overview.md` and `definitions.md` are not in the list, because a schema answer can quote them. |
+| 13 | Spec 34 owns the pinned facts | `AgentState.pinned` has `format`, `active_filters` and `definitions_in_use`. `finish` writes them. The latest non-empty value of each key wins. | A12 (the format stays) and A2.2 (a follow-up keeps the filters) need them now. Spec 34 extends the field. |
+| 14 | B2.1: `mask_result` | `run_query` keeps the raw result in `TurnContext.scratch`. `mask_result` masks it. Raw rows never go into the state or the checkpoint. | It closes spec 30, note 11. |
+| 15 | B3: the `data_loop` subgraph | The subgraph returns only `turn` (`LoopOutput`). | With the full state, LangGraph adds the `messages` of the subgraph a second time, because the reducer appends. |
+| 16 | B3: prompt files | Prompt files are Jinja2 templates. An HTML comment in a prompt file or in `config/persona.md` is a note for developers. Code removes it before the model sees the text. The access answer has its own template, `access_answer.md`. | Notes for developers stay next to the text. |
+| 17 | B4: live tests | `tests/test_agent_live.py` has the owner's session (group OS) and the 5 capability questions. Only group OS ran (see below). | The budget of this work allowed 10 Gemini calls. The capability test needs about 20. |
+| 18 | A5: "Each answer states the date range" | Each answer with a query result has the footer. A `cannot_answer` answer has no query and no footer. | No period applies. |
+
+#### Changes outside this spec
+
+- `GeminiClient.generate()` has the argument `prompt_version` (span attribute). The detail text of a wrong structured output is the constant `SCHEMA_MISMATCH`. The route node retries once on it.
+- A span of an unexpected exception gets `error_detail` with the exception type only, not the message.
+- `config.py` has `AgentSettings` (section `agent` in `settings.yaml`) and `Settings.project_path()`.
+- New dependency: `jinja2`.
+- The walking-skeleton nodes (`agent/nodes/skeleton.py`) and their tests are deleted. `tests/test_agent_flow.py` keeps the spec 30 cases of the flow.
+- The CLI start note names the active parts.
+
+#### Interfaces for other specs
+
+- `build_graph(checkpointer, flows={"report": ..., "delete": ...})`. Specs 32 and 33 give their own node or subgraph. A flow must set `turn.answer`.
+- `build_data_loop()` gives the subgraph. It ends with `turn.loop_outcome` (`answer`, `give_up`, `policy_block`), or with `turn.answer` after an error that the model cannot correct.
+- `PromptLibrary`: `render()`, `reply()`, `system(task, persona=..., user_format=...)`, `read_persona()`, `version()`, `leaks_prompt()`, `definitions`.
+- `AssistantSession.ask(question) -> TurnResult`. The fields of `TurnResult`: `answer`, `error_type`, `trace_id`, `totals`, `intent`, `route`, `steps`, `executed_sql`, `footer`, `unverified_figures`, `calc_errors`.
+
+#### Tests
+
+- 325 unit tests pass (225 before this spec). They use a fake Gemini and a fake BigQuery: each route, the self-correction limit, two and three steps, defaults and clarify, formatting, the footer, placeholders and the figure check, access answers, prompt layers and the persona, and the prompt-injection cases 17–21.
+- `tests/test_owner_session.py` runs the five turns of group OS with a fake model.
+
+#### Live check (2026-11-11)
+
+Group OS as `maya` in one real session: 9 Gemini calls, 2 queries, 21.0 MB billed (the second query came from the BigQuery cache, 0 bytes).
+
+- OS-01 "hi": the prepared greeting. 1 call.
+- OS-02 and OS-03: the access answer: brand manager, Calvin Klein and Carhartt, the four tables in plain words, the data range 7 Jan 2019 to today, and three example questions. No word about cloud projects. 1 call each, no query.
+- OS-04 "give me the stats for the last nmonth": no question back. Revenue $13,836.87, 219 orders, 222 items sold, average order value $63.18 for 1–31 Oct 2026, with the change against September. The query ran with the brand scope. The footer has the period, the two brands, four definitions and the line "Assumed: last month = 1–31 Oct 2026; figures = default overview; brands = all brands of the user." 3 calls, 1 query.
+- OS-05 "last month": the same figures. 3 calls, 1 query.
+- No figure was removed and no placeholder failed. No answer has a number with more than 2 decimals.
