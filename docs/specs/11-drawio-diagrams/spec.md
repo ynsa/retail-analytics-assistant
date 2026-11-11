@@ -64,7 +64,7 @@ The reviewer sees the system in two pictures. The first picture shows the produc
 
 | | Decision | Choice | Alternatives | Reason |
 |---|---|---|---|---|
-| ⚑ | Export tool | Install the draw.io desktop app with Homebrew (`brew install --cask drawio`). Export with its command line. If the owner does not want the install: export by hand at app.diagrams.net. | A third-party Docker image for draw.io export. A manual export each time. | The draw.io app is not on this Mac (check of 2026-11-11, below). The official app gives a repeatable export with one command. A third-party image is code from an unknown source. |
+| | Export tool | The draw.io desktop app and its command line `drawio`. The owner installed it on 2026-11-11 (version 32.6.10). | A third-party Docker image for draw.io export. A manual export each time. | The official app gives a repeatable export with one command. A third-party image is code from an unknown source. |
 | ⚑ | Image format | PNG at scale 2, white background, with the diagram copy in the file | SVG | draw.io SVG files use `foreignObject` for HTML labels. Some viewers (IDE previews, some Markdown tools) do not show that text. PNG shows the same in all viewers. |
 | | Location | `docs/design/diagrams/` | `docs/diagrams/` | The HLD is in `docs/design/` (spec 10). Short relative links. |
 | | Source format | Uncompressed XML in the `.drawio` file | Compressed XML (the draw.io default in some versions) | A reviewer can read a git diff of uncompressed XML. |
@@ -74,9 +74,9 @@ The reviewer sees the system in two pictures. The first picture shows the produc
 
 | Check | Result |
 |---|---|
-| `ls /Applications/draw.io.app` | No such file. The app is not installed. |
-| `command -v drawio` | No result. No command line tool. |
-| `brew info --cask drawio` | Homebrew 7.0.12 is on the Mac. The cask `drawio` 32.6.10 is available. It is not installed. |
+| `ls /Applications/draw.io.app` | Installed by the owner on 2026-11-11. |
+| `command -v drawio` | `/opt/homebrew/bin/drawio` |
+| `drawio --version` | `32.6.10` |
 | `uname -m` | `arm64` (Apple silicon), macOS 26.6.2 |
 
 **Check of the icon library (2026-11-11).** We read `Sidebar-GCP2.js` in the draw.io source on GitHub (`jgraph/drawio`, branch `dev`).
