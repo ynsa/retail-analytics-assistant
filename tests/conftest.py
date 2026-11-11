@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -11,10 +12,48 @@ import pytest
 
 from opsfleet_agent import tracing
 from opsfleet_agent.bq import QueryResult
-from opsfleet_agent.config import AppConfig, Paths, load_config
+from opsfleet_agent.config import AppConfig, Paths, Role, load_config
+from opsfleet_agent.guard.value_cache import ValueCache
+from opsfleet_agent.identity import UserContext
 from opsfleet_agent.limits import DailyLedger, TurnBudget
 from opsfleet_agent.llm import LlmResponse
+from opsfleet_agent.schema import Schema
 from opsfleet_agent.store.db import connect
+
+FIXTURES = Path(__file__).parent / "fixtures"
+DATASET = "bigquery-public-data.thelook_ecommerce"
+
+
+def T(table: str) -> str:
+    """The full table name in back-quotes (spec 30, B4)."""
+    return f"`{DATASET}.{table}`"
+
+
+def load_test_schema() -> Schema:
+    return Schema.from_cache(
+        json.loads((FIXTURES / "schema.json").read_text(encoding="utf-8")), DATASET
+    )
+
+
+def load_test_values() -> ValueCache:
+    return ValueCache.from_json(
+        (FIXTURES / "value_cache.json").read_text(encoding="utf-8")
+    )
+
+
+# "M" and "C" of spec 30, B4.
+MANAGER = UserContext("m", "M (manager)", Role.MANAGER, ("Calvin Klein", "Levi's"))
+CEO = UserContext("c", "C (ceo)", Role.CEO, ())
+
+
+@pytest.fixture
+def test_schema() -> Schema:
+    return load_test_schema()
+
+
+@pytest.fixture
+def test_values() -> ValueCache:
+    return load_test_values()
 
 
 @pytest.fixture(autouse=True)
@@ -86,10 +125,22 @@ class FakeLLM:
 class FakeBQ:
     results: list[Any] = field(default_factory=list)
     queries: list[str] = field(default_factory=list)
+    params: list[list[Any]] = field(default_factory=list)
+    purposes: list[str] = field(default_factory=list)
 
-    def query(self, sql: str, budget: TurnBudget, **_: Any) -> QueryResult:
+    def query(
+        self,
+        sql: str,
+        budget: TurnBudget,
+        *,
+        params: list[Any] | None = None,
+        purpose: str = "answer",
+        **_: Any,
+    ) -> QueryResult:
         budget.charge_query()
         self.queries.append(sql)
+        self.params.append(list(params or []))
+        self.purposes.append(purpose)
         result = self.results.pop(0)
         if isinstance(result, BaseException):
             raise result
