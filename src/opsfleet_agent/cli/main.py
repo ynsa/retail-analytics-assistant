@@ -16,8 +16,8 @@ app = typer.Typer(
 console = Console()
 
 DEV_NOTE = (
-    "Development build: brand scope is not active yet. "
-    "A basic block of personal-data columns is active."
+    "Development build: brand scope and personal-data protection are active. "
+    "Self-correction, multi-step questions, reports and conversation memory are not active yet."
 )
 
 
@@ -29,6 +29,11 @@ def _root() -> None:
 @app.command()
 def chat(
     user: str = typer.Option(..., "--user", help="User ID from config/users.yaml"),
+    refresh_cache: bool = typer.Option(
+        False,
+        "--refresh-cache",
+        help="Build the value cache again (one small query, about 40 MB billed).",
+    ),
 ) -> None:
     """Start a chat as one user. Type /exit or press Ctrl-D to end."""
     try:
@@ -38,17 +43,28 @@ def chat(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=2) from exc
 
-    from opsfleet_agent.session import AssistantSession, build_services
+    from opsfleet_agent.session import (
+        AssistantSession,
+        build_services,
+        check_user_brands,
+    )
 
-    with console.status("Starting: reading the table schemas…"):
+    with console.status("Starting: reading the table schemas and the value cache…"):
         try:
-            services = build_services(config)
+            services = build_services(config, refresh_cache=refresh_cache)
         except Exception as exc:
             console.print(
                 f"[red]The assistant could not start: {type(exc).__name__}: {exc}[/red]"
             )
             raise typer.Exit(code=1) from exc
-        session = AssistantSession(config, user_ctx, services)
+    try:
+        warnings = check_user_brands(config, services.values, user_ctx.id)
+    except ConfigError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=2) from exc
+    for line in warnings:
+        console.print(f"[yellow]Warning: {line}[/yellow]")
+    session = AssistantSession(config, user_ctx, services)
 
     console.print(f"[bold]Hello, {user_ctx.name}.[/bold] {user_ctx.describe()}")
     console.print(f"[yellow]{DEV_NOTE}[/yellow]")

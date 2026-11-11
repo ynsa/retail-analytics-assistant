@@ -687,3 +687,23 @@ def test_guard_bug_never_passes(guards, monkeypatch):
     result = guard.check(f"SELECT COUNT(*) FROM {T('orders')}")
     assert result.outcome is PARSE and result.reason_code == "unverifiable"
     assert result.internal_error
+
+
+# The read-only queries of the spec 01 minimal guard (removed by spec 30) still pass.
+@pytest.mark.parametrize(
+    "sql",
+    [
+        f"SELECT COUNT(*) FROM {T('orders')} WHERE EXTRACT(YEAR FROM created_at) = 2024",
+        (
+            "SELECT p.brand, SUM(oi.sale_price) AS revenue FROM thelook_ecommerce.order_items oi "
+            "JOIN thelook_ecommerce.products p ON p.id = oi.product_id GROUP BY 1"
+        ),
+        f"WITH x AS (SELECT user_id FROM {T('order_items')}) SELECT COUNT(DISTINCT user_id) FROM x",
+        f"SELECT state, COUNT(*) FROM {T('users')} GROUP BY state",
+        f"SELECT COUNT(*) AS n FROM {T('users')}",
+        f"SELECT status FROM {T('orders')} UNION ALL SELECT status FROM {T('order_items')}",
+    ],
+)
+@pytest.mark.parametrize("role", ["M", "C"])
+def test_spec_01_read_only_queries_still_pass(guards, role, sql):
+    assert run(guards, role, sql).passed

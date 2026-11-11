@@ -18,7 +18,13 @@ from opsfleet_agent.config import AppConfig
 from opsfleet_agent.identity import resolve_user
 from opsfleet_agent.llm import classify_llm_error
 from opsfleet_agent.session import AssistantSession
-from tests.conftest import FakeBQ, FakeLLM, frame_result
+from tests.conftest import (
+    FakeBQ,
+    FakeLLM,
+    frame_result,
+    load_test_schema,
+    load_test_values,
+)
 
 
 @pytest.fixture
@@ -34,7 +40,8 @@ def make_session(
             settings=config.settings,
             llm=llm,
             bq=bq,
-            schema_text="`bigquery-public-data.thelook_ecommerce.orders`(order_id INTEGER)",
+            schema=load_test_schema(),
+            values=load_test_values(),
             prompts=load_prompts(),
         )
         session = AssistantSession(
@@ -152,11 +159,16 @@ def test_gemini_timeout_gives_one_sentence(make_session):
 
 
 def test_empty_result_is_reported(make_session):
-    llm = FakeLLM([{"sql": SQL, "explanation": "x", "reply": None}])
-    bq = FakeBQ([frame_result(pd.DataFrame({"orders": []}))])
+    llm = FakeLLM(
+        [{"sql": SQL, "explanation": "x", "reply": None}, "No data for this question."]
+    )
+    probe = frame_result(pd.DataFrame({"n": [3]}))  # check 3: maya's brands have items
+    bq = FakeBQ([frame_result(pd.DataFrame({"orders": []})), probe])
     session, _, _ = make_session(llm=llm, bq=bq)
     result = session.ask("Orders in 1990?")
     assert result.error_type == "empty_result"
+    assert result.answer == "No data for this question."
+    assert "The data covers" in llm.calls[1]["prompt"]
 
 
 def test_unexpected_bug_does_not_stop_the_chat(make_session):
@@ -198,3 +210,166 @@ def test_daily_limit_stops_the_turn_with_its_message(make_session, ledger, confi
     assert result.error_type == "limit_exceeded"
     assert "daily limit of model calls" in result.answer
     assert llm.calls == []
+
+
+# --- spec 30 in the flow -----------------------------------------------------------------------
+
+T_ITEMS = "`bigquery-public-data.thelook_ecommerce.order_items`"
+
+
+def test_manager_query_runs_scoped_with_the_brand_parameter(make_session, config):
+    llm = FakeLLM([{"sql": SQL, "explanation": "x", "reply": None}, "1,200 orders."])
+    bq = FakeBQ([frame_result(pd.DataFrame({"orders": [1200]}))])
+    session, _, _ = make_session("maya", llm=llm, bq=bq)
+    session.ask("How many orders?")
+    assert "IN UNNEST(@scope_brands)" in bq.queries[0]
+    assert bq.params[0][0].values == ["Calvin Klein", "Carhartt"]
+    assert "Calvin Klein, Carhartt" in llm.calls[0]["prompt"]  # the scope line
+    assert "Calvin Klein, Carhartt" in llm.calls[1]["prompt"]
+    guard_spans = [r for r in spans(config) if r["name"] == "guard.check"]
+    assert guard_spans[0]["attributes"]["rewritten"] is True
+
+
+def test_ceo_query_runs_without_parameters(make_session):
+    llm = FakeLLM([{"sql": SQL, "explanation": "x", "reply": None}, "41,000 orders."])
+    bq = FakeBQ([frame_result(pd.DataFrame({"orders": [41000]}))])
+    session, _, _ = make_session("ceo", llm=llm, bq=bq)
+    session.ask("How many orders?")
+    assert bq.params == [[]] and "scope_brands" not in bq.queries[0]
+
+
+def test_model_schema_has_no_pii_and_no_num_of_item_for_a_manager(make_session):
+    llm = FakeLLM([{"sql": None, "explanation": "", "reply": "OK"}])
+    session, _, _ = make_session("maya", llm=llm)
+    session.ask("What data do you have?")
+    schema = "\n".join(
+        line
+        for line in llm.calls[0]["prompt"].splitlines()
+        if "thelook_ecommerce." in line
+    )
+    assert schema.count("thelook_ecommerce.") == 4
+    for hidden in ("email", "first_name", "latitude", "user_geom", "num_of_item"):
+        assert hidden not in schema
+    assert "traffic_source" in schema
+
+
+@pytest.mark.parametrize(
+    ("sql", "message"),
+    [
+        (
+            "SELECT u.id, u.email FROM `bigquery-public-data.thelook_ecommerce.users` u",
+            "I cannot show or use personal data",
+        ),
+        (
+            (
+                f"SELECT SUM(oi.sale_price) FROM {T_ITEMS} oi JOIN "
+                "`bigquery-public-data.thelook_ecommerce.products` p ON p.id = oi.product_id "
+                "WHERE p.brand = 'Nike'"
+            ),
+            "Nike is outside your brands. Your brands are Calvin Klein and Carhartt.",
+        ),
+        (
+            (
+                "SELECT u.id FROM `bigquery-public-data.thelook_ecommerce.users` u "
+                "WHERE u.state = 'California'"
+            ),
+            "I cannot show a single customer together with",
+        ),
+    ],
+)
+def test_policy_block_ends_the_turn_without_retry_and_query(make_session, sql, message):
+    llm = FakeLLM([{"sql": sql, "explanation": "x", "reply": None}])
+    session, _, bq = make_session("maya", llm=llm)
+    result = session.ask("Show me something forbidden")
+    assert result.error_type == "guard_policy_block"
+    assert message in result.answer
+    assert bq.queries == [] and len(llm.calls) == 1
+
+
+def test_parse_error_keeps_the_feedback_for_spec_31(make_session):
+    sql = "SELECT * FROM `bigquery-public-data.thelook_ecommerce.orders`"
+    llm = FakeLLM([{"sql": sql, "explanation": "x", "reply": None}])
+    session, _, bq = make_session("ceo", llm=llm)
+    result = session.ask("Show all orders")
+    assert result.error_type == "guard_parse_error" and bq.queries == []
+    state = session.graph.get_state(
+        {"configurable": {"thread_id": session.conversation_id}}
+    )
+    assert "List the columns by name" in state.values["turn"]["model_feedback"]
+
+
+def test_rows_are_masked_before_the_answer_prompt(make_session):
+    sql = (
+        "SELECT p.name, COUNT(*) AS n FROM `bigquery-public-data.thelook_ecommerce.products` p "
+        "GROUP BY p.name"
+    )
+    frame = pd.DataFrame({"name": ["Jeans ann@x.com", "Shirt"], "n": [3, 4]})
+    llm = FakeLLM([{"sql": sql, "explanation": "x", "reply": None}, "Two products."])
+    session, _, _ = make_session("ceo", llm=llm, bq=FakeBQ([frame_result(frame)]))
+    session.ask("Products?")
+    prompt = llm.calls[1]["prompt"]
+    assert "ann@x.com" not in prompt and "[masked]" in prompt
+    assert '<data source="query" ref="r1">' in prompt
+
+
+def test_answer_is_scanned_before_the_user_sees_it(make_session):
+    llm = FakeLLM(
+        [
+            {"sql": SQL, "explanation": "x", "reply": None},
+            "Top customer anna@example.com spent $1,200.50.",
+        ]
+    )
+    bq = FakeBQ([frame_result(pd.DataFrame({"orders": [1]}))])
+    session, _, _ = make_session("ceo", llm=llm, bq=bq)
+    result = session.ask("Top customer?")
+    assert "anna@example.com" not in result.answer
+    assert "[removed]" in result.answer and "$1,200.50" in result.answer
+    assert "looked like personal data" in result.answer
+
+
+def test_model_reply_without_sql_is_also_scanned(make_session):
+    llm = FakeLLM([{"sql": None, "explanation": "", "reply": "Mail me at a@b.com"}])
+    session, _, _ = make_session("ceo", llm=llm)
+    assert "a@b.com" not in session.ask("hi").answer
+
+
+def test_empty_result_with_a_wrong_value_tells_the_error_and_needs_no_answer_call(
+    make_session,
+):
+    sql = (
+        "SELECT COUNT(*) AS n FROM `bigquery-public-data.thelook_ecommerce.orders` "
+        "WHERE status = 'completed'"
+    )
+    llm = FakeLLM([{"sql": sql, "explanation": "x", "reply": None}])
+    bq = FakeBQ([frame_result(pd.DataFrame({"n": []}))])
+    session, _, _ = make_session("ceo", llm=llm, bq=bq)
+    result = session.ask("Completed orders?")
+    assert result.error_type == "empty_result" and len(llm.calls) == 1
+    assert "'completed' does not exist" in result.answer
+    state = session.graph.get_state(
+        {"configurable": {"thread_id": session.conversation_id}}
+    )
+    assert "Complete" in state.values["turn"]["model_feedback"]
+
+
+def test_wrong_brand_of_the_user_stops_the_start(config, test_values):
+    from opsfleet_agent.errors import ConfigError
+    from opsfleet_agent.session import check_user_brands
+
+    users = config.users.model_copy(
+        update={
+            "users": [
+                *config.users.users,
+                config.users.users[2].model_copy(
+                    update={"id": "zoe", "brands": ["Levis"]}
+                ),
+            ]
+        }
+    )
+    bad = config.model_copy(update={"users": users})
+    with pytest.raises(ConfigError, match="Close names: Levi's"):
+        check_user_brands(bad, test_values, "zoe")
+    warnings = check_user_brands(bad, test_values, "maya")
+    assert warnings == [
+        "Brand 'Levis' for user 'zoe' does not exist in the data. Close names: Levi's."
+    ]

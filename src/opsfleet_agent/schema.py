@@ -68,15 +68,6 @@ class Schema:
         return {self.project: {self.dataset_name: self.tables}}
 
 
-def schema_to_text(schema: dict[str, list[dict]], dataset: str) -> str:
-    """One line for each table: `dataset.table(column TYPE, ...)`."""
-    lines = []
-    for table, fields in schema.items():
-        cols = ", ".join(f"{f['name']} {f['type']}" for f in fields)
-        lines.append(f"`{dataset}.{table}`({cols})")
-    return "\n".join(lines)
-
-
 def model_schema_text(schema: Schema, manager: bool) -> str:
     """One line for each table: `dataset.table(column TYPE, ...)`, without hidden columns."""
     lines = []

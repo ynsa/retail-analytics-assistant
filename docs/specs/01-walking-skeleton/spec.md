@@ -21,7 +21,7 @@ A thin path works from end to end on the first day. A user starts the CLI, asks 
 4. **An error.** If BigQuery or Gemini fails, the assistant says that it could not answer and why, in one sentence. The chat continues.
 5. **Exit.** `/exit` or Ctrl-D ends the chat.
 
-In this version, the brand scope, the full PII protection, the self-correction and the reports are not active yet. Specs 30–33 add them. The minimal guard already blocks the direct PII columns and `SELECT *` on `users`, so no personal data reaches the model, also in development (added during the implementation, 2026-11-11). The skeleton prints this note at the start: "Development build: brand scope is not active yet. A basic block of personal-data columns is active."
+In this version, the brand scope, the full PII protection, the self-correction and the reports are not active yet. Specs 30–33 add them. The minimal guard already blocks the direct PII columns and `SELECT *` on `users`, so no personal data reaches the model, also in development (added during the implementation, 2026-11-11). The skeleton prints this note at the start: "Development build: brand scope is not active yet. A basic block of personal-data columns is active." (2026-11-11: spec 30 replaced the minimal guard with the full SQL guard. The start note now says which parts are still missing.)
 
 ### A3. Scope
 

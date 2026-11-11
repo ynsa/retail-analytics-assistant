@@ -6,17 +6,28 @@ This repository contains the design and a command-line prototype for the OpsFlee
 
 ## Status
 
-Phase 1 is done: the foundation (spec 00) and the walking skeleton (spec 01). A user can ask a simple data question in the terminal and get an answer from the real BigQuery data. The brand scope, the full PII protection, reports and the delete flow follow in Phase 2 (specs 30–37).
+Phase 1 is done: the foundation (spec 00) and the walking skeleton (spec 01). A user can ask a simple data question in the terminal and get an answer from the real BigQuery data.
+
+Phase 2 has started. Query safety (spec 30) is active:
+
+- Each manager sees only the data of their brands. Code rewrites every query to the brand scope.
+- Personal data never reaches the model or the user. The SQL guard blocks PII columns, and it blocks a single customer together with a location, age, gender or traffic source. The result masker cleans the rows, and the output scanner cleans the answer.
+- When a query returns no rows, the assistant checks if the data is really empty or if the query has an error.
+
+Self-correction, multi-step questions, reports, the delete flow and the conversation memory follow in Phase 2 (specs 31–37).
 
 ## Run the prototype
 
 ```bash
 uv run opsfleet-agent chat --user maya     # users: ceo, maya, alex (config/users.yaml)
+uv run opsfleet-agent chat --user maya --refresh-cache   # build the value cache again
 uv run pytest                              # unit tests, no network
-uv run pytest -m live                      # live smoke test: 2 Gemini calls, 1 small query
+uv run pytest -m live                      # live tests: see the cost in each test file
 ```
 
 The cost limits for each answer and for each day are in `config/settings.yaml`. The traces of each answer are in `data/traces/`.
+
+At the first start, the assistant builds `data/value_cache.json` with one small query (about 40 MB billed). The cache holds the brand names, the filter values and the date range of the data. The assistant builds it again after 7 days. The start stops when a brand in `config/users.yaml` does not exist in the data, and the message gives the close names.
 
 ## Documents
 
