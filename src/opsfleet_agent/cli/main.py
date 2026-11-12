@@ -12,6 +12,9 @@ input and shows the results.
 
 from __future__ import annotations
 
+import os
+import stat
+import sys
 from datetime import UTC, datetime
 
 import typer
@@ -22,6 +25,7 @@ from opsfleet_agent.config import AppConfig, load_config
 from opsfleet_agent.errors import ConfigError
 from opsfleet_agent.startup import (
     StartError,
+    check_data_dir,
     check_secrets,
     check_user,
     start_services,
@@ -48,10 +52,31 @@ def _ui(config: AppConfig | None = None) -> Ui:
 
 def _config(ui: Ui) -> AppConfig:
     try:
-        return load_config()
+        config = load_config()
+        check_data_dir(config)
     except ConfigError as exc:
         ui.line(str(exc), "red")
         raise typer.Exit(code=2) from exc
+    except StartError as exc:
+        ui.line(exc.message, "red")
+        raise typer.Exit(code=exc.exit_code) from exc
+    return config
+
+
+NO_TERMINAL = "The chat needs an interactive terminal. Run docker with -it."
+
+
+def stdin_is_closed() -> bool:
+    """True when stdin is a device but not a terminal, for example `/dev/null`.
+
+    `docker run` without `-i` gives the container `/dev/null` as stdin, so the chat would end at
+    once (spec 53, A4). A terminal and piped input (`printf ... | opsfleet-agent chat`) pass."""
+    try:
+        mode = os.fstat(sys.stdin.fileno()).st_mode
+        return stat.S_ISCHR(mode) and not sys.stdin.isatty()
+    # No stdin, or a test stream without a file descriptor.
+    except (AttributeError, OSError, ValueError):
+        return False
 
 
 @app.callback()
@@ -75,6 +100,9 @@ def chat(
     ),
 ) -> None:
     """Start a chat as one user. Type /help for the commands, /exit or Ctrl-D to end."""
+    if stdin_is_closed():
+        Ui().line(NO_TERMINAL, "red")
+        raise typer.Exit(code=2)
     config = _config(Ui())
     ui = _ui(config)
     if debug:

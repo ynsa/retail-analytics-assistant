@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import io
+import os
 import re
+import sys
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -642,6 +645,51 @@ def test_16_unknown_user(monkeypatch, config):
     assert "User 'nobody' is not in config/users.yaml." in out.output
 
 
+def test_closed_stdin_asks_for_docker_it(monkeypatch, config):
+    """Spec 53, A4: `docker run` without `-i` gives /dev/null as stdin."""
+    monkeypatch.setattr(cli, "load_config", lambda: config)
+    monkeypatch.setattr(cli, "stdin_is_closed", lambda: True)
+    out = runner.invoke(app, ["chat", "--user", "maya"])
+    assert out.exit_code == 2
+    assert cli.NO_TERMINAL in out.output
+
+
+def test_stdin_is_closed_only_for_a_device_that_is_not_a_terminal(monkeypatch):
+    with open(os.devnull) as devnull:
+        monkeypatch.setattr(sys, "stdin", devnull)
+        assert cli.stdin_is_closed()
+    read_end, write_end = os.pipe()
+    with os.fdopen(read_end) as pipe, os.fdopen(write_end, "w"):
+        monkeypatch.setattr(sys, "stdin", pipe)
+        # Piped input: printf ... | opsfleet-agent chat
+        assert not cli.stdin_is_closed()
+    monkeypatch.setattr(sys, "stdin", io.StringIO("text"))
+    assert not cli.stdin_is_closed()  # no file descriptor (CliRunner)
+    monkeypatch.setattr(sys, "stdin", None)
+    assert not cli.stdin_is_closed()
+
+
+def test_16_data_folder_not_writable(monkeypatch, config, tmp_path):
+    """Spec 53, B6: Docker on Linux without --user cannot write to the host data folder."""
+    from opsfleet_agent.config import Paths
+
+    blocked = tmp_path / "blocked"
+    blocked.write_text(
+        "a file, not a folder"
+    )  # mkdir fails as for a folder without rights
+    settings = config.settings.model_copy(
+        update={"paths": Paths(data_dir=blocked / "data")}
+    )
+    cfg = config.model_copy(update={"settings": settings})
+    monkeypatch.setattr(cli, "load_config", lambda: cfg)
+    for args in (["chat", "--user", "maya"], ["stats", "--all"], ["purge"]):
+        out = runner.invoke(app, args)
+        assert out.exit_code == 2, args
+        assert "Cannot write to the data folder" in out.output
+        assert '--user "$(id -u):$(id -g)"' in out.output
+        assert "Traceback" not in out.output
+
+
 def test_16_missing_env_value(monkeypatch, config):
     from opsfleet_agent.config import Secrets
 
@@ -698,6 +746,37 @@ def test_16_wrong_brand_and_bigquery_down(monkeypatch, config):
     assert startup.start_error(gexc.ServiceUnavailable("x")).startswith(
         "The assistant could not start."
     )
+
+
+def test_16_start_error_shows_one_message_and_logs_the_details(
+    monkeypatch, config, capfd
+):
+    """Spec 53, A5: without credentials, the client's BigQuery file logs an error on the root
+    logger. The log goes to data/logs. The screen shows only the message."""
+    import logging
+
+    from opsfleet_agent.config import Secrets
+
+    cfg = config.model_copy(
+        update={"secrets": Secrets(google_api_key="k", google_cloud_project="p")}
+    )
+    monkeypatch.setattr(cli, "load_config", lambda: cfg)
+
+    def no_credentials(*_a, **_k):
+        # The same call as in bq_client.py (the root logger).
+        logging.error("Failed to initialize BigQuery client: no creds")  # noqa: LOG015
+        exc = type("DefaultCredentialsError", (Exception,), {})
+        raise exc("Your default credentials were not found.")
+
+    import opsfleet_agent.session as session_module
+
+    monkeypatch.setattr(session_module, "build_services", no_credentials)
+    out = runner.invoke(app, ["chat", "--user", "maya"])
+    assert out.exit_code == 3
+    assert "gcloud auth application-default login" in out.output
+    assert "Failed to initialize" not in out.output + capfd.readouterr().err
+    logs = list(cfg.settings.data_path("logs").glob("*.jsonl"))
+    assert logs and "Failed to initialize" in logs[0].read_text()
 
 
 # --- B4 #17: progress events ------------------------------------------------------------------------

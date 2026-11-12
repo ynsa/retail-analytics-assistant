@@ -7,6 +7,7 @@ B2.6. The start also runs the retention cleanup of spec 35 (B2.5).
 from __future__ import annotations
 
 import logging
+import tempfile
 import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -57,6 +58,24 @@ def check_secrets(config: AppConfig) -> None:
             raise StartError(f"{name} is not set. See the setup guide.", 2)
 
 
+def check_data_dir(config: AppConfig) -> None:
+    """The assistant writes its databases, traces and report files in the data folder.
+
+    In Docker on Linux, the bind mount keeps the owner of the host folder. Without
+    `--user "$(id -u):$(id -g)"`, the container user cannot write to it (spec 53, B6)."""
+    path = config.settings.data_path()
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryFile(dir=path, prefix=".write-check-"):
+            pass
+    except OSError as exc:
+        raise StartError(
+            f"Cannot write to the data folder {path} ({exc.strerror or exc}). "
+            'With Docker on Linux, add --user "$(id -u):$(id -g)" to the docker run command.',
+            2,
+        ) from exc
+
+
 def check_resume(config: AppConfig, user_id: str, conversation_id: str) -> None:
     """The conversation of this user, at most 90 days old (spec 34)."""
     settings = config.settings
@@ -99,8 +118,13 @@ def start_services(config: AppConfig, refresh_cache: bool = False) -> Any:
 
     `start_session()` builds them for one chat. The local UI builds them once and gives them to
     `start_session()` for each conversation."""
+    from opsfleet_agent.resilience.safe_node import init_logging
     from opsfleet_agent.session import build_services
 
+    # The log records of the start go to data/logs, not to the screen. Without a handler,
+    # Python prints them on stderr: for example the error line of the client's BigQuery file
+    # when no credentials are found (spec 53, A5: one message only).
+    init_logging(config.settings.data_path("logs"))
     try:
         with warnings.catch_warnings():
             # google-auth warns about user credentials without a quota project. The free
