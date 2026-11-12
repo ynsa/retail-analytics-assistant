@@ -23,21 +23,18 @@ from opsfleet_agent.agent.calc import (
     result_numbers,
 )
 from opsfleet_agent.agent.footer import build_footer
-from opsfleet_agent.agent.formatting import data_block
 from opsfleet_agent.agent.nodes.common import (
     INTERNAL_MESSAGE,
     brands_text,
-    history_text,
     is_manager,
     node,
-    pinned_text,
     turn_of,
     user_format,
 )
 from opsfleet_agent.agent.periods import Calendar
 from opsfleet_agent.agent.state import AgentState, TurnContext, TurnState
+from opsfleet_agent.memory.context_builder import ModelRequest, builder_of
 
-ANSWER_HISTORY_TURNS = 2
 TRACEABLE_HISTORY_MESSAGES = 6
 
 
@@ -52,17 +49,23 @@ def _definitions(ctx: TurnContext, turn: TurnState) -> str:
     return "\n".join(lines) or "(none)"
 
 
-def build_contents(state: AgentState, ctx: TurnContext, turn: TurnState) -> str:
+def build_request(
+    state: AgentState, ctx: TurnContext, turn: TurnState, system: str
+) -> ModelRequest:
+    """The context of `write_answer` (spec 34, B2.1): the pinned facts, the summary, the recent
+    turns, the definitions and notes of this turn, the data blocks and the question."""
     notes = "\n".join(f"- {n}" for n in turn.get("notes") or []) or "(none)"
-    parts = [
-        f"<pinned>\n{pinned_text(state.get('pinned'))}\n</pinned>",
-        f"<history>\n{history_text(state, ANSWER_HISTORY_TURNS)}\n</history>",
-        f"<definitions>\n{_definitions(ctx, turn)}\n</definitions>",
-        f"<notes>\n{notes}\n</notes>",
-        *(data_block(r) for r in turn.get("results") or []),
-        f"<user_message>\n{turn['question']}\n</user_message>",
-    ]
-    return "\n\n".join(parts)
+    return builder_of(ctx.services).build(
+        "write_answer",
+        system=system,
+        state=state,
+        middle=[
+            f"<definitions>\n{_definitions(ctx, turn)}\n</definitions>",
+            f"<notes>\n{notes}\n</notes>",
+        ],
+        results=list(turn.get("results") or []),
+        user_message=turn["question"],
+    )
 
 
 def allowed_numbers(
@@ -132,10 +135,11 @@ def write_answer(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, 
             f"scope_phrase.{scope_key}", brands=brands_text(user.brands)
         ),
     )
+    request = build_request(state, ctx, turn, system)
     result = ctx.services.llm.generate(
         ctx.budget,
-        system=system,
-        prompt=build_contents(state, ctx, turn),
+        system=request.system,
+        prompt=request.prompt,
         purpose="write_answer",
         prompt_version=lib.version("safety", "write_answer", "definitions"),
     )

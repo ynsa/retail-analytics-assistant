@@ -2,6 +2,10 @@
 
 The route call never sees query results, so data cannot change the route. If the JSON is not
 valid after a second attempt, the intent is `analysis`: the guard still protects the data.
+
+The context has the pinned facts and the last 2 turns (spec 34, B2.1), not the summary. The format
+request and the filters and terms that the user sets for the conversation go into the pinned facts
+at once, so the next nodes of the same turn use them.
 """
 
 from __future__ import annotations
@@ -11,19 +15,15 @@ from typing import Any, Literal
 from langgraph.runtime import Runtime
 from pydantic import BaseModel, Field, ValidationError
 
-from opsfleet_agent.agent.nodes.common import (
-    history_text,
-    is_manager,
-    node,
-    pinned_text,
-    turn_of,
-)
+from opsfleet_agent.agent.nodes.common import is_manager, node, turn_of
 from opsfleet_agent.agent.state import AgentState, TurnContext
 from opsfleet_agent.errors import AgentError
 from opsfleet_agent.llm import SCHEMA_MISMATCH
+from opsfleet_agent.memory.context_builder import builder_of
+from opsfleet_agent.memory.pinned import with_route_facts
 
-ROUTE_HISTORY_TURNS = 2
 ROUTE_ATTEMPTS = 2
+NO_FACT_INTENTS = frozenset({"unsafe", "off_topic"})
 
 
 class ReportRequest(BaseModel):
@@ -40,6 +40,20 @@ class DeleteRequest(BaseModel):
     ids: list[str] = Field(default_factory=list)
 
 
+class StandingFilter(BaseModel):
+    """A filter that the user sets for the rest of the conversation (spec 34, B7)."""
+
+    field: str
+    value: str | None = None  # None removes the filter on this field
+
+
+class TermDefinition(BaseModel):
+    """A term that the user defines for the conversation, for example "big order"."""
+
+    term: str
+    meaning: str
+
+
 class RouteDecision(BaseModel):
     intent: Literal[
         "analysis",
@@ -53,7 +67,7 @@ class RouteDecision(BaseModel):
     ]
     follow_up: bool = False
     format_request: Literal["table", "bullets", "short", "detailed"] | None = None
-    schema_kind: Literal["access", "data"] | None = None
+    schema_kind: Literal["access", "data", "conversation"] | None = None
     chitchat_kind: (
         Literal["greeting", "thanks", "acknowledgement", "format_only"] | None
     ) = None
@@ -64,6 +78,10 @@ class RouteDecision(BaseModel):
     clarify_options: list[str] = Field(default_factory=list)
     report_request: ReportRequest | None = None
     delete_request: DeleteRequest | None = None
+    # Spec 34: facts that the user sets for the conversation. Code pins them.
+    set_filters: list[StandingFilter] = Field(default_factory=list)
+    clear_filters: bool = False
+    set_definitions: list[TermDefinition] = Field(default_factory=list)
 
 
 FALLBACK = RouteDecision(intent="analysis")
@@ -86,18 +104,16 @@ def route(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any]:
         role=user.role.value,
         brands=", ".join(user.brands) if is_manager(user) else "all brands",
     )
-    contents = (
-        f"<pinned>\n{pinned_text(state.get('pinned'))}\n</pinned>\n\n"
-        f"<history>\n{history_text(state, ROUTE_HISTORY_TURNS)}\n</history>\n\n"
-        f"<user_message>\n{turn['question']}\n</user_message>"
+    request = builder_of(ctx.services).build(
+        "route", system=system, state=state, user_message=turn["question"]
     )
     decision = FALLBACK
     for _ in range(ROUTE_ATTEMPTS):
         try:
             result = ctx.services.llm.generate(
                 ctx.budget,
-                system=system,
-                prompt=contents,
+                system=request.system,
+                prompt=request.prompt,
                 schema=RouteDecision,
                 purpose="route",
                 prompt_version=lib.version("safety", "route"),
@@ -109,7 +125,13 @@ def route(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any]:
         decision = result.parsed
         break
     route_data = decision.model_dump(exclude_none=True)
-    return {"turn": {**turn, "intent": decision.intent, "route": route_data}}
+    # Spec 34: the format and the facts that the user set apply from this turn on. An unsafe or
+    # off-topic message sets no fact.
+    facts = route_data if decision.intent not in NO_FACT_INTENTS else {}
+    return {
+        "turn": {**turn, "intent": decision.intent, "route": route_data},
+        "pinned": with_route_facts(state.get("pinned"), facts),
+    }
 
 
 def next_after_route(state: AgentState) -> str:

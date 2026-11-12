@@ -194,3 +194,9 @@ errors:
   stopped: Stopped.
   not_saved: This turn is not saved.
   trace: "Trace: {{ trace }}."
+
+# Long conversations (spec 34).
+memory:
+  noted: "OK. I will use this for the next answers of this conversation: {{ facts }}."
+  filters_cleared: no standing filters
+  filter_removed: "no filter on {{ field }}"

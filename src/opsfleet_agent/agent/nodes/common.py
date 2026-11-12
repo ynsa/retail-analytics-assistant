@@ -113,27 +113,6 @@ def scope_text(user: UserContext) -> str:
     )
 
 
-def history_text(state: AgentState, turns: int) -> str:
-    """The last turns before the current question, as a record (a `<history>` block)."""
-    messages = (state.get("messages") or [])[:-1]
-    recent = messages[-(turns * 2) :] if turns else []
-    if not recent:
-        return "(none)"
-    return "\n".join(f"{m['role']}: {m['text'][:600]}" for m in recent)
-
-
-def pinned_text(pinned: dict[str, Any] | None) -> str:
-    """The pinned facts as short YAML-like lines (spec 34 extends them)."""
-    if not pinned:
-        return "(none)"
-    lines = []
-    for key in ("format", "active_filters", "definitions_in_use"):
-        value = pinned.get(key)
-        if value:
-            lines.append(f"{key}: {value}")
-    return "\n".join(lines) or "(none)"
-
-
 def user_format(state: AgentState, turn: TurnState) -> str | None:
     """The format of this turn's request, else the pinned format (the latest wins)."""
     route = turn.get("route") or {}

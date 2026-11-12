@@ -40,7 +40,14 @@ Resilience (spec 36) is active:
 - Each failure message ends with a trace ID, for example "Trace: 4f2a9c1e." The details go to `data/logs/agent.log`. The chat never stops after an error. Ctrl-C stops the current answer and the running query.
 - The daily limits reset at midnight Pacific time, as the Gemini free tier does.
 
-The long-conversation memory, the statistics and the full CLI follow in Phase 2 (specs 34, 35 and 37).
+The long-conversation memory (spec 34) is active:
+
+- The assistant keeps the last 4 to 8 turns word for word, and a short summary of the older turns. The cost of a turn does not grow with the length of the conversation.
+- Code keeps the important facts of the conversation: the user and the brands, the format, the active period and filters, the definitions, the filters and terms that the user set ("use only the Women department until I say otherwise"), and the reports of the conversation.
+- Query results stay out of the prompt: the history has a short reference, and the full masked rows stay in `data/app.db` for 30 days. "Save this as a report" uses them without a new query.
+- At the end of a chat, the CLI shows the conversation ID. `--resume <ID>` continues the conversation for 90 days. A user can resume only the own conversations.
+
+The statistics and the full CLI follow in Phase 2 (specs 35 and 37).
 
 The production design document and the diagrams (specs 10 and 11) are ready for review.
 
@@ -57,6 +64,8 @@ The evaluation is ready (specs 20–23): the test sets, the reference results an
 ```bash
 uv run opsfleet-agent chat --user maya     # users: ceo, maya, alex (config/users.yaml)
 uv run opsfleet-agent chat --user maya --refresh-cache   # build the value cache again
+uv run opsfleet-agent chat --user maya --resume C-8M2QX  # continue a saved conversation
+uv run opsfleet-agent conversations --user maya          # the conversations of the last 90 days
 uv run pytest                              # unit tests, no network
 uv run pytest -m live                      # live tests: see the cost in each test file
 ```

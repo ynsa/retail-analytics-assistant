@@ -36,6 +36,23 @@ limits:
     max_bq_bytes_billed: 20000000000   # 20 GB
     reset_timezone: America/Los_Angeles  # Google resets the free-tier quota at midnight Pacific time
 
+context:                           # spec 34: the context of each model call and the memory
+  max_tokens_per_call: 14000       # the estimate of one call; the builder cuts above it
+  chars_per_token: 3.5             # the local token estimate (no count_tokens call)
+  window_max_turns: 8              # turns kept word for word
+  fold_turns: 4                    # turns that one summary call folds
+  summary_max_words: 400
+  history_answer_max_tokens: 300   # each answer in the history
+  result_preview_rows: 5           # rows of a result reference in the history
+  result_cache_days: 30            # "save the last answer as a report" works for 30 days
+  resume_max_days: 90              # --resume works for 90 days after the last turn
+  history_tokens: 3000
+  summary_tokens: 600
+  data_tokens: 6000
+  cut_rows: 20                     # rows of each result when the data blocks are too long
+  route_history_turns: 2
+  summary_min_seconds: 10          # the summary call needs this time left in the turn
+
 resilience:                        # spec 36
   bq_dry_run_timeout_s: 10
   bq_retries: 1                    # only for temporary errors (backendError, 500, 503, ...)

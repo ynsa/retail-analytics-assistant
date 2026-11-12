@@ -1,6 +1,6 @@
 # Spec 34: Long conversations and memory
 
-- **Status:** Approved (owner review, 2026-11-11)
+- **Status:** Done (2026-11-12)
 - **Phase and stream:** Phase 2, stream C
 - **Depends on:** 00, 31, 32 (the result references for "save this as a report"), 33 (the pending confirmation at resume)
 - **Requirements covered:** "discuss about it" in the brief. Part of Req 5 (no cost growth in long chats). Part of Req 7 (the conversation log).
@@ -284,3 +284,52 @@ Unit tests with a fake Gemini that records each request:
 - The estimate of 3.5 characters for each token can be wrong for JSON and tables. The trace stores the real count from Gemini, and the setting can change.
 - Implicit caching depends on the model and the tier. The design does not depend on it.
 - The checkpoints in `data/checkpoints.db` grow with each step. The compact window keeps each checkpoint small. Spec 35 handles the retention.
+
+### B7. Implementation notes (2026-11-12)
+
+#### Deviations from this spec
+
+| # | Spec text | Implementation | Reason |
+|---|---|---|---|
+| 1 | B2.2: the pinned facts | Two more facts: `standing_filters` (for example `department: Women`) and `user_definitions` (for example `big order: an order with revenue above 100 USD`). The route JSON has the new fields `set_filters` (field and value, a null value removes the filter), `clear_filters` and `set_definitions`. Code pins them at once, so the next nodes of the same turn use them. A new value on the same field replaces the old one. An unsafe or off-topic message sets no fact. | LC-01 of spec 22: turn 1 defines "big order", and turn 2 sets "only the Women department until I say otherwise". A message without a query has no `write_sql` output. Also, `active_filters.other` is a list that each new plan replaces, so a standing filter there gets lost. |
+| 2 | B2.1: the calls | One more call kind: `conversation_answer` (`schema_kind = conversation` in the route). It answers questions about the conversation itself ("What does 'big order' mean in this conversation?", "Which filter do we use now?", "Summarize what we discussed") from the pinned facts, the summary and the recent turns. No query. | LC-01 turns 20, 26, 30 and 32. The schema answer has no conversation context. |
+| 3 | B2.1: `ContextBuilder.build(call_kind, state)` | `build(call_kind, system=…, state=…, user_message=…, stable=…, middle=…, results=…, data_rows=…, retry=…)`. Each node gives its own parts, and the builder puts them in the order of B2.1 and applies the budgets. The nodes `route`, `write_sql`, `write_answer`, `schema_answer`, `conversation_answer`, `plan_report` and `write_report` use it. `summarize` and `fix_figures` have their own small prompts. | The parts of each call kind are different. The order, the budgets and the cut order are in one place. |
+| 4 | B2.1 part 5: the recent turns | All turns of the window before the current turn (4 to 8), each answer cut to 300 tokens (1,050 characters), inside the 3,000-token budget. `route` gets the last 2 turns. | As B2.1. The earlier code used 2 or 3 turns. |
+| 5 | B2.3: `Append(items)` and `Compact(n)` | A list of messages appends. `compact(n)` is the plain dict `{"op": "compact", "turns": n}`. | The checkpoint stores only plain data. |
+| 6 | B2.2: `last_results` | Each item has the reference, the turn, the purpose, the question, the step (purpose, SQL, job ID, bytes, entities) and the plan of the step. "Save this as a report" reads the rows from `result_cache` and builds the method section from these items. The interim field `last_data` is gone. When a result is older than 30 days, the answer is the `no_last_data` message (A4). | The report needs the SQL and the plan of each query, also after the window was compacted. |
+| 7 | B2.4: "The CLI shows the answer when the `scan_output` node ends" | The graph is `finish → summarize → END`. `AssistantSession.send(text, on_answer=…)` streams the graph and calls `on_answer(result)` when `finish` ends. The returned result also has the cost of the summary. The CLI shows the answer in `on_answer`. | `finish` writes the answer to the window. The summary needs the new window. |
+| 8 | B2.4: the summary node | It runs in its own span `node.summarize` and never fails the turn: an error or no budget gives the fallback. The span has `summary_source` (`model` or `fallback`), `folded_turns`, `summary_words`, and the events `summary_error` and `summary_skipped`. | The answer is already done. |
+| 9 | B2.4: "about 400 words" | Code also cuts the model summary: it drops the oldest lines and keeps the 4 headings, until the text has at most 400 words. | A small model can write a longer text. |
+| 10 | B4 #3 and #4 | One script cannot check both "the period of turn 2 at turn 32" and "the new period of turn 20". The test runs the script twice: with the change at turn 20 (only Q2 in the pinned facts) and without it (Q1 from turn 2). | The two cases contradict each other in one script. |
+| 11 | B4 #5: turn 32 against turn 8 | Turn 32 of B4.1 is the delete, so the test compares turn 31 (a data question, the same kind as turn 8) and the route call of turn 32 against the route call of turn 8. Result: 8,588 estimated tokens at turn 8, 8,611 at turn 31 (+0.3%). | "The same kind of question". |
+| 12 | B2.5: the conversation ID | `C-` and 5 characters of Crockford base32, as the report IDs. Letter case and the dash do not matter. Older IDs (32 hex characters) still resume. | The example of A2.6, and IDs that a user can type. |
+| 13 | B2.5: `title` and `user_text` are masked "as spec 35 defines" | The output scanner of spec 30 masks them now. | Spec 35 is not built yet. |
+| 14 | B2.1: "checked against the token counts that Gemini returns" | The node span has the attribute `tokens_estimated` and the event `context_cut`. The `llm` span has `tokens_in` from Gemini. | Spec 35 compares them in the statistics. |
+| 15 | B4: the live test `live_long` (about 110 calls) | Not run. LC-01 (spec 22) covers the same conversation and runs with the evaluation runner. | The budget of this work allowed 10 Gemini calls. |
+
+#### Changes outside this spec
+
+- Spec 31: the route prompt describes `schema_kind = conversation`, `set_filters`, `clear_filters` and `set_definitions`. A message that only sets a filter or a term is `chitchat`, and the prepared reply is "OK. I will use this for the next answers of this conversation: department = Women." `write_sql.md` and `plan_report.md` say that the standing filters apply to every query, and that the summary and the history are records. `summarize.md` and `conversation_answer.md` are protected prompts with the canary line.
+- Spec 31: `finish` writes the messages with `turn_no` and `kind`, the result references, and the pinned facts. `load_context` refreshes `user` and `data_range`. The route pins the format at once.
+- Spec 32: `save_last` reads `pinned.last_results` and `result_cache`.
+- Spec 33: the delete and the undo record the report IDs in `turn.delete.report_ids`, for the pinned report list.
+- Spec 00: migration 4 adds `conversations.last_active_at`, `conversations.turn_count`, and the tables `conversation_turns` and `result_cache`.
+- Spec 37: `chat --resume <id>`, the command `conversations --user <id>`, and the line "Conversation C-8M2QX saved. Continue it with: chat --user maya --resume C-8M2QX" at the end of a chat with at least one turn.
+
+#### Interfaces for the CLI (spec 37), the UI and the evaluation runner
+
+| Member | Use |
+|---|---|
+| `AssistantSession.send(text, on_answer=None)` | As before. `on_answer(result)` gets the answer before the summary runs. |
+| `AssistantSession.resume(config, user, services, conversation_id, conn=None, checkpointer=None)` | Continue a conversation. Raises `ConversationNotFound` (unknown ID or another user) or `ConversationTooOld`. Both are `AgentError` with the A2.7 or A4 message. |
+| `AssistantSession.resume_view()` | `ResumeView`: `conversation_id`, `turns` (the last 3 rows of `conversation_turns`), `summary` (its first 3 lines), `notes` (for example "Your brands changed since the last session."). |
+| `AssistantSession.turn_count()` | The turns of the conversation, for the exit line. |
+| `TurnResult.turn_no` | The number of the turn in the conversation. |
+| `memory.conversations.list_for_user(conn, user_id, now, days)` | The list of A2.8. |
+
+The evaluation adapter needs no change: it calls `send(text)` and reads the same fields.
+
+#### Tests
+
+- 843 unit tests pass (807 after spec 36). `tests/test_memory.py` covers the cases 1–17 of B4 with a fake Gemini that records each request, the script of B4.1 (32 turns), the context builder, the conversation log, the resume messages, the facts that the user sets, and `on_answer` before the summary.
+- Summary calls of the script: turns 9, 13, 17, 21, 25 and 29. The largest request: under 14,000 estimated tokens. The window at turn 32: turns 25 to 32.

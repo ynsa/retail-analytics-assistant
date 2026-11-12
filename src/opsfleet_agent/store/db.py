@@ -105,6 +105,40 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX delete_batches_owner ON delete_batches (owner_id, created_at);
     """,
+    # 4: spec 34, the conversation log, the resume data and the result cache.
+    """
+    ALTER TABLE conversations ADD COLUMN last_active_at TEXT;
+    ALTER TABLE conversations ADD COLUMN turn_count INTEGER NOT NULL DEFAULT 0;
+    UPDATE conversations SET last_active_at = started_at WHERE last_active_at IS NULL;
+    CREATE INDEX conversations_user ON conversations (user_id, last_active_at);
+    CREATE TABLE conversation_turns (
+        conversation_id TEXT NOT NULL,
+        turn_no INTEGER NOT NULL,
+        trace_id TEXT,
+        started_at TEXT NOT NULL,           -- UTC, ISO 8601
+        user_text TEXT NOT NULL DEFAULT '', -- masked (spec 35)
+        answer_text TEXT NOT NULL DEFAULT '',
+        intent TEXT,
+        status TEXT NOT NULL DEFAULT 'ok',  -- ok, error, cancelled
+        error_type TEXT,
+        PRIMARY KEY (conversation_id, turn_no)
+    );
+    CREATE TABLE result_cache (
+        ref TEXT PRIMARY KEY,               -- res_ and 8 characters
+        conversation_id TEXT NOT NULL,
+        turn_no INTEGER NOT NULL,
+        owner_id TEXT NOT NULL,
+        purpose TEXT NOT NULL DEFAULT '',
+        sql TEXT NOT NULL DEFAULT '',
+        columns TEXT NOT NULL,              -- JSON
+        rows TEXT NOT NULL,                 -- JSON, masked, at most 200 rows
+        meta TEXT NOT NULL DEFAULT '{}',    -- JSON: column kinds, row count, truncated
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+    );
+    CREATE INDEX result_cache_owner ON result_cache (owner_id, ref);
+    CREATE INDEX result_cache_expiry ON result_cache (expires_at);
+    """,
 ]
 
 

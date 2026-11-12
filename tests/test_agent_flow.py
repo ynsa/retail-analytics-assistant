@@ -519,7 +519,7 @@ def test_follow_up_gets_the_history_and_the_pinned_filters(make_session):
     assert (
         "How many orders last month?" in prompt and "1,200 orders in October." in prompt
     )
-    assert "period': '2026-10-01..2026-10-31'" in prompt  # pinned active filters
+    assert "period: 2026-10-01..2026-10-31" in prompt  # pinned active filters (YAML)
     pinned = state_of(session).values["pinned"]
     assert (
         pinned["active_filters"]["period"] == "2026-09-01..2026-09-30"

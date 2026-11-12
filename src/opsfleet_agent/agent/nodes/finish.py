@@ -1,8 +1,12 @@
-"""`finish`: add the answer to the conversation and update the pinned facts (spec 31, B2.1).
+"""`finish`: add the turn to the window and update the pinned facts (specs 31 and 34).
 
-Code writes the pinned facts from structured outputs only: the format request of the route, and
-the `active_filters` and `definitions_used` of `write_sql`. The latest value of each key wins.
-Spec 34 extends this node with the summary and the turn record, and spec 35 with the statistics.
+Code writes the pinned facts from structured outputs only: the `active_filters` and
+`definitions_used` of `write_sql`, the saved and deleted reports, and the result references of the
+last data turn. The route already pinned the format and the facts that the user set.
+
+Each result of a data turn goes to the result cache with its full masked rows (at most 200). The
+window keeps only a reference and a preview of 5 rows (spec 34, B2.3). The summary runs after this
+node (`memory/summary.py`).
 """
 
 from __future__ import annotations
@@ -11,81 +15,143 @@ from typing import Any
 
 from langgraph.runtime import Runtime
 
+from opsfleet_agent.agent.formatting import ResultData, format_value
 from opsfleet_agent.agent.nodes.common import INTERNAL_MESSAGE, node, turn_of
 from opsfleet_agent.agent.state import AgentState, TurnContext, TurnState
-
-MAX_PINNED_DEFINITIONS = 10
-LAST_DATA_STEP_FIELDS = (
-    "purpose",
-    "sql",
-    "result_ref",
-    "job_id",
-    "bytes_billed",
-    "entities",
+from opsfleet_agent.memory import result_cache
+from opsfleet_agent.memory.messages import Message
+from opsfleet_agent.memory.pinned import (
+    MAX_LAST_RESULTS,
+    with_reports,
+    with_sql_facts,
 )
 
+STEP_FIELDS = ("purpose", "sql", "job_id", "bytes_billed", "entities")
 
-def last_data(state: AgentState, turn: TurnState) -> dict[str, Any] | None:
-    """The data of an answer with results, for "save this as a report" (spec 32, A2.5).
-    Only masked results go into the state. Spec 34 replaces it with the result cache."""
-    if turn.get("intent") != "analysis" or not turn.get("results"):
-        return None
-    steps = [
-        {k: step[k] for k in LAST_DATA_STEP_FIELDS if k in step}  # type: ignore[literal-required]
-        for step in turn.get("steps") or []
-        if step.get("result_ref")
+
+def preview_rows(result: ResultData, rows: int) -> list[list[str]]:
+    """The first rows of a result, formatted as the user saw them."""
+    return [
+        [format_value(v, k) for v, k in zip(row, result["kinds"], strict=True)]
+        for row in result["rows"][:rows]
     ]
-    return {
-        "question": turn.get("question", ""),
-        "results": list(turn.get("results") or []),
-        "plans": list(turn.get("plans") or []),
-        "steps": steps,
-        "conversation_id": state.get("conversation_id", ""),
+
+
+def cache_results(
+    state: AgentState, ctx: TurnContext, turn: TurnState, turn_no: int
+) -> tuple[list[dict[str, Any]], list[Message]]:
+    """Store the results of a data answer. Returns the pinned `last_results` and the
+    `result_ref` messages for the window."""
+    if turn.get("intent") != "analysis" or not turn.get("results") or ctx.store is None:
+        return [], []
+    settings = ctx.services.settings.context
+    steps = {
+        s.get("result_ref"): s for s in turn.get("steps") or [] if s.get("result_ref")
     }
+    plans = list(turn.get("plans") or [])
+    now = ctx.services.clock()
+    items: list[dict[str, Any]] = []
+    messages: list[Message] = []
+    for index, result in enumerate(list(turn.get("results") or [])[-MAX_LAST_RESULTS:]):
+        step = dict(steps.get(result["ref"]) or {})
+        ref = result_cache.put(
+            ctx.store,
+            result,
+            owner_id=ctx.user.id,
+            conversation_id=state.get("conversation_id", ""),
+            turn_no=turn_no,
+            sql=str(step.get("sql") or ""),
+            now=now,
+            days=settings.result_cache_days,
+        )
+        items.append(
+            {
+                "ref": ref,
+                "turn": turn_no,
+                "purpose": result["purpose"],
+                "question": turn.get("question", ""),
+                "step": {k: step[k] for k in STEP_FIELDS if k in step},
+                "plan": plans[index] if index < len(plans) else {},
+            }
+        )
+        messages.append(
+            Message(
+                role="tool",
+                turn_no=turn_no,
+                kind="result_ref",
+                text=result["purpose"],
+                ref=ref,
+                columns=list(result["columns"]),
+                row_count=int(result["row_count"]),
+                preview=preview_rows(result, settings.result_preview_rows),
+            )
+        )
+    return items, messages
 
 
-def turn_messages(turn: TurnState, answer: str) -> list[dict[str, str]]:
-    """The messages of the turn. A delete confirmation adds the list and the typed answer."""
-    messages: list[dict[str, str]] = []
+def turn_messages(
+    turn: TurnState, answer: str, turn_no: int, refs: list[Message]
+) -> list[Message]:
+    """The messages of the turn after the question: the result references, a delete
+    confirmation with the typed answer, and the answer."""
+    messages: list[Message] = list(refs)
     if turn.get("confirmation_prompt"):
-        messages.append({"role": "assistant", "text": turn["confirmation_prompt"]})
+        messages.append(
+            Message(
+                role="assistant",
+                turn_no=turn_no,
+                kind="confirmation",
+                text=turn["confirmation_prompt"],
+            )
+        )
     if turn.get("confirm_text") and not turn.get("replay_input"):
-        messages.append({"role": "user", "text": turn["confirm_text"]})
-    messages.append({"role": "assistant", "text": answer})
+        messages.append(
+            Message(
+                role="user",
+                turn_no=turn_no,
+                kind="confirmation",
+                text=turn["confirm_text"],
+            )
+        )
+    kind = "answer" if turn.get("intent") in ("analysis", "report") else "reply"
+    messages.append(Message(role="assistant", turn_no=turn_no, kind=kind, text=answer))
     return messages
 
 
-def update_pinned(pinned: dict[str, Any] | None, turn: TurnState) -> dict[str, Any]:
-    out = dict(pinned or {})
-    fmt = (turn.get("route") or {}).get("format_request")
-    if fmt:
-        out["format"] = fmt
-    filters = dict(out.get("active_filters") or {})
-    definitions = list(out.get("definitions_in_use") or [])
-    for plan in turn.get("plans") or []:
-        for key, value in (plan.get("active_filters") or {}).items():
-            if value:
-                filters[key] = value
-        definitions += [
-            k for k in plan.get("definitions_used") or [] if k not in definitions
-        ]
-    if filters:
-        out["active_filters"] = filters
-    if definitions:
-        out["definitions_in_use"] = definitions[-MAX_PINNED_DEFINITIONS:]
-    return out
+def update_pinned(
+    pinned: dict[str, Any] | None, turn: TurnState, turn_no: int
+) -> dict[str, Any]:
+    out = with_sql_facts(pinned, list(turn.get("plans") or []))
+    report = turn.get("report") or {}
+    delete = turn.get("delete") or {}
+    created = None
+    if report.get("saved_id"):
+        title = (report.get("built") or {}).get("title") or report.get("title") or ""
+        created = (report["saved_id"], title)
+    outcome = delete.get("outcome")
+    return with_reports(
+        out,
+        turn_no,
+        created=created,
+        deleted=list(delete.get("report_ids") or []) if outcome == "deleted" else None,
+        restored=list(delete.get("report_ids") or [])
+        if outcome == "undo_restored"
+        else None,
+    )
 
 
 @node("finish")
 def finish(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any]:
+    ctx = runtime.context
     turn = turn_of(state)
+    turn_no = int(state.get("turn_no") or 0)
     answer = turn.get("final_text") or turn.get("answer") or INTERNAL_MESSAGE
-    update: dict[str, Any] = {
-        "messages": turn_messages(turn, answer),
-        "pinned": update_pinned(state.get("pinned"), turn),
+    pinned = update_pinned(state.get("pinned"), turn, turn_no)
+    items, refs = cache_results(state, ctx, turn, turn_no)
+    if items:
+        pinned["last_results"] = items
+    return {
+        "messages": turn_messages(turn, answer, turn_no, refs),
+        "pinned": pinned,
         "turn": {**turn, "final_text": answer},
     }
-    data = last_data(state, turn)
-    if data:
-        update["last_data"] = data
-    return update

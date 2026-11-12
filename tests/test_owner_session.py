@@ -140,4 +140,6 @@ def test_group_os_owner_session(make_session):
     messages = session.graph.get_state(
         {"configurable": {"thread_id": session.conversation_id}}
     ).values["messages"]
-    assert len(messages) == 10  # 5 questions and 5 answers, no copies from the subgraph
+    # 5 questions, 5 answers and 2 result references (spec 34), no copies from the subgraph.
+    assert len(messages) == 12
+    assert [m["kind"] for m in messages].count("result_ref") == 2

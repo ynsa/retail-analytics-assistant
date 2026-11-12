@@ -129,6 +129,9 @@ def test_every_prepared_reply_renders(lib):
         # spec 36
         "seconds": 30,
         "trace": "4f2a9c1e",
+        # spec 34
+        "facts": "department = Women",
+        "field": "department",
     }
 
     def walk(node, path=""):

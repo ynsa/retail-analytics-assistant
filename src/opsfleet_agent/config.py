@@ -28,6 +28,27 @@ class ModelSettings(_Strict):
     fallback: str | None = None
 
 
+class ContextSettings(_Strict):
+    """The context of each model call and the memory of a conversation (spec 34, B3)."""
+
+    max_tokens_per_call: int = Field(default=14_000, gt=0)
+    chars_per_token: float = Field(default=3.5, gt=0)
+    window_max_turns: int = Field(default=8, ge=2)
+    fold_turns: int = Field(default=4, ge=1)
+    summary_max_words: int = Field(default=400, gt=0)
+    history_answer_max_tokens: int = Field(default=300, gt=0)
+    result_preview_rows: int = Field(default=5, ge=0)
+    result_cache_days: int = Field(default=30, gt=0)
+    resume_max_days: int = Field(default=90, gt=0)
+    # Budgets of the parts of B2.1 (tokens). The builder cuts the parts in a fixed order.
+    history_tokens: int = Field(default=3_000, gt=0)
+    summary_tokens: int = Field(default=600, gt=0)
+    data_tokens: int = Field(default=6_000, gt=0)
+    cut_rows: int = Field(default=20, gt=0)
+    route_history_turns: int = Field(default=2, ge=0)
+    summary_min_seconds: float = Field(default=10, ge=0)
+
+
 class ResilienceSettings(_Strict):
     """Retries, timeouts and circuit breakers (spec 36, B3). The Gemini timeout and retry count
     are `models.timeout_s` and `models.max_retries`. The query timeout is
@@ -161,6 +182,7 @@ class Settings(_Strict):
     agent: AgentSettings = Field(default_factory=AgentSettings)
     reports: ReportSettings = Field(default_factory=ReportSettings)
     resilience: ResilienceSettings = Field(default_factory=ResilienceSettings)
+    context: ContextSettings = Field(default_factory=ContextSettings)
 
     def project_path(self, path: Path) -> Path:
         """A path from the settings: relative paths start at the project root."""

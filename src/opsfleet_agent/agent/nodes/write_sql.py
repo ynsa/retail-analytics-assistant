@@ -8,12 +8,9 @@ from typing import Any
 from langgraph.runtime import Runtime
 from pydantic import BaseModel, Field
 
-from opsfleet_agent.agent.formatting import data_block
 from opsfleet_agent.agent.nodes.common import (
-    history_text,
     is_manager,
     node,
-    pinned_text,
     require_bigquery,
     scope_text,
     turn_of,
@@ -21,9 +18,9 @@ from opsfleet_agent.agent.nodes.common import (
 from opsfleet_agent.agent.nodes.loop_control import with_step
 from opsfleet_agent.agent.periods import Calendar
 from opsfleet_agent.agent.state import AgentState, TurnContext, TurnState
+from opsfleet_agent.memory.context_builder import ModelRequest, builder_of
 from opsfleet_agent.schema import Schema, model_schema_text
 
-SQL_HISTORY_TURNS = 3
 STEP_BLOCK_ROWS = 50
 
 
@@ -77,12 +74,17 @@ def retry_block(turn: TurnState, schema: Schema, manager: bool) -> str:
     )
 
 
-def build_contents(state: AgentState, ctx: TurnContext, calendar: Calendar) -> str:
+def build_request(
+    state: AgentState, ctx: TurnContext, calendar: Calendar, system: str
+) -> ModelRequest:
+    """The context of `write_sql` (spec 34, B2.1): schema, calendar and definitions first, then
+    the pinned facts, the summary, the recent turns, the step, the data blocks of the earlier
+    steps, the retry feedback and the question."""
     services = ctx.services
     turn = turn_of(state)
     manager = is_manager(ctx.user)
     first = services.values.first_date("order_items")
-    parts = [
+    stable = [
         (
             "<schema>\n"
             f"{model_schema_text(services.schema, manager=manager)}\n"
@@ -91,23 +93,23 @@ def build_contents(state: AgentState, ctx: TurnContext, calendar: Calendar) -> s
         ),
         f"<calendar>\n{calendar_text(calendar)}\n</calendar>",
         f"<definitions>\n{services.prompts.text('definitions')}\n</definitions>",
-        f"<pinned>\n{pinned_text(state.get('pinned'))}\n</pinned>",
-        f"<history>\n{history_text(state, SQL_HISTORY_TURNS)}\n</history>",
     ]
-    results = turn.get("results") or []
     max_steps = services.settings.agent.max_steps_per_question
     if turn.get("single_step"):  # a report query (spec 32): one query, no next step
-        parts.append("This is one query of a report. Write only this query.")
+        step = "This is one query of a report. Write only this query."
     else:
-        parts.append(
-            f"This is query step {turn.get('step_index', 0) + 1} of at most {max_steps}."
-        )
-    parts += [data_block(r, STEP_BLOCK_ROWS) for r in results]
-    retry = retry_block(turn, services.schema, manager)
-    if retry:
-        parts.append(retry)
-    parts.append(f"<user_message>\n{turn['question']}\n</user_message>")
-    return "\n\n".join(parts)
+        step = f"This is query step {turn.get('step_index', 0) + 1} of at most {max_steps}."
+    return builder_of(services).build(
+        "write_sql",
+        system=system,
+        state=state,
+        stable=stable,
+        middle=[step],
+        results=list(turn.get("results") or []),
+        data_rows=STEP_BLOCK_ROWS,
+        retry=retry_block(turn, services.schema, manager),
+        user_message=turn["question"],
+    )
 
 
 @node("write_sql")
@@ -127,10 +129,11 @@ def write_sql(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any
         last_month_end_exclusive=last_month.end_exclusive.isoformat(),
         last_month_text=last_month.text(),
     )
+    request = build_request(state, ctx, calendar, system)
     result = ctx.services.llm.generate(
         ctx.budget,
-        system=system,
-        prompt=build_contents(state, ctx, calendar),
+        system=request.system,
+        prompt=request.prompt,
         schema=SqlPlan,
         purpose="write_sql",
         prompt_version=lib.version("safety", "write_sql", "definitions"),

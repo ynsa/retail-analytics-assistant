@@ -7,6 +7,8 @@ No query runs.
   words, the date range and three example questions. No model call. It never mentions cloud
   projects, keys or the system setup.
 - Other schema questions go to the model with the schema without PII and a plain overview.
+- Questions about this conversation (`schema_kind = conversation`, spec 34) go to the model with
+  the pinned facts, the summary and the recent turns.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from opsfleet_agent.agent.nodes.common import (
 from opsfleet_agent.agent.nodes.replies import first_name, role_text
 from opsfleet_agent.agent.periods import Calendar, format_day
 from opsfleet_agent.agent.state import AgentState, TurnContext
+from opsfleet_agent.memory.context_builder import builder_of
 
 LISTED_COLUMNS = (
     ("orders", "status"),
@@ -108,8 +111,11 @@ def model_schema_answer(state: AgentState, ctx: TurnContext) -> str:
             f"scope_rule.{scope_key}", brands=brands_text(user.brands)
         ),
     )
-    contents = "\n\n".join(
-        [
+    request = builder_of(services).build(
+        "schema_answer",
+        system=system,
+        state=state,
+        stable=[
             f"<overview>\n{lib.text('schema_overview').strip()}\n</overview>",
             f"<fields>\n{fields_text(ctx)}\n</fields>",
             f"<values>\n{_values_text(ctx)}\n</values>",
@@ -117,15 +123,39 @@ def model_schema_answer(state: AgentState, ctx: TurnContext) -> str:
                 f"Data range: {format_day(first) if first else 'unknown'} to today, "
                 f"{format_day(Calendar.now().today)}."
             ),
-            f"<user_message>\n{turn['question']}\n</user_message>",
-        ]
+        ],
+        user_message=turn["question"],
     )
     result = services.llm.generate(
         ctx.budget,
-        system=system,
-        prompt=contents,
+        system=request.system,
+        prompt=request.prompt,
         purpose="schema_answer",
         prompt_version=lib.version("safety", "schema_answer", "schema_overview"),
+    )
+    return result.text.strip()
+
+
+def conversation_answer(state: AgentState, ctx: TurnContext) -> str:
+    """A question about this conversation (spec 34, B7): answered from the pinned facts, the
+    summary and the recent turns. No query runs."""
+    services = ctx.services
+    lib = services.prompts
+    turn = turn_of(state)
+    system = lib.system(
+        "conversation_answer",
+        persona=ctx.scratch.get("persona", ""),
+        user_format=lib.format_text(user_format(state, turn)),
+    )
+    request = builder_of(services).build(
+        "conversation_answer", system=system, state=state, user_message=turn["question"]
+    )
+    result = services.llm.generate(
+        ctx.budget,
+        system=request.system,
+        prompt=request.prompt,
+        purpose="conversation_answer",
+        prompt_version=lib.version("safety", "conversation_answer"),
     )
     return result.text.strip()
 
@@ -134,6 +164,9 @@ def model_schema_answer(state: AgentState, ctx: TurnContext) -> str:
 def schema_answer(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any]:
     ctx = runtime.context
     turn = turn_of(state)
-    if (turn.get("route") or {}).get("schema_kind") == "access":
+    kind = (turn.get("route") or {}).get("schema_kind")
+    if kind == "access":
         return end_turn(turn, access_answer(ctx))
+    if kind == "conversation":
+        return end_turn(turn, conversation_answer(state, ctx))
     return end_turn(turn, model_schema_answer(state, ctx))

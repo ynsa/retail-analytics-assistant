@@ -35,6 +35,8 @@ PROTECTED_PROMPTS = (
     "plan_report",
     "write_report",
     "fix_figures",
+    "summarize",
+    "conversation_answer",
 )
 LEAK_RUN_WORDS = 12
 # A marker in the first line of each protected prompt (an HTML comment that the model sees). An

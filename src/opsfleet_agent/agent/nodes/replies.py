@@ -50,11 +50,31 @@ def prepared_text(
             question=question or lib.reply("capabilities"),
             options=options[:MAX_CLARIFY_OPTIONS],
         )
+    facts = noted_facts(lib, route)
+    if facts:
+        return lib.reply("memory.noted", facts=facts)
     kind = route.get("chitchat_kind")
     if route.get("format_request") and kind in (None, "acknowledgement", "format_only"):
         kind = "format_only"
     kind = kind if kind in CHITCHAT_KINDS else "acknowledgement"
     return lib.reply(f"chitchat.{kind}", first_name=first_name(user))
+
+
+def noted_facts(lib: PromptLibrary, route: dict) -> str:
+    """The filters and terms that the user set in this message (spec 34), as one text."""
+    parts: list[str] = []
+    if route.get("clear_filters"):
+        parts.append(lib.reply("memory.filters_cleared"))
+    for item in route.get("set_filters") or []:
+        field, value = item.get("field"), item.get("value")
+        if field and value:
+            parts.append(f"{field} = {value}")
+        elif field:
+            parts.append(lib.reply("memory.filter_removed", field=field))
+    for item in route.get("set_definitions") or []:
+        if item.get("term") and item.get("meaning"):
+            parts.append(f"{item['term']} = {item['meaning']}")
+    return "; ".join(parts)
 
 
 @node("prepared_reply")

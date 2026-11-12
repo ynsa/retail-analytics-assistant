@@ -26,10 +26,8 @@ from opsfleet_agent.agent.formatting import ResultData, data_block
 from opsfleet_agent.agent.nodes.common import (
     brands_text,
     end_turn,
-    history_text,
     is_manager,
     node,
-    pinned_text,
     require_bigquery,
     scope_text,
     turn_of,
@@ -48,6 +46,8 @@ from opsfleet_agent.agent.periods import (
 from opsfleet_agent.agent.state import AgentState, TurnContext, TurnState
 from opsfleet_agent.agent.subgraphs.data_loop import LoopOutput, build_data_loop
 from opsfleet_agent.errors import AgentError, ErrorType, ReportNotFound
+from opsfleet_agent.memory import result_cache
+from opsfleet_agent.memory.context_builder import ModelRequest, builder_of
 from opsfleet_agent.reports.build import (
     allowed_numbers,
     apply_slots,
@@ -74,7 +74,6 @@ from opsfleet_agent.schema import model_schema_text
 
 LIBRARY_ACTIONS = ("list", "open", "export")
 RESERVED_WRITE_CALLS = 2  # write_report and the rewrite request of the figure check
-HISTORY_TURNS = 2
 TITLE_MAX_CHARS = 120
 # Turn keys of one data-loop run. The flow clears them before the next query.
 LOOP_KEYS = (
@@ -130,6 +129,32 @@ def clip_period(period: Period | None, today: date) -> tuple[Period | None, bool
     return Period(min(period.start, today), today), True
 
 
+def last_results_data(state: AgentState, ctx: TurnContext) -> dict[str, Any] | None:
+    """The data of the last answer with results, for "save this as a report" (spec 34, B2.2):
+    the references in `pinned.last_results` and the rows in the result cache. None when there is
+    no such answer, or when a result is older than 30 days (A4)."""
+    items = list((state.get("pinned") or {}).get("last_results") or [])
+    if not items or ctx.store is None:
+        return None
+    results, steps, plans = [], [], []
+    now = ctx.services.clock()
+    for item in items:
+        stored = result_cache.get(
+            ctx.store, item.get("ref", ""), owner_id=ctx.user.id, now=now
+        )
+        if stored is None:
+            return None
+        results.append(stored)
+        steps.append({**(item.get("step") or {}), "result_ref": stored["ref"]})
+        plans.append(dict(item.get("plan") or {}))
+    return {
+        "question": items[0].get("question", ""),
+        "results": results,
+        "steps": steps,
+        "plans": plans,
+    }
+
+
 # --- start and library commands ---------------------------------------------------------------------
 @node("report_start")
 def report_start(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any]:
@@ -148,13 +173,13 @@ def report_start(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, 
     if action in ("create", "save_last"):
         ctx.budget.use_report_limits()
     if action == "save_last":
-        data = state.get("last_data") or {}
-        if not data.get("results"):
+        data = last_results_data(state, ctx)
+        if data is None:
             return end_turn(
                 {**turn, "report": report}, lib.reply("reports.no_last_data")
             )
         queries = []
-        for i, step in enumerate(data.get("steps") or [], start=1):
+        for i, step in enumerate(data["steps"], start=1):
             queries.append(
                 {
                     "id": f"q{i}",
@@ -167,24 +192,19 @@ def report_start(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, 
                     "entities": step.get("entities") or {},
                 }
             )
-        periods = [
-            (p.get("active_filters") or {}).get("period")
-            for p in data.get("plans") or []
-        ]
+        periods = [(p.get("active_filters") or {}).get("period") for p in data["plans"]]
         report.update(
             queries=queries,
-            source_question=data.get("question", ""),
+            source_question=data["question"],
             period_text_raw=next((p for p in periods if p), None),
             definitions=[
-                k
-                for p in data.get("plans") or []
-                for k in p.get("definitions_used") or []
+                k for p in data["plans"] for k in p.get("definitions_used") or []
             ],
         )
         turn = {
             **turn,
             "results": list(data["results"]),
-            "plans": list(data.get("plans") or []),
+            "plans": list(data["plans"]),
         }
     return {"turn": {**turn, "report": report}}
 
@@ -252,25 +272,31 @@ def report_library(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str
 
 
 # --- plan ---------------------------------------------------------------------------------------
-def plan_contents(state: AgentState, ctx: TurnContext, calendar: Calendar) -> str:
+def plan_request(
+    state: AgentState, ctx: TurnContext, calendar: Calendar, system: str
+) -> ModelRequest:
+    """The context of `plan_report` (spec 34, B2.1): schema, calendar and definitions first, then
+    the pinned facts, the summary, the recent turns and the request."""
     services = ctx.services
     turn = turn_of(state)
     manager = is_manager(ctx.user)
     first = services.values.first_date("order_items")
-    return "\n\n".join(
-        [
-            (
-                "<schema>\n"
-                f"{model_schema_text(services.schema, manager=manager)}\n"
-                f"The data starts on {first.isoformat() if first else 'an unknown date'}.\n"
-                "</schema>"
-            ),
-            f"<calendar>\n{calendar_text(calendar)}\n</calendar>",
-            f"<definitions>\n{services.prompts.text('definitions')}\n</definitions>",
-            f"<pinned>\n{pinned_text(state.get('pinned'))}\n</pinned>",
-            f"<history>\n{history_text(state, HISTORY_TURNS)}\n</history>",
-            f"<user_message>\n{turn['question']}\n</user_message>",
-        ]
+    stable = [
+        (
+            "<schema>\n"
+            f"{model_schema_text(services.schema, manager=manager)}\n"
+            f"The data starts on {first.isoformat() if first else 'an unknown date'}.\n"
+            "</schema>"
+        ),
+        f"<calendar>\n{calendar_text(calendar)}\n</calendar>",
+        f"<definitions>\n{services.prompts.text('definitions')}\n</definitions>",
+    ]
+    return builder_of(services).build(
+        "plan_report",
+        system=system,
+        state=state,
+        stable=stable,
+        user_message=turn["question"],
     )
 
 
@@ -293,10 +319,11 @@ def plan_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, A
         max_queries=settings.max_planned_queries,
         title_scope=brands_text(user.brands) if is_manager(user) else "all brands",
     )
+    request = plan_request(state, ctx, calendar, system)
     result = services.llm.generate(
         ctx.budget,
-        system=system,
-        prompt=plan_contents(state, ctx, calendar),
+        system=request.system,
+        prompt=request.prompt,
         schema=ReportPlan,
         purpose="plan_report",
         prompt_version=prompts.version("safety", "plan_report", "definitions"),
@@ -456,7 +483,11 @@ def _notes(report: dict[str, Any], prompts: Any) -> list[str]:
     return notes
 
 
-def write_contents(state: AgentState, ctx: TurnContext, turn: TurnState) -> str:
+def write_request(
+    state: AgentState, ctx: TurnContext, turn: TurnState, system: str
+) -> ModelRequest:
+    """The context of `write_report` (spec 34, B2.1). The report block, the definitions and the
+    notes come before the data blocks of this turn."""
     prompts = ctx.services.prompts
     report = report_of(turn)
     period = _period(report.get("period"))
@@ -474,14 +505,18 @@ def write_contents(state: AgentState, ctx: TurnContext, turn: TurnState) -> str:
     ]
     if compare:
         report_block.append(f"Compared with: {compare.text()}")
-    parts = [
-        "<report>\n" + "\n".join(report_block) + "\n</report>",
-        f"<definitions>\n{definitions or '(none)'}\n</definitions>",
-        f"<notes>\n{notes}\n</notes>",
-        *(data_block(r) for r in turn.get("results") or []),
-        f"<user_message>\n{report['request']}\n</user_message>",
-    ]
-    return "\n\n".join(parts)
+    return builder_of(ctx.services).build(
+        "write_report",
+        system=system,
+        state=state,
+        middle=[
+            "<report>\n" + "\n".join(report_block) + "\n</report>",
+            f"<definitions>\n{definitions or '(none)'}\n</definitions>",
+            f"<notes>\n{notes}\n</notes>",
+        ],
+        results=list(turn.get("results") or []),
+        user_message=report["request"],
+    )
 
 
 @node("write_report")
@@ -514,10 +549,11 @@ def write_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, 
             f"scope_phrase.{scope_key}", brands=brands_text(user.brands)
         ),
     )
+    request = write_request(state, ctx, turn, system)
     result = services.llm.generate(
         ctx.budget,
-        system=system,
-        prompt=write_contents(state, ctx, turn),
+        system=request.system,
+        prompt=request.prompt,
         schema=ReportDraft,
         purpose="write_report",
         prompt_version=prompts.version("safety", "write_report", "definitions"),

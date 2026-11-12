@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import sqlite3
 import time
-import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any, Literal
 
 from langgraph.checkpoint.sqlite import SqliteSaver
@@ -35,6 +34,9 @@ from opsfleet_agent.guard.value_cache import (
 from opsfleet_agent.identity import UserContext
 from opsfleet_agent.limits import DailyLedger, TurnBudget
 from opsfleet_agent.llm import GeminiClient
+from opsfleet_agent.memory import conversations
+from opsfleet_agent.memory.conversations import canonical_id, new_conversation_id
+from opsfleet_agent.memory.pinned import with_user
 from opsfleet_agent.reports.delete_flow import build_delete_flow, undo_text
 from opsfleet_agent.reports.deletion import DeleteReportsTool, undo_batch
 from opsfleet_agent.reports.files import display_path
@@ -87,6 +89,17 @@ class TurnResult:
     # failed: the answer then ends with "This turn is not saved."
     status: str = "ok"
     saved: bool = True
+    turn_no: int | None = None  # spec 34: the number of the turn in the conversation
+
+
+@dataclass(frozen=True)
+class ResumeView:
+    """What the CLI shows at `--resume` (spec 34, A2.6 and B2.5)."""
+
+    conversation_id: str
+    turns: tuple[Any, ...]  # memory.conversations.TurnRow: the last 3 turns
+    summary: tuple[str, ...]  # the first 3 lines of the summary
+    notes: tuple[str, ...] = ()  # pinned notes, for example "Your brands changed …"
 
 
 @dataclass(frozen=True)
@@ -234,16 +247,86 @@ class AssistantSession:
         self.empty_checker = EmptyResultChecker(
             self.guard, services.bq, services.values
         )
-        self.conversation_id = conversation_id or uuid.uuid4().hex
-        with self.conn:
-            self.conn.execute(
-                "INSERT OR IGNORE INTO conversations (id, user_id, started_at) "
-                "VALUES (?, ?, ?)",
-                (self.conversation_id, user.id, datetime.now(UTC).isoformat()),
-            )
+        self.conversation_id = (
+            canonical_id(conversation_id) if conversation_id else new_conversation_id()
+        )
+        conversations.create(self.conn, self.conversation_id, user.id, services.clock())
         if conversation_id and self.pending:
             # Spec 33, B2.6 #16: a delete that waited in an earlier session expires at load.
             self.cancel_pending("expired")
+
+    @classmethod
+    def resume(
+        cls,
+        config: AppConfig,
+        user: UserContext,
+        services: Services,
+        conversation_id: str,
+        conn: sqlite3.Connection | None = None,
+        checkpointer: Any | None = None,
+    ) -> AssistantSession:
+        """`chat --resume <id>` (spec 34, B2.5). The conversation must belong to the user and be
+        active within 90 days. Raises `ConversationNotFound` or `ConversationTooOld`.
+
+        A waiting delete expires. The pinned user comes from the current `users.yaml`: when the
+        brands changed, the pinned facts get the note "Your brands changed since the last
+        session"."""
+        settings = config.settings
+        own_conn = conn or connect(
+            settings.data_path("app.db"),
+            busy_timeout_s=settings.resilience.sqlite_busy_timeout_s,
+        )
+        row = conversations.load_for_resume(
+            own_conn,
+            conversation_id,
+            user.id,
+            services.clock(),
+            settings.context.resume_max_days,
+        )
+        session = cls(
+            config,
+            user,
+            services,
+            conn=own_conn,
+            checkpointer=checkpointer,
+            conversation_id=row.id,
+        )
+        session._refresh_pinned_user()
+        return session
+
+    def _refresh_pinned_user(self) -> None:
+        snapshot = self.graph.get_state(self._config)
+        if not snapshot.values:
+            return
+        pinned = with_user(
+            snapshot.values.get("pinned"),
+            self.user,
+            self.services.values.first_date("order_items"),
+            self.services.clock().date(),
+        )
+        self.graph.update_state(self._config, {"pinned": pinned}, as_node="summarize")
+
+    def resume_view(self, turns: int = 3, summary_lines: int = 3) -> ResumeView:
+        """What the CLI shows at resume: the last turns and the first lines of the summary."""
+        values = self.graph.get_state(self._config).values or {}
+        summary = [
+            line for line in (values.get("summary") or "").splitlines() if line.strip()
+        ]
+        pinned = values.get("pinned") or {}
+        return ResumeView(
+            conversation_id=self.conversation_id,
+            turns=tuple(
+                conversations.last_turns(self.conn, self.conversation_id, turns)
+            ),
+            summary=tuple(summary[:summary_lines]),
+            notes=tuple(pinned.get("notes") or ()),
+        )
+
+    def turn_count(self) -> int:
+        row = self.conn.execute(
+            "SELECT turn_count FROM conversations WHERE id = ?", (self.conversation_id,)
+        ).fetchone()
+        return int(row["turn_count"] or 0) if row else 0
 
     # --- turns --------------------------------------------------------------------------------
     @property
@@ -269,19 +352,38 @@ class AssistantSession:
                 )
         return None
 
-    def send(self, text: str) -> TurnResult:
-        """The next user input: the answer to a waiting delete, or a new question."""
+    def send(
+        self, text: str, on_answer: Callable[[TurnResult], None] | None = None
+    ) -> TurnResult:
+        """The next user input: the answer to a waiting delete, or a new question.
+
+        `on_answer` (spec 34, B2.4) gets the result as soon as the answer is ready, before the
+        summary of older turns runs. The returned result also has the cost of the summary."""
         if self.pending is not None:
-            return self._run(Command(resume=text), resume=True)
+            return self._run(Command(resume=text), resume=True, on_answer=on_answer)
+        turn_no = self._turn_no() + 1
         return self._run(
             {
-                "messages": [{"role": "user", "text": text}],
+                "messages": [
+                    {
+                        "role": "user",
+                        "turn_no": turn_no,
+                        "kind": "question",
+                        "text": text,
+                    }
+                ],
                 "user": self.user.as_state(),
                 "conversation_id": self.conversation_id,
                 "turn": {},
             },
             resume=False,
+            on_answer=on_answer,
+            question=text,
         )
+
+    def _turn_no(self) -> int:
+        values = self.graph.get_state(self._config).values or {}
+        return int(values.get("turn_no") or 0)
 
     def ask(self, question: str) -> TurnResult:
         """The same as `send()` (the name of spec 31, used by the evaluation runner)."""
@@ -297,7 +399,13 @@ class AssistantSession:
         """End the chat. A waiting delete is cancelled (spec 33, B2.6 #15)."""
         return self.cancel_pending("abandoned")
 
-    def _run(self, graph_input: Any, resume: bool) -> TurnResult:
+    def _run(
+        self,
+        graph_input: Any,
+        resume: bool,
+        on_answer: Callable[[TurnResult], None] | None = None,
+        question: str | None = None,
+    ) -> TurnResult:
         budget = TurnBudget(
             self.config.settings.limits,
             self.ledger,
@@ -312,6 +420,8 @@ class AssistantSession:
             empty_checker=self.empty_checker,
             store=self.conn,
         )
+        started_at = self.services.clock()
+        turn_no = self._turn_no() + (0 if resume else 1)
         self.saver.write_failed = False
         with span(
             "turn",
@@ -322,38 +432,77 @@ class AssistantSession:
         ) as sp:
             trace_id = current_trace_id()
             try:
-                state = self.graph.invoke(graph_input, self._config, context=context)
+                state = self._stream(graph_input, context, trace_id, on_answer)
             except KeyboardInterrupt:
                 # Spec 36, B2.6 #4: Ctrl-C stops the turn and the running query.
                 cancel = getattr(self.services.bq, "cancel_running", None)
                 if callable(cancel):
                     cancel()
                 sp.set_attribute("status", "cancelled")
-                return self._stopped(
+                result = self._stopped(
                     budget, trace_id, "cancelled", messages.text("stopped")
                 )
             except Exception:  # noqa: BLE001 - the chat continues after any bug (spec 36)
                 log_exception("turn", trace_id)
                 sp.set_attribute("error_type", ErrorType.INTERNAL_ERROR.value)
                 sp.set_attribute("status", "error")
-                return self._stopped(
+                result = self._stopped(
                     budget,
                     trace_id,
                     "error",
                     internal_message(trace_id),
                     ErrorType.INTERNAL_ERROR.value,
                 )
-            turn = state.get("turn") or {}
-            totals = budget.totals()
-            for key, value in totals.items():
-                sp.set_attribute(key, value)
-            if turn.get("error_type"):
-                sp.set_attribute("error_type", turn["error_type"])
-            if turn.get("intent"):
-                sp.set_attribute("intent", turn["intent"])
-            saved = not self.saver.write_failed
-            if not saved:
-                sp.set_attribute("checkpoint_failed", True)
+            else:
+                result = self._result(state, budget, context, trace_id)
+                turn = state.get("turn") or {}
+                for key, value in result.totals.items():
+                    sp.set_attribute(key, value)
+                if turn.get("error_type"):
+                    sp.set_attribute("error_type", turn["error_type"])
+                if turn.get("intent"):
+                    sp.set_attribute("intent", turn["intent"])
+                if not result.saved:
+                    sp.set_attribute("checkpoint_failed", True)
+                turn_no = int(state.get("turn_no") or turn_no)
+            sp.set_attribute("turn_no", turn_no)
+        self._record(result, turn_no, started_at, question)
+        return result
+
+    def _stream(
+        self,
+        graph_input: Any,
+        context: TurnContext,
+        trace_id: str | None,
+        on_answer: Callable[[TurnResult], None] | None,
+    ) -> dict[str, Any]:
+        """Run the graph. When `finish` ends, `on_answer` gets the answer (spec 34, B2.4)."""
+        state: dict[str, Any] = {}
+        finished = answered = False
+        for mode, chunk in self.graph.stream(
+            graph_input,
+            self._config,
+            context=context,
+            stream_mode=["updates", "values"],
+        ):
+            if mode == "updates":
+                finished = finished or "finish" in chunk
+                continue
+            state = chunk
+            if finished and not answered and on_answer is not None:
+                answered = True
+                on_answer(self._result(state, context.budget, context, trace_id))
+        return state
+
+    def _result(
+        self,
+        state: dict[str, Any],
+        budget: TurnBudget,
+        context: TurnContext,
+        trace_id: str | None,
+    ) -> TurnResult:
+        turn = state.get("turn") or {}
+        saved = not self.saver.write_failed
         confirmation = self.pending if state.get("__interrupt__") else None
         report = turn.get("report") or {}
         delete = turn.get("delete") or {}
@@ -365,7 +514,7 @@ class AssistantSession:
             answer=answer,
             error_type=error_type,
             trace_id=trace_id,
-            totals=totals,
+            totals=budget.totals(),
             intent=turn.get("intent"),
             route=dict(turn.get("route") or {}),
             steps=tuple(dict(s) for s in turn.get("steps") or []),
@@ -386,7 +535,36 @@ class AssistantSession:
             batch_id=None if confirmation else delete.get("batch_id"),
             status="error" if error_type else "ok",
             saved=saved,
+            turn_no=int(state.get("turn_no") or 0) or None,
         )
+
+    def _record(
+        self,
+        result: TurnResult,
+        turn_no: int,
+        started_at: datetime,
+        question: str | None,
+    ) -> None:
+        """Spec 34, B2.5: the turn row in `conversation_turns`. A failed write of the log does
+        not stop the chat."""
+        if turn_no <= 0:
+            return
+        try:
+            conversations.record_turn(
+                self.conn,
+                self.services.scanner,
+                conversation_id=self.conversation_id,
+                turn_no=turn_no,
+                trace_id=result.trace_id,
+                started_at=started_at,
+                user_text=question or "",
+                answer_text=result.answer,
+                intent=result.intent,
+                status=result.status,
+                error_type=result.error_type,
+            )
+        except sqlite3.Error:
+            log_exception("conversation log", result.trace_id)
 
     def _stopped(
         self,

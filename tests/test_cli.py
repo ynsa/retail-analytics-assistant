@@ -83,7 +83,7 @@ class _ReplaySession:
     def __init__(self):
         self.sent = []
 
-    def send(self, text):
+    def send(self, text, on_answer=None):
         self.sent.append(text)
         if len(self.sent) == 1:
             return _Result(
@@ -135,7 +135,7 @@ class _LoopSession:
         self.fail_with = fail_with
         self.cancelled = []
 
-    def send(self, text):
+    def send(self, text, on_answer=None):
         self.sent.append(text)
         if self.fail_with is not None:
             raise self.fail_with

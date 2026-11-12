@@ -1,7 +1,8 @@
 """`load_context`: start a new turn (spec 31, B2.1).
 
 It resets the turn state, reads the persona file for this turn (no restart needed after a change)
-and refuses a message over the length limit without a model call.
+and refuses a message over the length limit without a model call. It also refreshes the pinned
+facts `user` and `data_range` (spec 34, B2.2).
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ from opentelemetry import trace
 
 from opsfleet_agent.agent.nodes.common import end_turn, node
 from opsfleet_agent.agent.state import AgentState, TurnContext, TurnState
+from opsfleet_agent.memory.pinned import with_user
 from opsfleet_agent.store.audit import confirm_span, write_audit
 from opsfleet_agent.tracing import current_trace_id
 
@@ -58,8 +60,16 @@ def load_context(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, 
         sp.add_event(
             "persona_cut", {"max_chars": ctx.services.prompts.persona_max_chars}
         )
+    services = ctx.services
     extra: dict[str, Any] = {
         "turn_no": int(state.get("turn_no") or 0) + 1,
+        # Spec 34, B2.2: the user and the data range come from code at each turn.
+        "pinned": with_user(
+            state.get("pinned"),
+            ctx.user,
+            services.values.first_date("order_items"),
+            services.clock().date(),
+        ),
         **drop_stale_confirmation(state, ctx),
     }
     limit = ctx.services.settings.agent.max_user_message_chars

@@ -154,6 +154,7 @@ def undo_delete(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, A
         **delete_of(turn),
         "outcome": f"undo_{result.outcome}",
         "batch_id": result.batch_id,
+        "report_ids": list(result.report_ids or []),  # spec 34: the pinned report list
     }
     return end_turn({**turn, "delete": data}, undo_text(ctx, result))
 
@@ -438,6 +439,7 @@ def apply_delete(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, 
         **delete_of(turn),
         "outcome": "deleted",
         "batch_id": result.data["batch_id"],
+        "report_ids": report_ids,  # spec 34: the pinned report list
     }
     out = end_turn({**turn, "delete": data}, deleted_text(ctx, result.data))
     return {**out, "pending_confirmation": None}

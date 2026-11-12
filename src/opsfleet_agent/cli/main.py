@@ -1,7 +1,9 @@
 """Command-line interface (spec 01). Spec 37 adds the full set of commands.
 
 Specs 32 and 33 add the minimum: the report commands (`/reports`, `/open`, `/export`,
-`/undo`), the delete confirmation panel with the `confirm>` prompt, and `purge`.
+`/undo`), the delete confirmation panel with the `confirm>` prompt, and `purge`. Spec 34 adds
+`chat --resume <id>` and `conversations --user <id>`. Spec 36 adds the protection against crashes
+and the Ctrl-C rules.
 """
 
 from __future__ import annotations
@@ -28,8 +30,8 @@ app = typer.Typer(
 console = Console()
 
 DEV_NOTE = (
-    "Development build: the long-conversation memory is not active yet. "
-    "Report commands: /reports, /open <id>, /export <id> --format html|md, /undo."
+    "Development build. Report commands: /reports, /open <id>, "
+    "/export <id> --format html|md, /undo."
 )
 COMMANDS = ("reports", "open", "export", "undo")
 CTRL_C_WINDOW_S = 2.0  # spec 36, B2.6 #4: a second Ctrl-C within 2 s ends the CLI
@@ -102,15 +104,49 @@ def show_result(result) -> None:
 
 
 def send(session, text: str) -> None:
-    """Send one input. Text that is not the confirmation cancels the delete and is sent again
-    as a new question (spec 33, A2.8)."""
-    with console.status("Working…"):
-        result = session.send(text)
-    show_result(result)
+    """Send one input. The answer shows as soon as it is ready; the summary of older turns runs
+    after it (spec 34, B2.4). Text that is not the confirmation cancels the delete and is sent
+    again as a new question (spec 33, A2.8)."""
+    result = _send_once(session, text)
     if result.replay_input:
-        with console.status("Working…"):
-            result = session.send(text)
+        _send_once(session, text)
+
+
+def _send_once(session, text: str):
+    shown: list[bool] = []
+    with console.status("Working…") as status:
+
+        def on_answer(result) -> None:
+            shown.append(True)
+            show_result(result)
+            status.update("Updating the conversation memory…")
+
+        result = session.send(text, on_answer=on_answer)
+    if not shown:
         show_result(result)
+    return result
+
+
+def show_resume(view, user_id: str) -> None:
+    """The last turns and the first lines of the summary (spec 34, A2.6)."""
+    console.print(f"[bold]Conversation {view.conversation_id}[/bold] (resumed)")
+    if view.summary:
+        console.print("[dim]Earlier in this conversation:[/dim]")
+        for line in view.summary:
+            console.print(f"[dim]{line}[/dim]")
+    for turn in view.turns:
+        console.print(f"[bold cyan]{user_id}>[/bold cyan] {turn.user_text}")
+        console.print(Markdown(turn.answer_text))
+    for note in view.notes:
+        console.print(f"[yellow]{note}[/yellow]")
+    console.print()
+
+
+def saved_line(conversation_id: str, user_id: str) -> str:
+    return (
+        f"Conversation {conversation_id} saved. "
+        f"Continue it with: chat --user {user_id} --resume {conversation_id}"
+    )
 
 
 @app.callback()
@@ -205,6 +241,11 @@ def chat(
         "--refresh-cache",
         help="Build the value cache again (one small query, about 40 MB billed).",
     ),
+    resume: str | None = typer.Option(
+        None,
+        "--resume",
+        help="Continue a saved conversation, for example C-8M2QX (spec 34).",
+    ),
 ) -> None:
     """Start a chat as one user. Type /exit or press Ctrl-D to end."""
     try:
@@ -217,6 +258,11 @@ def chat(
     if missing:
         console.print(f"[red]{missing}[/red]")
         raise typer.Exit(code=2)
+    if resume:
+        problem = check_resume(config, user_ctx.id, resume)
+        if problem:
+            console.print(f"[red]{problem}[/red]")
+            raise typer.Exit(code=2)
 
     from opsfleet_agent.session import (
         AssistantSession,
@@ -237,15 +283,85 @@ def chat(
         raise typer.Exit(code=2) from exc
     for line in warnings:
         console.print(f"[yellow]Warning: {line}[/yellow]")
-    session = AssistantSession(config, user_ctx, services)
+    if resume:
+        session = AssistantSession.resume(config, user_ctx, services, resume)
+    else:
+        session = AssistantSession(config, user_ctx, services)
 
     console.print(f"[bold]Hello, {user_ctx.name}.[/bold] {user_ctx.describe()}")
     console.print(f"[yellow]{DEV_NOTE}[/yellow]")
+    if resume:
+        show_resume(session.resume_view(), user_ctx.id)
     console.print("Ask a question about the sales data. Type /exit to end.\n")
     chat_loop(session, user_ctx.id)
     if session.close() is not None:
         console.print("[yellow]Delete cancelled. Nothing was deleted.[/yellow]")
+    if session.turn_count() > 0:
+        console.print(saved_line(session.conversation_id, user_ctx.id))
     console.print("Goodbye.")
+
+
+def check_resume(config, user_id: str, conversation_id: str) -> str | None:
+    """Check `--resume` before the start: the conversation of this user, at most 90 days old."""
+    from opsfleet_agent.errors import AgentError
+    from opsfleet_agent.memory.conversations import load_for_resume
+    from opsfleet_agent.store.db import connect
+
+    settings = config.settings
+    conn = connect(settings.data_path("app.db"))
+    try:
+        load_for_resume(
+            conn,
+            conversation_id,
+            user_id,
+            datetime.now(UTC),
+            settings.context.resume_max_days,
+        )
+    except AgentError as exc:
+        return exc.user_message
+    finally:
+        conn.close()
+    return None
+
+
+@app.command("conversations")
+def conversations_command(
+    user: str = typer.Option(..., "--user", help="User ID from config/users.yaml"),
+) -> None:
+    """List the conversations of a user from the last 90 days (spec 34, A2.8)."""
+    from opsfleet_agent.memory.conversations import list_for_user
+    from opsfleet_agent.store.db import connect
+
+    try:
+        config = load_config()
+        user_ctx = resolve_user(config.users, user)
+    except ConfigError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=2) from exc
+    settings = config.settings
+    conn = connect(settings.data_path("app.db"))
+    try:
+        rows = list_for_user(
+            conn, user_ctx.id, datetime.now(UTC), settings.context.resume_max_days
+        )
+    finally:
+        conn.close()
+    if not rows:
+        console.print(f"No conversations of {user_ctx.id} in the last 90 days.")
+        return
+    table = Table(box=None, show_edge=False, pad_edge=False)
+    for column in ("ID", "Started", "Last active", "Turns", "First question"):
+        table.add_column(column, overflow="fold")
+    for row in rows:
+        table.add_row(
+            row.id,
+            row.started_at[:16].replace("T", " "),
+            row.last_active_at[:16].replace("T", " "),
+            str(row.turn_count),
+            row.title,
+        )
+    console.print(table)
+    console.print(f"Continue one with: chat --user {user_ctx.id} --resume <ID>")
 
 
 @app.command("purge")

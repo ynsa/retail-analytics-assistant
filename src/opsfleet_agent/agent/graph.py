@@ -1,6 +1,7 @@
 """The LangGraph graph of one turn (spec 31, B2.1). It replaces the walking skeleton of spec 01.
 
     load_context -> route -> prepared_reply ------------------------------> scan_output -> finish
+                                                                                  -> summarize
                           -> schema_answer ------------------------------->
                           -> data_loop -> write_answer -------------------->
                                        -> give_up | explain_block -------->
@@ -9,6 +10,9 @@
 `data_loop` is a subgraph: write_sql -> guard -> run_query -> [check_empty] -> mask_result, with
 the bounded self-correction. Every final text goes through `scan_output`. A node that ends the turn
 early (an error, a refusal) sets `turn.answer`, and the graph goes to `scan_output`.
+
+`summarize` (spec 34) runs after `finish`, when the window has more than 8 turns. The CLI shows
+the answer when `finish` ends, so the user does not wait for the summary.
 """
 
 from __future__ import annotations
@@ -34,6 +38,7 @@ from opsfleet_agent.agent.nodes.schema_answer import schema_answer
 from opsfleet_agent.agent.nodes.write_answer import write_answer
 from opsfleet_agent.agent.state import AgentState, TurnContext
 from opsfleet_agent.agent.subgraphs.data_loop import build_data_loop, next_after_loop
+from opsfleet_agent.memory.summary import summarize
 
 # The flows of the `report` and `delete` intents. Specs 32 and 33 pass their own nodes or
 # subgraphs to `build_graph(flows=...)`. Each flow must set `turn.answer`.
@@ -65,6 +70,7 @@ def build_graph(
     g.add_node("delete_flow", flow_nodes["delete"])
     g.add_node("scan_output", scan_output)
     g.add_node("finish", finish)
+    g.add_node("summarize", summarize)
 
     g.add_edge(START, "load_context")
     g.add_conditional_edges(
@@ -103,5 +109,6 @@ def build_graph(
     ):
         g.add_edge(name, "scan_output")
     g.add_edge("scan_output", "finish")
-    g.add_edge("finish", END)
+    g.add_edge("finish", "summarize")
+    g.add_edge("summarize", END)
     return g.compile(checkpointer=checkpointer)

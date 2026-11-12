@@ -6,7 +6,6 @@ Objects that must not be stored (the budget, the clients, raw rows) go in `TurnC
 
 from __future__ import annotations
 
-import operator
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -21,6 +20,7 @@ from opsfleet_agent.guard.sql_guard import SqlGuard
 from opsfleet_agent.guard.value_cache import ValueCache
 from opsfleet_agent.identity import UserContext
 from opsfleet_agent.limits import TurnBudget
+from opsfleet_agent.memory.messages import Message, messages_reducer
 from opsfleet_agent.schema import Schema
 
 Intent = Literal[
@@ -38,11 +38,6 @@ LoopOutcome = Literal["answer", "give_up", "policy_block"]
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
-
-
-class Message(TypedDict):
-    role: Literal["user", "assistant"]
-    text: str
 
 
 class StepRecord(TypedDict, total=False):
@@ -119,19 +114,16 @@ class TurnState(TypedDict, total=False):
 
 
 class AgentState(TypedDict, total=False):
-    messages: Annotated[list[Message], operator.add]
+    # Spec 34: only the recent window (4 to 8 turns). The reducer appends a list and applies
+    # `compact(n)`. The full log is in `conversation_turns`.
+    messages: Annotated[list[Message], messages_reducer]
     user: dict[str, Any]  # UserContext as plain data, set by the CLI
     conversation_id: str
     turn: TurnState
-    pinned: dict[
-        str, Any
-    ]  # spec 34 owns it. Spec 31 writes format, filters and definitions.
+    pinned: dict[str, Any]  # spec 34, B2.2: the pinned facts that code writes
     pending_confirmation: dict[str, Any] | None  # spec 33, B2.3
-    summary: str  # spec 34
+    summary: str  # spec 34, B2.4: the rolling summary of the older turns
     turn_no: int  # the number of the current turn (spec 33, B2.3 `created_turn`)
-    last_data: dict[
-        str, Any
-    ]  # spec 32 "save the last answer": the last turn with results
 
 
 @dataclass
