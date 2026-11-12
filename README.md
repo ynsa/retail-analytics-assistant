@@ -87,6 +87,24 @@ The cost limits for each answer and for each day are in `config/settings.yaml`, 
 
 At the first start, the assistant builds `data/value_cache.json` with one small query (about 40 MB billed). The cache holds the brand names, the filter values and the date range of the data. The assistant builds it again after 7 days. The start stops when a brand in `config/users.yaml` does not exist in the data, and the message gives the close names.
 
+## Local test UI
+
+A small web page for manual tests (specs 40 and 52). It uses the same assistant session as the CLI, so every safety rule stays the same. The CLI stays the main interface.
+
+```bash
+uv run opsfleet-agent ui                   # then open http://127.0.0.1:8000
+```
+
+- Select a test user from `config/users.yaml`, then chat. The left pane has the earlier conversations and the reports of this user. The right pane shows the steps of the selected answer and its cost against the limits.
+- A long answer shows the current stage and a clock. The input is locked until the answer is ready.
+- A delete shows the list of reports. Confirm works only for the exact text `delete N`. Undo works for 30 days.
+- A report shows its chart and its action items. "Open HTML" and "Download Markdown" give the files of `data/reports/<user>/`.
+- The server listens only on `127.0.0.1`. The page loads no file from the internet.
+
+![Local test UI: a report in the chat](docs/images/ui/05-report.png)
+
+More screenshots are in `docs/images/ui/`.
+
 ## Evaluate the assistant
 
 The evaluation sets are in `evals/sets/`: 50 accuracy questions with checked reference SQL (spec 21), 61 safety cases and a 32-turn conversation (spec 22). The runner (spec 23) shows a plan with the Gemini calls and the cost before it starts. A run with more than 10 planned calls starts only after you type `yes`.

@@ -28,10 +28,10 @@ Each part of the work has one spec. The phases and the order are in [the roadmap
 | 35 | [Observability and statistics](35-observability/spec.md) | 2 / C | 00 | 3 | Approved |
 | 36 | [Resilience](36-resilience/spec.md) | 2 / C | 00, 31 | 3 | Done |
 | 37 | [CLI](37-cli/spec.md) | 2 / C | 31–36 | 2 | Approved |
-| 40 | [Local test UI: screens and behavior](40-local-ui/spec.md) | 2 / A | 31–35 | 2 | Approved |
+| 40 | [Local test UI: screens and behavior](40-local-ui/spec.md) | 2 / A | 31–35 | 2 | Done |
 | 50 | [Evaluation on the real agent](50-eval-real-agent/spec.md) | 3 | 21–23, 30–37 | 2 | Approved |
 | 51 | [Model comparison](51-model-comparison/spec.md) | 3 | 50 | 2 | Approved |
-| 52 | [Local test UI: build](52-local-ui-build/spec.md) | 3 | 40 | 0 | Approved |
+| 52 | [Local test UI: build](52-local-ui-build/spec.md) | 3 | 40 | 0 | Done |
 | 53 | [Docker and final checks](53-docker-and-final-checks/spec.md) | 3 | 37 | 3 | Approved |
 | 54 | [README and setup guide](54-readme-and-setup-guide/spec.md) | 3 | 53 | 3 | Approved |
 | 55 | [Framework choice and experience document](55-experience-document/spec.md) | 3 | – | 0 | Approved |

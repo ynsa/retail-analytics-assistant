@@ -343,10 +343,7 @@ function undoLine(batchId) {
       }
     },
   });
-  line.append(
-    link,
-    el("span", { className: "note", text: "Undo works for 30 days." }),
-  );
+  line.append(link);
   return line;
 }
 
