@@ -186,7 +186,7 @@ Screenshots of the real run: [start](../../images/ui/01-start.png), [chat](../..
 
 #### Findings for the agent (not changed here)
 
-- Turn 2: the route sent a request for e-mail addresses to `write_sql` (intent `analysis`). `write_sql` made no query, and the output check (`scan_output`, `prompt_leak = true`) replaced the answer with the prompt-leak reply. The user expects the personal-data refusal of spec 30. Specs 31 and 22 should check this case.
+- Turn 2: the route sent a request for e-mail addresses to `write_sql` (intent `analysis`). `write_sql` made no query, and the output check (`scan_output`, `prompt_leak = true`) replaced the answer with the prompt-leak reply. The user expects the personal-data refusal of spec 30. Specs 31 and 22 should check this case. Fixed on 2026-11-12 in round 1 of spec 50: code now writes the personal-data refusal (spec 31, B7).
 
 #### Alignment with specs 35 and 37 (2026-11-12)
 

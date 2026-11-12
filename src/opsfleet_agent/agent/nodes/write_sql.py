@@ -17,6 +17,7 @@ from opsfleet_agent.agent.nodes.common import (
 )
 from opsfleet_agent.agent.nodes.loop_control import with_step
 from opsfleet_agent.agent.periods import Calendar
+from opsfleet_agent.agent.personal_data import asks_personal_data
 from opsfleet_agent.agent.state import AgentState, TurnContext, TurnState
 from opsfleet_agent.memory.context_builder import ModelRequest, builder_of
 from opsfleet_agent.schema import Schema, model_schema_text
@@ -142,6 +143,21 @@ def write_sql(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any
     attempt = turn.get("attempt", 0) + 1
     turn = {**turn, "attempt": attempt, "plan": plan.model_dump()}
     sql = (plan.sql or "").strip()
+    no_query = bool(plan.cannot_answer or not sql)
+    if (
+        no_query
+        and not turn.get("results")
+        and asks_personal_data(turn.get("question") or "")
+    ):
+        # Spec 30 A2.4: the refusal of personal data with the alternative, written by code. The
+        # model's own refusal often repeats the list of the safety rules (spec 50 round 1).
+        return {
+            "turn": {
+                **turn,
+                "loop_outcome": "policy_block",
+                "block_message": lib.reply("unsafe.personal_data"),
+            }
+        }
     if plan.cannot_answer or not sql:
         reason = plan.cannot_answer or "No query can answer this question."
         note = lib.reply("notes.cannot_answer", reason=reason)

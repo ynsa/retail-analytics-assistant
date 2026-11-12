@@ -3,6 +3,9 @@
 The route call never sees query results, so data cannot change the route. If the JSON is not
 valid after a second attempt, the intent is `analysis`: the guard still protects the data.
 
+Before the model call, SQL text in the message that changes data goes through the guard
+(`agent/user_sql.py`). A policy block ends the turn with the guard message and no model call.
+
 The context has the pinned facts and the last 2 turns (spec 34, B2.1), not the summary. The format
 request and the filters and terms that the user sets for the conversation go into the pinned facts
 at once, so the next nodes of the same turn use them.
@@ -17,7 +20,8 @@ from pydantic import BaseModel, Field, ValidationError
 
 from opsfleet_agent.agent.nodes.common import is_manager, node, turn_of
 from opsfleet_agent.agent.state import AgentState, TurnContext
-from opsfleet_agent.errors import AgentError
+from opsfleet_agent.agent.user_sql import blocked_user_sql
+from opsfleet_agent.errors import AgentError, ErrorType
 from opsfleet_agent.llm import SCHEMA_MISMATCH
 from opsfleet_agent.memory.context_builder import builder_of
 from opsfleet_agent.memory.pinned import with_route_facts
@@ -72,7 +76,16 @@ class RouteDecision(BaseModel):
         Literal["greeting", "thanks", "acknowledgement", "format_only"] | None
     ) = None
     unsafe_kind: (
-        Literal["prompt_request", "identity_change", "rule_change", "other"] | None
+        Literal[
+            "prompt_request",
+            "identity_change",
+            "rule_change",
+            "personal_data",
+            "other_user",
+            "data_change",
+            "other",
+        ]
+        | None
     ) = None
     clarify_question: str | None = None
     clarify_options: list[str] = Field(default_factory=list)
@@ -98,6 +111,22 @@ def route(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any]:
     ctx = runtime.context
     lib = ctx.services.prompts
     turn = turn_of(state)
+    blocked = blocked_user_sql(ctx.guard, turn["question"])
+    if (
+        blocked is not None
+    ):  # SQL text that changes data: the guard stops it, no model call
+        route_data = {"intent": "unsafe", "unsafe_kind": "data_change"}
+        return {
+            "turn": {
+                **turn,
+                "intent": "unsafe",
+                "route": route_data,
+                "guard_outcome": blocked.outcome.value,
+                "reason_code": blocked.reason_code or "",
+                "answer": blocked.user_message or lib.reply("unsafe.data_change"),
+                "error_type": ErrorType.GUARD_POLICY_BLOCK.value,
+            }
+        }
     user = ctx.user
     system = lib.system(
         "route",

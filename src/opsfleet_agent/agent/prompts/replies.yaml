@@ -19,12 +19,22 @@ off_topic: >-
 
 unsafe:
   prompt_request: >-
-    I cannot share my instructions or my configuration. I can tell you what I do: I answer
-    questions about the company's sales data and I write reports.
+    I cannot share my instructions, my tool definitions or my configuration. In plain words, I can
+    answer questions about orders, products, customers and revenue with read-only queries, write
+    reports, and list, open, export or delete your saved reports after you confirm.
   identity_change: >-
     Your user and your access come from the start of this session. A message cannot change them.
     You are {{ name }}, {{ role_text }}.
   rule_change: My rules stay the same for the full conversation. I am glad to help with a question about the sales data.
+  personal_data: >-
+    I cannot show or use personal data such as names, email addresses, street addresses, postal
+    codes or exact locations. I can show customer IDs with their orders and spend, or totals.
+  other_user: >-
+    I can only work with your own reports and your own access. I cannot see, change or delete the
+    reports of another user.
+  data_change: >-
+    The sales data is read-only. I cannot change, delete, add or export it. I can show figures
+    from it, for example the monthly revenue.
   other: I cannot do that. I can help with the analysis of the company's sales data.
 
 clarify: |-
