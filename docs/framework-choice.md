@@ -30,51 +30,142 @@ What the project accepts: more own code. The evaluation harness is plain pytest 
 
 ## 2. How the project uses LangGraph
 
-**The graph.** One turn of the chat is one run of a `StateGraph`. The state (`AgentState`) holds the messages, the user context, the conversation ID, the turn details, the pending confirmation and the summary. Each node is a plain Python function. The nodes call Gemini through `google-genai` directly. The project uses no LangChain model wrappers.
+**The graph.** One turn of the chat is one run of a compiled `StateGraph` (`agent/graph.py`). Each node is a plain Python function. The nodes call Gemini through `google-genai` directly. The project uses no LangChain model wrappers.
 
-**The confirmation with `interrupt()`.** The node `confirm_delete` saves the exact list of reports and a hash of their IDs in the state. Then it calls `interrupt()` with the list. The CLI shows the list and sends the next user input back with `Command(resume=text)`. Only the exact text `delete N` deletes. The model never gives the confirmation (spec 33).
+**State and runtime context.** The state (`AgentState`) holds the recent messages, the pinned facts of the conversation, the summary, the conversation ID and the data of the current turn. The user, the brands, the services and the turn budget come in the runtime context (`context_schema=TurnContext`). So the identity of the user is never a part of the state that a model output can change.
 
-**The checkpointer.** The prototype uses `SqliteSaver` with `data/checkpoints.db`. The checkpointer keeps the state between turns and makes the pause of `interrupt()` possible. Production uses the PostgreSQL checkpointer with Cloud SQL.
-
-**The self-correction cycle.** The nodes `write_sql`, `guard`, `run_query`, `check_empty` and `mask_result` form a subgraph. On a correctable error, an edge goes back to `write_sql` with the error. The attempt counter in the state stops the cycle after 3 attempts (spec 31).
-
-**The graph from the code.** This diagram is the output of this command on 2026-11-11:
+**The graph from the code.** The diagrams below are the output of `draw_mermaid()` on the final code (2026-11-12). Dotted lines are conditional edges. This command prints the main graph:
 
 ```bash
-uv run python -c "from opsfleet_agent.agent.graph import build_graph; print(build_graph().get_graph().draw_mermaid())"
+uv run python -c "from opsfleet_agent.agent.graph import build_graph; from opsfleet_agent.reports.flow import build_report_flow; from opsfleet_agent.reports.delete_flow import build_delete_flow; print(build_graph(flows={'report': build_report_flow(), 'delete': build_delete_flow()}).get_graph().draw_mermaid())"
 ```
 
 ```mermaid
----
-config:
-  flowchart:
-    curve: linear
----
 graph TD;
 	__start__([<p>__start__</p>]):::first
 	load_context(load_context)
-	write_sql(write_sql)
-	guard(guard)
-	run_query(run_query)
+	route(route)
+	prepared_reply(prepared_reply)
+	schema_answer(schema_answer)
+	data_loop(data_loop)
 	write_answer(write_answer)
+	give_up(give_up)
+	explain_block(explain_block)
+	report_flow(report_flow)
+	delete_flow(delete_flow)
+	scan_output(scan_output)
 	finish(finish)
+	summarize(summarize)
 	__end__([<p>__end__</p>]):::last
 	__start__ --> load_context;
-	guard -.-> finish;
-	guard -. &nbsp;continue&nbsp; .-> run_query;
-	load_context --> write_sql;
-	run_query -.-> finish;
-	run_query -. &nbsp;continue&nbsp; .-> write_answer;
-	write_answer --> finish;
-	write_sql -.-> finish;
-	write_sql -. &nbsp;continue&nbsp; .-> guard;
-	finish --> __end__;
+	data_loop -.-> explain_block;
+	data_loop -.-> give_up;
+	data_loop -. &nbsp;finish&nbsp; .-> scan_output;
+	data_loop -.-> write_answer;
+	delete_flow --> scan_output;
+	explain_block --> scan_output;
+	finish --> summarize;
+	give_up --> scan_output;
+	load_context -.-> route;
+	load_context -. &nbsp;finish&nbsp; .-> scan_output;
+	prepared_reply --> scan_output;
+	report_flow --> scan_output;
+	route -. &nbsp;analysis&nbsp; .-> data_loop;
+	route -. &nbsp;delete&nbsp; .-> delete_flow;
+	route -.-> prepared_reply;
+	route -. &nbsp;report&nbsp; .-> report_flow;
+	route -. &nbsp;finish&nbsp; .-> scan_output;
+	route -.-> schema_answer;
+	scan_output --> finish;
+	schema_answer --> scan_output;
+	write_answer --> scan_output;
+	summarize --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc
 ```
 
-This is the graph of the walking skeleton (spec 01). The graph grows in the later specs: routing, the self-correction cycle, the empty-result checks, reports and the delete flow (specs 30–37). The team must export the diagram again with the same command at the end of the project. The planned full graph is in [spec 31, section B2.1](specs/31-agent-core/spec.md).
+- `route` is one model call with structured output. It selects the path: a data question, a schema question, a prepared reply (greeting, off-topic, unsafe), a report or a delete.
+- Every path ends in `scan_output` (the output scanner and the prompt-leak check), then `finish`. So no text reaches the user without the scanner.
+- `summarize` runs after `finish`. It shortens the old turns when the window is full.
+
+**The self-correction cycle.** `data_loop` is a subgraph with the nodes `write_sql`, `guard`, `run_query`, `check_empty` and `mask_result`. Each node writes the next step into the turn, and one routing function reads it. A correctable error goes back to `write_sql` with the error. The correctable errors are a guard parse error, a BigQuery error, a dry run over the byte cap and an empty result with an error. A counter in the state stops the cycle after 3 attempts for each query step. A policy block of the guard ends the loop at once, with no retry (spec 31). `draw_mermaid(xray=1)` shows the subgraph with an edge between each pair of nodes, because one routing function selects the next node. So this document does not show it.
+
+**Reports.** The report flow is a subgraph too. It uses the same `data_loop` for each planned query, so each report query goes through the same guard. The plan already has the SQL, so the loop starts at `guard`. `write_sql` runs only after a failed query (spec 32).
+
+```mermaid
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	report_start(report_start)
+	report_library(report_library)
+	plan_report(plan_report)
+	next_query(next_query)
+	data_loop(data_loop)
+	collect_query(collect_query)
+	write_report(write_report)
+	build_report(build_report)
+	save_report(save_report)
+	render(render)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> report_start;
+	build_report -.-> __end__;
+	build_report -.-> save_report;
+	collect_query -.-> __end__;
+	collect_query -.-> next_query;
+	collect_query -.-> write_report;
+	data_loop --> collect_query;
+	next_query --> data_loop;
+	plan_report -.-> __end__;
+	plan_report -.-> next_query;
+	report_start -.-> __end__;
+	report_start -.-> plan_report;
+	report_start -.-> report_library;
+	report_start -.-> write_report;
+	save_report -.-> __end__;
+	save_report -.-> render;
+	write_report -.-> __end__;
+	write_report -.-> build_report;
+	render --> __end__;
+	report_library --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
+```
+
+**The confirmation with `interrupt()`.** The delete flow is the third subgraph:
+
+```mermaid
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	parse_delete(parse_delete)
+	undo_delete(undo_delete)
+	find_reports(find_reports)
+	confirm_delete(confirm_delete)
+	apply_delete(apply_delete)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> parse_delete;
+	confirm_delete -.-> __end__;
+	confirm_delete -.-> apply_delete;
+	find_reports -.-> __end__;
+	find_reports -.-> confirm_delete;
+	parse_delete -.-> __end__;
+	parse_delete -.-> find_reports;
+	parse_delete -.-> undo_delete;
+	apply_delete --> __end__;
+	undo_delete --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
+```
+
+- The model gives only the scope of the delete ("this conversation", "reports that mention Levi's"). `find_reports` finds the exact list in code and saves it, with a hash of the IDs and the expected text `delete N`, in the state.
+- `confirm_delete` calls `interrupt()` with the list. The CLI or the UI shows the list, and the session sends the next user input back with `Command(resume=text)`.
+- Only the exact text `delete N` continues to `apply_delete`. Any other text cancels, and then goes to the agent as a new message. The model never gives the confirmation (spec 33).
+- `apply_delete` runs the tool `delete_reports` through the tool registry. The registry refuses a destructive tool without the grant of this confirmation.
+
+**The checkpointer.** The prototype uses `SqliteSaver` with `data/checkpoints.db`, inside a small wrapper: a failed checkpoint write does not stop the turn (spec 36). The checkpointer keeps the state between turns, so the pause of `interrupt()` can continue in the next turn. `--resume` continues a saved conversation, but it cancels a delete that waits for a confirmation. Production uses the PostgreSQL checkpointer with Cloud SQL.
+
+**Traces.** Each node runs inside a wrapper that writes one OpenTelemetry span with the node name. So the trace of a turn (`/trace`) shows the same names as the graph (spec 35).
 
 ## 3. My experience with LangGraph
 
