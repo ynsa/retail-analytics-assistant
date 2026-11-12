@@ -7,6 +7,7 @@ One matching agent result is enough.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -25,6 +26,25 @@ from opsfleet_agent.evals.snapshot import top_k_rows
 DEFAULT_REL = 0.005
 DEFAULT_ABS = 0.01
 RATIO_ABS = 0.0001  # 0.01 percentage points: 0.01 is too wide for a ratio
+# The `value` mode matches a column by its meaning (spec 21 B7, review point of 2026-11-11). These
+# words say nothing about the meaning of a column: "total_revenue" means "revenue".
+GENERIC_WORDS = frozenset(
+    {
+        "all", "amount", "avg", "average", "count", "distinct", "num", "number", "of",
+        "pct", "percent", "percentage", "rate", "ratio", "share", "sum", "the", "total",
+        "unique", "usd", "value",
+    }
+)  # fmt: skip
+# Words of a key or a period: such a column is not the answer number (for example `year`).
+KEY_WORDS = frozenset({"id", "year", "quarter", "month", "week", "day", "date"})
+SYNONYMS: dict[str, frozenset[str]] = {
+    "customer": frozenset({"buyer", "user", "shopper", "client", "purchaser"}),
+    "revenue": frozenset({"sale", "gmv", "income", "turnover"}),
+    "item": frozenset({"unit", "quantity", "qty", "piece"}),
+    "repeat": frozenset({"returning", "repurchase", "rebuy", "retention", "again"}),
+    "return": frozenset({"returned"}),
+    "order": frozenset({"purchase"}),
+}
 # The order of the reasons, from "nearly correct" to "no result". The best failure is reported.
 _REASON_RANK = [
     "wrong_value",
@@ -148,18 +168,65 @@ def _map_values(
     return mapping, wrong
 
 
+def meaning_words(name: str) -> set[str]:
+    """The words of a column name without the generic words: `total_customers` -> {customer}."""
+    words = re.findall(r"[a-z]+", name.lower())
+    singular = {w[:-1] if len(w) > 3 and w.endswith("s") else w for w in words}
+    return singular - GENERIC_WORDS
+
+
+def same_meaning(ref_column: str, agent_column: str) -> bool:
+    """True when the agent column name has a meaning word of the reference column, or a synonym."""
+    wanted = meaning_words(ref_column)
+    for word in list(wanted):
+        wanted |= SYNONYMS.get(word, frozenset())
+    return bool(wanted & meaning_words(agent_column))
+
+
+def _number_columns(table: _Table) -> list[str]:
+    """The agent columns that hold numbers, without the key and period columns."""
+    out = []
+    for name in table.columns:
+        values = [v for v in table.column(name) if not is_missing(v)]
+        if not values or any(to_float(v) is None for v in values):
+            continue
+        if not meaning_words(name) & KEY_WORDS:
+            out.append(name)
+    return out
+
+
 def _score_value(
     ref: list[dict[str, Any]], table: _Table, expected: Expected
 ) -> ScoreResult:
+    """One number. A matching cell counts only in a column with the meaning of the reference:
+    the only number column of the result, or a column whose name has the same meaning. So a
+    wrong column with the same value (orders instead of customers) does not pass."""
     if not ref:
         return ScoreResult.fail("no_result", note="the reference has no row")
     col = expected.value_columns()[0]
     kind = expected.columns[col].kind
     target = ref[0].get(col)
+    numbers = _number_columns(table)
+    other_meaning: list[str] = []
     for i, row in enumerate(table.rows):
         for j, value in enumerate(row):
-            if values_match(target, value, kind, expected):
-                return ScoreResult.ok(row=i, column=table.columns[j])
+            if not values_match(target, value, kind, expected):
+                continue
+            name = table.columns[j]
+            if numbers == [name]:
+                return ScoreResult.ok(row=i, column=name, rule="only_number_column")
+            if same_meaning(col, name):
+                return ScoreResult.ok(row=i, column=name, rule="column_name")
+            if name not in other_meaning:
+                other_meaning.append(name)
+    if other_meaning:
+        return ScoreResult.fail(
+            "wrong_value",
+            expected=target,
+            problem="column_meaning",
+            note=f"the value is only in columns without the meaning of {col!r}",
+            columns=other_meaning,
+        )
     return ScoreResult.fail("wrong_value", expected=target, got=table.rows[:3])
 
 

@@ -475,3 +475,15 @@ Cases without SQL (SC-01, SC-02, SC-04, SC-05) have `reference_sql: null` and a 
 - TM-08 counts the delivery month (`delivered_at`), not the sale month, because the question asks about deliveries.
 
 **Cost of the work.** A dry run before each query, `maximum_bytes_billed` on each query. BigQuery billed about 1.3 GB in total for 58 queries. These are 52 reference queries, 4 corrected queries and 2 small checks. The checks are the order sizes for LC-01 and customer 4521 for spec 22. Gemini calls: 0.
+
+
+**One number: the column must have the right meaning (2026-11-12).** Before this change, the `value` mode accepted the reference value in any cell of the agent result. So a wrong column with the same value passed, for example the orders count for a question about customers. We chose to match by the meaning of the column. The other option was to also require the number in the answer text. We did not choose it, for two reasons. All value cases with `execution_match` already have `answer_facts`. Also, an answer that shows the two figures has the number in its text, so this rule does not find a wrong column.
+
+The rule:
+
+1. The scorer finds the cells with the reference value (with the tolerance of B2.6).
+2. A cell counts when its column is the only number column of the agent result. Columns of a key or a period (`id`, `year`, `quarter`, `month`, `week`, `day`, `date`) and text columns are not number columns.
+3. A cell also counts when its column name has a word of the reference column name, or a synonym of that word. Generic words such as `total`, `count`, `num`, `rate`, `share` and `pct` do not count. The synonyms of customer, revenue and item: buyer, user, shopper, client, purchaser / sale, gmv, income, turnover / unit, quantity, qty, piece. The synonyms of repeat, return and order: returning, repurchase, rebuy, retention, again / returned / purchase.
+4. Otherwise the scorer fails with `wrong_value` and `problem: column_meaning`. The details name the columns that had the value.
+
+Risk: an agent result with two or more number columns and names without meaning (for example `f0_` and `f1_`) fails, also when the value is correct. The details show such cases in the report. Add a synonym to `SYNONYMS` in `evals/scorers/execution_match.py` when a correct name fails.

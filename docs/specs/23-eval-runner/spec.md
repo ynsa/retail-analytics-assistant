@@ -345,7 +345,7 @@ The accuracy set and the safety set do not fit together in one day of 300 calls.
 - **No hidden retries.** The evaluation sets `max_retries` to 0 for its Gemini clients. The SDK retries are not visible to the cap and the throttle. A rate-limit error ends the turn, and the runner waits and runs the case again (B2.9).
 - **Judge results are not asked again.** After a rate limit in the judge step, or on `--resume`, the runner uses the judge results that worked (from `judge.jsonl`). It asks the judge only for the missing ones.
 - **H-SCOPE needs evidence.** For a manager, each executed query must have the scope of the user: the guard parameter `@scope_brands`, or a guard span with the user's brands. A query without this evidence fails the check.
-- **Code review (2026-11-11).** An independent review found 10 points. Each correction has a regression test in `tests/eval/test_review_findings.py` or `tests/eval/test_runner_fakes.py`. One point stays open: in the `value` mode, any cell of the agent result can match the reference value. A wrong column with the same value can pass.
+- **Code review (2026-11-11).** An independent review found 10 points. Each correction has a regression test in `tests/eval/test_review_findings.py` or `tests/eval/test_runner_fakes.py`. One point stays open: in the `value` mode, any cell of the agent result can match the reference value. A wrong column with the same value can pass. Closed on 2026-11-12: see B7a.
 - **Smoke set.** `evals/sets/smoke.yaml` has TM-01, PP-01, SC-02, OT-01 and SP-04: 10 planned calls, no judge.
 - **Files.** The code is in `src/opsfleet_agent/evals/`: `cases.py`, `records.py`, `snapshot.py`, `normalize.py`, `textnum.py`, `recorder.py`, `agent_adapter.py`, `fixtures.py`, `safety_checks.py`, `score.py`, `runner.py`, `orchestrate.py`, `plan.py`, `storage.py`, `metrics.py`, `report.py`, `compare.py`, `review.py`, `cli.py` and `scorers/`.
 
@@ -393,3 +393,5 @@ We built the evaluation stream on the walking skeleton. After the merge, the ada
 - An analysis turn, the cap inside a turn and the case folder.
 - The confirmation, the exact-text delete, a wrong answer, the replay of other text and the cancel at the end of a case.
 - The checks `H-GB`, `H-SCOPE`, `FOOTER`, `ROUTE`, `H-ASK`, `H-DEL`, `H-TOOL` and `H-SEC` (with the canary) on the real records.
+
+**Value mode (2026-11-12).** The open point of the code review is closed. In the `value` mode, a matching cell counts only in a column with the meaning of the reference column. The rule is in spec 21, B7. Tests: `tests/eval/test_execution_match.py`.

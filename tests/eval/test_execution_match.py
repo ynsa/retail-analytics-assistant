@@ -80,10 +80,41 @@ def test_ratio_also_matches_as_percent():
     assert not execution_match(e, ["rate"], [[0.1234]], [q(["r"], [[0.15]])]).passed
 
 
-def test_value_mode_finds_the_figure_in_any_column():
+def test_value_mode_finds_the_figure_in_the_column_with_the_same_meaning():
     e = exp("value", revenue={"role": "value", "kind": "money"})
     agent = q(["orders", "revenue_usd"], [[6927, 580425.72]])
-    assert execution_match(e, ["revenue"], [[580425.7207]], [agent]).passed
+    result = execution_match(e, ["revenue"], [[580425.7207]], [agent])
+    assert result.passed and result.details["rule"] == "column_name"
+    sales = q(["total_sales", "orders"], [[580425.72, 6927]])  # a synonym
+    assert execution_match(e, ["revenue"], [[580425.7207]], [sales]).passed
+
+
+def test_value_mode_wrong_column_with_the_same_value_fails():
+    """Spec 21 B7 review point: orders = 800 must not pass for a question about customers."""
+    e = exp("value", customers={"role": "value", "kind": "count"})
+    agent = q(["customers", "orders"], [[750, 800]])
+    result = execution_match(e, ["customers"], [[800]], [agent])
+    assert not result.passed and result.reason == "wrong_value"
+    assert result.details["problem"] == "column_meaning"
+    assert result.details["columns"] == ["orders"]
+    unnamed = q(["f0_", "f1_"], [[800, 3]])  # two numbers, no meaning in the names
+    assert not execution_match(e, ["customers"], [[800]], [unnamed]).passed
+
+
+def test_value_mode_only_number_column_needs_no_name():
+    e = exp("value", customers={"role": "value", "kind": "count"})
+    one = q(["n"], [[800]])
+    result = execution_match(e, ["customers"], [[800]], [one])
+    assert result.passed and result.details["rule"] == "only_number_column"
+    with_year = q(["year", "total"], [[2025, 800]])  # a period column is not the answer
+    assert execution_match(e, ["customers"], [[800]], [with_year]).passed
+    with_label = q(
+        ["metric", "total"], [["buyers", 800]]
+    )  # a text column is not a number
+    assert execution_match(e, ["customers"], [[800]], [with_label]).passed
+    rate = exp("value", repeat_rate={"role": "value", "kind": "ratio"})
+    share = q(["customers", "repeat_customer_share"], [[1200, 0.0812]])
+    assert execution_match(rate, ["repeat_rate"], [[0.0812]], [share]).passed
 
 
 def test_rows_ordered_rule():
