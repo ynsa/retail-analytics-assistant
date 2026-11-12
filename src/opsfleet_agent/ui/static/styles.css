@@ -801,9 +801,10 @@ button {
 }
 
 .step-sql pre {
+  max-height: 240px;
   margin: 4px 0 0;
   padding: 8px;
-  overflow-x: auto;
+  overflow: auto;
   border-radius: 6px;
   background: var(--bg-soft);
   font: 11px / 1.5 var(--mono);
