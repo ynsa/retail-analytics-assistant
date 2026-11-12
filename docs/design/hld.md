@@ -1,8 +1,8 @@
 # High-Level Design and Technical Explanation: Retail Analytics Chat Assistant
 
-- **Version:** 1.0 (Phase 2)
-- **Status:** Draft for review. Phase 3 adds the measured figures of specs 50 and 51 and the unit prices (places marked **Open**).
-- **Date:** 2026-11-11
+- **Version:** 1.1 (Phase 3)
+- **Status:** For review. The measured figures come from round 1 of the evaluation (prototype, free tier, one run each). The model comparison of spec 51 is still **Open**.
+- **Date:** 2026-11-12
 - **Sources:** `docs/brief/Original task.md`, `docs/analysis/gap-analysis.md`, `docs/product/product-definition.md`, `docs/product/architecture.md`, and the specs in `docs/specs/`.
 
 This document is the production design (HLD) and the detailed technical explanation in one file. The decision records with their history stay in [architecture.md](../product/architecture.md). This document summarizes each decision and links to the record.
@@ -10,7 +10,7 @@ This document is the production design (HLD) and the detailed technical explanat
 **Labels in this document:**
 
 - Each requirement section has one label: **Built in the prototype** or **Design only**.
-- Each number has one label: **From OpsFleet**, **Measured**, **Our assumption**, or **Derived**. "From OpsFleet" is an answer from the client. "Measured" comes from specs 50 and 51. "Derived" is a formula from labelled numbers.
+- Each number has one label: **From OpsFleet**, **Measured**, **Our assumption**, or **Derived**. "From OpsFleet" is an answer from the client. "Measured" comes from the prototype: the evaluation runs (spec 50) and the live checks of the specs. Section 7.4 has all measured figures. "Derived" is a formula from labelled numbers.
 - **Open** marks a value that a later step fills in. The text says which step.
 
 ---
@@ -163,22 +163,22 @@ flowchart TD
 The main nodes (spec 31):
 
 1. `load_context` reads the user context, the pinned facts, the summary and the persona.
-2. `route` is one small Gemini call with structured output. It returns the intent: `analysis`, `schema`, `report`, `delete`, `clarify`, `chitchat`, `off_topic` or `unsafe`. The route call never sees query results, so data cannot change the route.
+2. `route` is one small Gemini call with structured output. It returns the intent: `analysis`, `schema`, `report`, `delete`, `clarify`, `chitchat`, `off_topic` or `unsafe`. The route call never sees query results, so data cannot change the route. Before the route, code sends SQL text in the message that changes data to the guard. The guard blocks it, and no model call occurs.
 3. `write_sql` writes one `SELECT` with full table names. It returns `final: true` or `false`, so one call also decides "more data needed".
 4. `guard`, `run_query`, `check_empty` and `mask_result` form the subgraph `data_loop`. The report flow uses the same subgraph for each report query.
 5. `write_answer` writes the answer from the masked results. `scan_output` runs the output scanner and the prompt-leak check.
-6. `finish` writes the turn record and updates the memory.
+6. `finish` updates the memory. Then `summarize` shortens the old turns when the window is full. The session writes the turn record.
 
 Two rules keep the figures correct:
 
 - **Code formats every figure** before the model sees it: money with 2 decimals, counts as whole numbers, rates as percentages with 1 decimal.
-- **The model never calculates a figure.** The SQL computes a derived figure, or the model writes a calculation placeholder, for example `{{calc:pct_change(r1.revenue@2026-10, r1.revenue@2026-09)}}`. Code computes it from the stored result values. A figure check accepts only numbers that come from a result, a calculation, a date, or the question.
+- **The model never calculates a figure.** The SQL computes a derived figure, or the model writes a calculation placeholder, for example `{{calc:pct_change(r1.revenue@2026-10, r1.revenue@2026-09)}}`. Code computes it from the stored result values. A figure check deletes each number that no result, calculation, date, question, note or recent answer explains. Small whole numbers (0 to 12) and row counts also pass.
 
 ### 2.2. SQL guard, result masker and output scanner
 
 - **SQL guard** (`SqlGuard.check(sql)`, spec 30): it parses the SQL with `sqlglot` (BigQuery dialect) and runs 18 steps. It accepts one `SELECT` or `WITH` on the four tables only. It blocks the PII columns in any position, `SELECT *`, scripts, `INFORMATION_SCHEMA`, wildcard tables, external queries and the `ML.` and `AI.` functions. It blocks a customer-level output that uses a demographic field anywhere. It rewrites each table reference to a scoped subquery. The brand names go in as the array parameter `@scope_brands`, because some names contain an apostrophe ("Levi's"). The guard never runs a query.
 - **Result masker** (`ResultMasker.mask`): it runs on every result before any model call. It drops PII columns and the demographic columns of customer-level rows. It replaces values that look like an email or a phone number with `[masked]`. It cuts each text value to 200 characters and keeps at most 200 rows. It puts the rows inside a data block, so the model treats them as data.
-- **Output scanner** (`OutputScanner.scan`): it runs on the final answer, on the report body, on each report file and on the conversation summary. It replaces email, phone, street address and coordinate patterns with `[removed]` and adds one note for the user.
+- **Output scanner** (`OutputScanner.scan`): it runs on the final answer, on the report body, on each report file and on the conversation summary. It replaces email, phone, street address and coordinate patterns with `[removed]` and adds one note for the user. In an HTML report file, a hit stops the file write (fail closed).
 
 Inputs: the SQL from the model, the user context, the cached schema and the value cache. Outputs: a `GuardResult` with the outcome (`pass`, `policy_block`, `parse_error`), a reason code, the rewritten SQL and the parameters. All three parts run inside the agent API process.
 
@@ -191,7 +191,7 @@ Inputs: the SQL from the model, the user context, the cached schema and the valu
 
 ### 2.4. Report library and report renderer
 
-- **Report flow (spec 32):** one model call plans at most 4 queries. The `data_loop` runs each query. One model call writes the report. Each report has the same 6 sections: summary, findings with numbers, reasons, action items, date range and definitions, and method with the SQL appendix. Code writes the last two sections from the plan, the glossary and the real SQL.
+- **Report flow (spec 32):** one model call plans at most 4 queries, with their SQL. Each query goes through the guard and the `data_loop`. `write_sql` runs only to correct a failed query. One model call writes the report. A report without errors costs 3 model calls: route, plan and text. Each report has the same 6 sections: summary, findings with numbers, reasons, action items, date range and definitions, and method with the SQL appendix. Code writes the last two sections from the plan, the glossary and the real SQL.
 - **Library:** each report is a row with `report_id`, `owner_id`, `conversation_id`, `title`, `created_at`, `question`, `sql`, `body_markdown`, `entities`, `deleted_at`. The `entities` field lists the brands, categories, products and states that the report names. The delete flow uses it to find "reports that mention Client X".
 - **Renderer:** HTML from a Jinja2 template with inline CSS and inline SVG charts drawn with matplotlib. No JavaScript and no external URL. A Content-Security-Policy blocks network loads. Markdown files use Mermaid charts with a data table under each chart. At most 3 charts (bar, line, pie). The model chooses only the chart type and the columns. Code draws the chart from the stored result, so a chart cannot show an invented value.
 - **Where it runs:** in the agent API. Production stores the files in Cloud Storage and gives the user a signed URL (flow 12).
@@ -228,7 +228,7 @@ Inputs: the SQL from the model, the user context, the cached schema and the valu
 
 - **CLI (spec 37):** `opsfleet-agent chat --user <id>`. Commands: `/reports`, `/open`, `/export`, `/undo`, `/trace`, `/stats`, `/help`, `/exit`. Rich shows tables and Markdown. A footer line shows the time, the model calls, the queries, the bytes and the trace ID of each answer.
 - **`AssistantSession`:** a small class between the interface and the graph. It holds the graph, the pending confirmation and the commands. The CLI, the local UI and the evaluation runner use the same session. No safety rule lives in an interface.
-- **Local web UI (nice to have, spec 40):** one static HTML page with plain JavaScript, served by the local FastAPI app. It is for manual tests only.
+- **Local web UI (specs 40 and 52):** three static files (HTML, plain JavaScript and CSS), served by a local FastAPI app on `127.0.0.1`. Server-Sent Events carry the progress steps. It uses the same `AssistantSession`. It is for manual tests only.
 
 ### 2.11. Expected capabilities
 
@@ -295,11 +295,13 @@ sequenceDiagram
 
     U->>API: Create a report for Q1 with action items for Q2, as HTML
     API->>LLM: route (intent report)
-    API->>LLM: plan the report (at most 4 queries)
+    API->>LLM: plan the report (at most 4 queries, with their SQL)
     loop each planned query
-        API->>LLM: write SQL
         API->>API: guard and scope rewrite
         API->>BQ: dry run and query
+        opt query error
+            API->>LLM: correct the SQL (at most 2 times)
+        end
         BQ-->>API: rows
         API->>API: mask and format
         API-->>U: progress event (step n of 4)
@@ -315,7 +317,7 @@ sequenceDiagram
 
 ### 3.3. Delete with confirmation
 
-This flow is the same as `architecture.md` section 0.3. Production uses Cloud SQL in place of SQLite.
+This flow is the same as `architecture.md` section 0.3. Production uses Cloud SQL in place of SQLite. The model gives only the scope. Code finds the reports, and the tool registry runs `delete_reports` only with the grant of the typed confirmation.
 
 ```mermaid
 sequenceDiagram
@@ -327,16 +329,16 @@ sequenceDiagram
 
     U->>C: Delete all the reports we made in this conversation
     C->>G: user message
-    G->>L: understand the request
-    L-->>G: tool call delete_reports, scope = this conversation
-    G->>S: find reports where owner = user and conversation = current
+    G->>L: route the message
+    L-->>G: intent delete, scope = this conversation (structured output)
+    G->>S: code finds the reports: owner = user, conversation = current
     S-->>G: 3 reports
     G-->>C: interrupt with the list of 3 reports
     C-->>U: show the list, ask to type "delete 3"
     U->>C: delete 3
     C->>G: resume with "delete 3"
     G->>G: check the answer and the hash of the report IDs
-    G->>S: soft delete 3 reports, write an audit event
+    G->>S: tool delete_reports with the grant: soft delete 3 reports, audit event
     G-->>C: 3 reports deleted, undo possible for 30 days
     C-->>U: show the result
 ```
@@ -505,7 +507,7 @@ The cost of this choice: one dataset and one service account for each scope grou
 
 *Analysis-only answers.* Four controls:
 
-1. The `route` call classifies each message. Off-topic and unsafe messages get a prepared reply. They cost exactly 1 model call.
+1. The `route` call classifies each message. Off-topic and unsafe messages get a prepared reply. They cost 1 model call. SQL text in the message that changes data goes to the guard before the route and costs no model call.
 2. The system prompt has layers. The safety rules come first and win over all later text.
 3. A closed list of tools.
 4. Database values, trio text and report text go into the prompt as data blocks only.
@@ -520,7 +522,7 @@ The cost of this choice: one dataset and one service account for each scope grou
 | Instructions inside data (a product name, a report body, a trio) | Data blocks. The masker cuts each value to 200 characters. | Instructions inside data |
 | A request for another brand | Guard rewrite and brand literal check. Authorized views in production. | Other brands |
 | PII extraction through SQL | Guard PII rules, masker, scanner, policy tags | Personal data |
-| Extraction of the system prompt or keys | `unsafe` route. Prompt-leak check (a common run of 12 or more words with the safety text). No key in any prompt. Secrets in Secret Manager. | System prompt, keys and configuration |
+| Extraction of the system prompt or keys | `unsafe` route. Prompt-leak check (a common run of 12 or more words with one of the 10 protected prompts, and a canary line). No key in any prompt. Secrets in Secret Manager. | System prompt, keys and configuration |
 | A persona text with instructions | Schema with tone fields only. Persona text under the heading "Tone guidance", after the safety layer. At most 2,000 characters. | Persona injection (production test, design only) |
 | A change to the data | Guard accepts only `SELECT`. Service accounts have no write role. | Changes to the data |
 
@@ -643,6 +645,7 @@ Checks 1 and 2 use the cache. Checks 3 to 5 need at most 2 probe queries. The ha
 
 - Retries with exponential backoff and jitter: 1 s, then 2 s, plus a random part. A `Retry-After` value up to 10 s is respected.
 - Gemini: 2 retries on HTTP 429 and 5xx, then one attempt with the fallback model. The SDK retries are off, so only one retry layer exists.
+- Gemini daily quota (HTTP 429 with a daily quota): no retry. The fallback model answers at once. The breaker of the main model stays open until midnight Pacific time, when Google resets the free-tier quota.
 - BigQuery: 1 retry, only for temporary errors. The library default retries are off, because they can retry for several minutes.
 - A circuit breaker for each model and for BigQuery: 3 failures in a row stop the calls for 60 s. One trial call then decides.
 - When a service is down, the agent says which service and what still works. For example, when Gemini is down, `/reports`, `/open`, `/export` and `/undo` still work.
@@ -664,7 +667,7 @@ Checks 1 and 2 use the cache. Checks 3 to 5 need at most 2 probe queries. The ha
 | BigQuery queries for each answer | 6 | 6 | The same |
 | Tokens for each answer | 60,000 in, 8,000 out | 60,000 in, 8,000 out | The same. Spec 50 measures the real use. |
 | Bytes billed for each query | 1 GB | 10 GB | The production tables are larger. Aggregates and partitions keep most queries far below the cap. |
-| Daily Gemini calls | 480 (free tier) | No hard stop. A budget alert at 150% of the expected 5,000 calls. | The paid tier has no daily request limit for this load. |
+| Daily Gemini calls | 480 (free tier). The day ends at midnight Pacific time. | No hard stop. A budget alert at 150% of the expected 5,000 calls. | The paid tier has no daily request limit for this load. |
 | Daily BigQuery bytes | 20 GB | A budget alert, and a custom quota on the project | The free 1 TB each month does not apply to the production load. |
 
 **Prototype.** Specs 31 and 36 build the loop, the checks, the retries, the fallback model and the breakers. The CLI catches every error and continues. Ctrl-C stops the current question and its BigQuery job.
@@ -685,7 +688,7 @@ Checks 1 and 2 use the cache. Checks 3 to 5 need at most 2 probe queries. The ha
 **Production design: before deployment.**
 
 1. **Accuracy set** (spec 21): 50 questions: 13 easy, 23 medium and 14 hard. 26 are for the CEO and 24 for managers. Each has a reference SQL that a person checked. The score compares the result sets, not the SQL text. The reference SQL applies the scope by hand, so a bug in the guard shows as a failure.
-2. **Safety set** (spec 22): 61 cases in 11 categories, plus one scripted conversation of 32 turns. Code checks first: the trace, the recorded queries and the report library. The release gate is zero failures. Each case runs once. A second run to get a pass is not allowed.
+2. **Safety set** (spec 22): 61 cases in 11 categories, plus one scripted conversation of 32 turns. Code checks first: the trace, the recorded queries and the report library. The release gate is zero failures. Each case gets one score. The runner runs a case one more time only after an outside error (Gemini 503, a timeout, an open circuit breaker) or a rate limit. If the outside error comes again, the case is left out of the rates, and the safety gate is "not complete" (spec 23, B7b).
 3. **Answer and report scores** (spec 23): an LLM judge with a written rubric. Each criterion is a binary pass or fail with a short critique.
 4. **Human check of the judge:** a person labels 10 judged items of each full run without the judge's verdict. A calibration with 30 labels comes before the rubric is frozen (spec 50). The report shows how often the judge agrees with the person.
 5. **Full regression on every change.** In production, each change to the code, a prompt, the persona or the model starts a CI run. The CI run executes the full accuracy set and the full safety set before the release. A re-run of only the failed cases is a development shortcut of the prototype (spec 50), not a release check. (Owner's decision, 2026-11-11.)
@@ -722,6 +725,8 @@ Code checks parts of the rubric directly: the period in the plan, the figure che
 - A judge can prefer answers of its own model family. The release decision uses the code-based metrics. The judge scores are information.
 
 **Checks.** The evaluation report (`docs/evaluation/`, spec 50) is the check. The CI run of the full sets is the production check.
+
+**Results of the prototype so far** (section 7.4 has the details). Round 1 (2026-11-12) found 20 agent bugs, 1 scorer problem, 1 wrong case and 24 failures from outside errors (mostly Gemini 503). After the corrections, all re-run cases pass the code checks: safety 61 of 61, accuracy 32 of 32 scored cases. The judge part, 18 accuracy cases without a score, and the final run on one commit are **Open** (round 2).
 
 ### 4.7. Req 7: Observability
 
@@ -764,15 +769,15 @@ The availability objective is 99.5% in business hours (gap analysis N3, Our assu
 5. The masked conversation shows the message exchange. Data blocks appear as references (`<data ref="res_…" rows="N"/>`), and the system text appears as its `prompt_version`.
 6. The team runs the turn again in a test environment with the same prompt version and the same model.
 
-*PII in logs and traces.* A redactor runs inside the exporter, before any write. It masks string literals in SQL except the allowed business columns (brand, category, status, state and others). It runs the output scanner on free text. It drops any attribute that is not in the allowed list.
+*PII in logs and traces.* A redactor runs inside the exporter, before any write. It masks string literals in SQL except the allowed business columns (brand, category, status, state and others) and the date literals. It runs the output scanner on free text. It drops any attribute that is not in the allowed list.
 
-*Decision about LangSmith and Langfuse* (spec 35). The prototype uses local OpenTelemetry and sends nothing to an outside service. LangSmith sends questions, SQL and figures to an outside service and needs a key for each reviewer. The same spans go to Cloud Trace in production. A setting `tracing.otlp_endpoint` (off by default) can send the masked spans to Langfuse or LangSmith later, because both accept OTLP.
+*Decision about LangSmith and Langfuse* (spec 35). The prototype uses local OpenTelemetry and sends nothing to an outside service. LangSmith sends questions, SQL and figures to an outside service and needs a key for each reviewer. The same spans go to Cloud Trace in production. The setting `tracing.otlp_endpoint` exists, but the prototype has no OTLP exporter: a value only writes a warning to the log. An OTLP exporter can send the masked spans to Langfuse or LangSmith later, because both accept OTLP.
 
 **Prototype.** Spec 35 builds the spans, the redactor, the turn table and the commands `/trace`, `/stats`, `opsfleet-agent stats --all` and `stats --export csv`. Traces and logs stay 30 days, the question and answer text 90 days, the turn figures 1 year.
 
 **Failures and limits.**
 
-- If the telemetry export fails, the turn continues. The exporter drops the spans after its buffer is full. Telemetry is a helper part.
+- If the telemetry export fails, the turn continues. In production, the batch exporter drops spans when its buffer is full. The prototype writes each span at once to a local file. Telemetry is a helper part.
 - The masked prompts still contain the user's questions (after the scanner). The deep dive needs them.
 
 **Checks.**
@@ -824,7 +829,7 @@ The availability objective is 99.5% in business hours (gap analysis N3, Our assu
 | Files and configuration | Cloud Storage | Firestore for the persona | Versioned objects for the persona and the trios. Signed URLs for report files. | Storage and operations (small) |
 | User access | Identity-Aware Proxy | Own login code in the API | SSO with the company identity provider without own login code. The API gets a signed identity header. | No separate charge for this use (check at deploy) |
 | Secrets | Secret Manager | Environment variables in the service | Keys never go into the image. Access is per service account. | Secret versions and access operations |
-| Telemetry | Cloud Logging, Cloud Trace, Cloud Monitoring | Langfuse. LangSmith. | The same OpenTelemetry spans as the prototype. No data leaves Google Cloud. The OTLP setting keeps Langfuse or LangSmith possible. | Log volume (about 1 GB each month) |
+| Telemetry | Cloud Logging, Cloud Trace, Cloud Monitoring | Langfuse. LangSmith. | The same OpenTelemetry spans as the prototype. No data leaves Google Cloud. An OTLP exporter can add Langfuse or LangSmith later. | Log volume (about 1 GB each month) |
 | Scheduled jobs | Cloud Scheduler with Cloud Run jobs | Cloud Functions. A cron loop in the API. | A job runs to completion with its own service account. The API stays stateless. | Job run time (small) |
 | Infrastructure as code | Terraform | Manual setup in the console | Repeatable environments (test and production). It creates the scope-group datasets and service accounts from the access table. | None |
 | CI/CD | GitHub Actions | Cloud Build | The repository is on GitHub. It runs ruff, pytest, the full evaluation sets and the deploy. | Runner minutes, Gemini calls of the evaluation |
@@ -844,25 +849,25 @@ The nodes call Gemini through `google-genai` directly, without LangChain model w
 ### 5.2. Models
 
 - **Development model:** `gemini-3.5-flash-lite`. All development runs and tests use it.
-- **Fallback model in the prototype:** `gemini-3.8-flash` on the same free-tier key, one attempt for each failed call (spec 36).
+- **Fallback model in the prototype:** `gemini-3.1-flash-lite` on the same free-tier key, one attempt for each failed call (spec 36). A different model has its own free-tier limits.
 - **Default and fallback models for production:** **Open.** Spec 51 runs the same test sets on `gemini-3.5-flash-lite` and `gemini-3.8-flash`. A set rule chooses: safety first, then a paired count of the correct answers, then the cost for each answer.
 
-| Metric | `gemini-3.5-flash-lite` | `gemini-3.8-flash` |
+| Metric | `gemini-3.5-flash-lite` (Measured, round 1, section 7.4) | `gemini-3.8-flash` |
 |---|---|---|
-| Safety pass rate | Open (spec 51) | Open (spec 51) |
-| SQL execution-match rate | Open | Open |
-| Latency median and p95 for questions | Open | Open |
-| Tokens for each answer (in and out) | Open | Open |
-| Cost for each answer at paid prices | Open | Open |
+| Safety pass rate | 54.1% in the baseline (21 of 28 failures were outside errors, mostly Gemini 503). 61 of 61 pass the code checks after round 1. Judge part open. | Open (spec 51) |
+| SQL execution-match rate | 66.7% in the baseline. 11 of 11 in the re-run of the failed cases. Full run open. | Open |
+| Agent time for a data question, median and p95 | 6.9 s and 16.9 s | Open |
+| Tokens for a data question, median (in and out) | about 7,000 and 640 | Open |
+| Cost for a data question at paid prices | about $0.004 | Open |
 
-**Why a Flash-class model fits the 10–30 s target.** A simple question needs 3 model calls in sequence. A test call to `gemini-3.5-flash-lite` took 1.0 s on 2026-11-11 (Measured, one call). With 3 calls of about 1–3 s each, the model time stays under 10 s. The rest of the budget is for the queries (section 7.2). A larger model with a longer time for each call leaves less room for one self-correction inside 30 s. Flash-class models are also the lower-cost models, and the free tier gives access for the OpsFleet tests.
+**Why a Flash-class model fits the 10–30 s target.** A simple question needs 3 model calls in sequence. In round 1, the model time of a data question had a median of 5.3 s (Measured, section 7.4). The rest of the budget is for the queries (section 7.2). A larger model with a longer time for each call leaves less room for one self-correction inside 30 s. Flash-class models are also the lower-cost models, and the free tier gives access for the OpsFleet tests.
 
 ### 5.3. Gemini free-tier facts that shaped the prototype
 
 These facts come from the work on the prototype. They explain some choices that look unusual for production.
 
-1. **Development model.** `gemini-3.5-flash-lite` is the development model. Its free tier allows about 500 requests each day for each project (a forum report, 2026-11). The prototype sets its own daily limit to 480 calls (`config/settings.yaml`), so a run stops before Google's limit. The key's project has no billing, so a call above the limit fails with HTTP 429 and never costs money.
-2. **The stronger model has a very small free tier.** The free tier of `gemini-3.8-flash` allows only about 20 requests each day. So the evaluation judge in the prototype uses `gemini-3.5-flash-lite`. The fallback model also has little capacity on the free tier.
+1. **Development model.** `gemini-3.5-flash-lite` is the development model. Its free tier allows about 500 requests each day for each project (a forum report, 2026-11). The prototype sets its own daily limit to 480 calls (`config/settings.yaml`), so a run stops before Google's limit. Google resets the free-tier quota at midnight Pacific time, and the daily counter of the prototype uses the same day. The key's project has no billing, so a call above the limit fails with HTTP 429 and never costs money.
+2. **The stronger model has a very small free tier.** The free tier of `gemini-3.8-flash` allows only about 20 requests each day. So the evaluation judge in the prototype uses `gemini-3.5-flash-lite`, and the fallback model is `gemini-3.1-flash-lite`.
 3. **Per-minute limits.** The evaluation runner calls the agent one case after the other, about one call every 4 s (spec 23). A full accuracy run and a full safety run do not fit together in one day, so they run on different days.
 4. **A timeout and a maximum retry count are necessary.** Without them, a test call hung on 2026-11-11, because the SDK repeated the call. The client sets a 30 s timeout, at most 2 retries, and turns the SDK retries off.
 5. **Billing state of the key's project.** A key from a project with billing in prepay mode and no credits returns HTTP 402. The setup guide tells the reviewer to create the key in a project without billing (gap analysis N20).
@@ -879,13 +884,13 @@ One rule applies to the whole system:
 - **Safety parts fail closed.** Examples: the guard, the brand scope, the identity, the confirmation. When a safety part cannot decide, the agent refuses and explains.
 - **Helper parts fail open, with a degraded answer.** Examples: the Golden Bucket, the preferences, the persona, the telemetry export. When a helper part fails, the agent continues without it and records this in the trace.
 
-Each user message below ends with the trace ID, for example "Trace: 4f2a9c1e". The error types come from spec 00.
+The messages for a failed service and for an unexpected error end with the trace ID, for example "Trace: 4f2a9c1e". The CLI also adds it to a limit message. The error types come from spec 00.
 
 | Failure | Detection | Action | User message (short) | Metric |
 |---|---|---|---|---|
-| Gemini HTTP 429 | Status 429 | Backoff 1 s, 2 s (plus jitter), then the fallback model once. Breaker after 3 failures in a row. | None if a retry works. Else: "The AI service is busy. Please try again in a minute." | `llm_rate_limited` count, fallback use |
+| Gemini HTTP 429 | Status 429 | Backoff 1 s, 2 s (plus jitter), then the fallback model once. Breaker after 3 failures in a row. For the daily quota: no retry, the fallback model at once, and the main model stays off until midnight Pacific time. | None if a retry or the fallback works. Else: "The AI service is busy. Please try again in a minute." (daily quota: the daily-limit message) | `llm_rate_limited` count, fallback use |
 | Gemini HTTP 5xx or timeout | Status 5xx, or no answer within the step timeout | Same as 429. The timeout is capped by the time left in the turn. | "The AI service is not available now. Your saved reports still work." | `llm_error`, `llm_timeout` |
-| Gemini output that does not parse | JSON schema check fails | One new attempt. For `route`, a second failure gives the intent `analysis` (the guard still protects the data). | None, or the final failure message | `llm_error` with reason `parse` |
+| Gemini output that does not parse | JSON schema check fails | `route` and the report plan: one new attempt. A second failure of `route` gives the intent `analysis` (the guard still protects the data). Other steps: the turn ends. | None, or the final failure message | `llm_error` with reason `parse` |
 | BigQuery syntax or "not found" error | Error from the dry run or the job | Self-correction: the error, the SQL and the columns go back to the model. At most 3 attempts. | None if a retry works. Else: what the agent tried, why it failed, what can help. | `bq_syntax`, `bq_not_found`, self-correction success |
 | BigQuery empty result | 0 rows | Empty-result checks (at most 5 queries). An error goes back to the model. A true zero goes to the answer. | "No data for …" with the filters and the date range | `empty_result` by kind |
 | BigQuery byte cap | The dry run is over the cap | Back to the model: "filter by date or select fewer columns" | None if a retry works. Else: "This query reads too much data. Please narrow the period or the brands." | `bq_bytes_cap` |
@@ -896,7 +901,7 @@ Each user message below ends with the trace ID, for example "Trace: 4f2a9c1e". T
 | Cloud Storage not available: report files | Write error | Save the report row without a file. Tell the user. | "The report is saved. The file is not available now. Use /export later." | `tool_error` |
 | Golden Bucket retrieval failure | Error or over 2 s | Continue without examples. Mark the turn "no examples". | None | Share of turns without examples |
 | IAP or the identity provider not available | IAP returns an error before the API | The request never reaches the API. No identity means no access. | The sign-in page of the identity provider shows the error | Uptime check on the channel |
-| A limit reached | `LimitExceeded` from the budget | Stop the turn. Save nothing. | The limit message, for example "This question needs more steps than allowed (8 model calls)." | `limit_exceeded` by limit name |
+| A limit reached | `LimitExceeded` from the budget | Stop the turn. Save nothing. In a report, a query or call limit drops only that part, and the report is saved with the other parts. The time limit stops the report. | The limit message, for example "This question needs more steps than allowed (8 model calls)." | `limit_exceeded` by limit name |
 | A guard block | `policy_block` | No retry. Explain the block. | The standard message, for example "Nike is outside your brands." | Guard blocks by reason |
 | A rejected confirmation | Answer is not the exact `delete N` | Cancel. Delete nothing. Other text goes to the agent as a new message. | "Nothing was deleted." | `confirmation_rejected` by reason |
 | An output scanner hit | A pattern match in the text or a file | Replace the match with `[removed]`. Add one note. Log the pattern name, never the text. | "Some text was removed because it looked like personal data." | Scanner hits by pattern |
@@ -916,9 +921,9 @@ Each user message below ends with the trace ID, for example "Trace: 4f2a9c1e". T
 | Peak hour | 80% of the work in 8 business hours, peak = 2 × average | about 200 questions and 25 reports in one hour | Our assumption |
 | Turns at the same time | arrival rate × duration: 200/3,600 × 30 s + 25/3,600 × 120 s = 1.7 + 0.8 | about 3 | Derived |
 | Cloud Run | concurrency 10 for each instance, minimum 1 in business hours, maximum 5, 2 vCPU, 2 GiB, request timeout 300 s | 1–2 instances at peak | Our assumption |
-| Gemini calls each day | 1,000 × 4 + 100 × 10 | about 5,000 | Our assumption. Spec 50 measures the real value. |
+| Gemini calls each day | 1,000 × 4 + 100 × 10 | about 5,000 | Our assumption. Measured (7.4): 3 calls for a data question, 3 for a report without errors. |
 | Gemini calls at peak | (200 × 4 + 25 × 10) / 60 | about 20 each minute | Derived |
-| Gemini tokens each day | 5,000 calls × (6,000 in, 400 out) | about 30 M in, 2 M out | Our assumption. Spec 50 measures it. |
+| Gemini tokens each day | 5,000 calls × (6,000 in, 400 out) | about 30 M in, 2 M out | Our assumption, kept as an upper value. Measured (7.4): about 7,000 in and 640 out for a full data question (3 calls). |
 | Embedding calls each day | one for each question and report | about 1,100 | Derived |
 | BigQuery queries each day | 1,000 × 2 + 100 × 6 | about 2,600 | Our assumption |
 | New warehouse data | 1 M rows × about 150 bytes | about 150 MB each day, about 55 GB each year | From OpsFleet (rows). Row size: Our assumption. |
@@ -931,7 +936,7 @@ The "4 calls for each question" is a mean value. A simple question needs 3 calls
 
 ### 7.2. Latency budget
 
-All step times are Our assumption, except the measured Gemini call (1.0 s, one call on 2026-11-11). Spec 50 measures the real p50 and p95.
+All step times are Our assumption. Section 7.4 has the measured times of the prototype. A data question took 6.9 s (median) and 16.9 s (p95) of agent time. One report with 4 queries took 18 s.
 
 **A question (target 10–30 s):**
 
@@ -957,18 +962,18 @@ The total with one self-correction stays inside 30 s. A second self-correction c
 |---|---|
 | Identity, context, route, retrieval | 2–4 s |
 | Plan (Gemini) | 2–4 s |
-| 4 queries, each with SQL writing, guard, dry run and query | 4 × (5–10 s) = 20–40 s |
+| 4 queries (the plan has the SQL), each with the guard, dry run and query | 4 × (2–6 s) = 8–24 s |
 | Report writing (Gemini, about 1,200 words) | 10–20 s |
 | Checks, save, render, file write | 1–3 s |
-| **Total without errors** | **about 35–71 s** |
-| One self-correction in one query | + 5–10 s |
-| **Total with one self-correction** | **about 40–81 s** |
+| **Total without errors** | **about 23–55 s** |
+| One self-correction in one query (SQL writing, guard, dry run, query) | + 5–10 s |
+| **Total with one self-correction** | **about 28–65 s** |
 
 The report stays inside 2 minutes with one self-correction. The 150 s limit stops a report that is too slow.
 
 ### 7.3. BigQuery bytes: two cases
 
-The bytes for each query decide the BigQuery cost (decision ⚑ of spec 10). The table compares two cases after one year of data. All values are Our assumption, to show the size of the effect. Spec 50 measures the bytes on the prototype data. Production needs a measurement on the real tables.
+The bytes for each query decide the BigQuery cost (decision ⚑ of spec 10). The table compares two cases after one year of data. All values are Our assumption, to show the size of the effect. On the small prototype data, a query billed 21 MB (median, section 7.4), because BigQuery bills at least 10 MB for each table. Production needs a measurement on the real tables.
 
 | Case | Design | Bytes for each query (Our assumption) | Bytes each day (× 2,600) |
 |---|---|---|---|
@@ -978,6 +983,37 @@ The bytes for each query decide the BigQuery cost (decision ⚑ of spec 10). The
 Case A is not acceptable: one query also passes the production cap of 10 GB. So the design uses case B. The daily aggregate table is a scheduled query (BigQuery scheduled queries) after the daily load.
 
 **When capacity pricing becomes cheaper.** On-demand pricing bills the bytes of each query. Capacity pricing (BigQuery editions) bills reserved slots by the hour. Capacity pricing is cheaper when: bytes each month × price for each TB > slots × hours each month × price for each slot-hour. With case B and the expected load, on-demand needs no capacity plan. The team checks the formula each quarter with the real bytes from the log sink.
+
+### 7.4. Measured figures of the prototype
+
+**Label: Measured.** Prototype, free tier, `gemini-3.5-flash-lite`, BigQuery public dataset, 2026-11-12, one run each. The samples are small: they show the size of a value, not a stable value. Sources: the run reports `data/eval/runs/<run>/report.md` (not in git), [round-1-analysis.md](../evaluation/round-1-analysis.md), the live check of spec 33 and [cli-session.txt](../images/cli-session.txt).
+
+**Latency.** The evaluation runner starts at most one Gemini call every 4 s (free-tier rate limit), so the turn time of a run includes waits. The agent time is the turn time minus these waits (the node spans minus their model-call spans). Turns that ended with an error are left out.
+
+| Turn type | Run | Turns | Runner time, median / p95 | Agent time, median / p95 | Gemini calls, median (p95) | Tokens in / out, median |
+|---|---|---|---|---|---|---|
+| Data question | accuracy baseline (`8814c53`) | 28 | 12.1 s / 21.5 s | 6.9 s / 16.9 s | 3 (4) | 6,990 / 642 |
+| Data question | accuracy re-run (`db527de`) | 7 | 11.3 s / 11.9 s | 5.8 s / 7.0 s | 3 (3) | 8,098 / 576 |
+| Schema question | both accuracy runs | 8 | 6.3–7.4 s (medians) | 2.2–2.7 s (medians) | 2 | 2,940–3,550 / about 200 |
+| Refusal (`unsafe` route) | safety baseline | 20 | 4.3 s / 10.2 s | 1.3 s / 7.4 s | 1 | 1,820 / 123 |
+| Off-topic message | safety baseline | 6 | 2.6 s / 5.0 s | 1.2 s / 1.5 s | 1 | 1,813 / 122 |
+| Data question in the CLI (no waits) | `cli-session.txt` | 1 | – | 14.2 s (SQL writing 9.1 s) | 3 | 7,051 / 613 |
+| Report with 4 queries, HTML file (no waits) | live check of spec 33 | 1 | – | 18 s | 3 | – |
+
+The report cases of the accuracy baseline failed before their queries (a plan bug, corrected in round 1). So the evaluation has no report latency yet. The baseline report shows a p95 of 21.7 s for a question and 22.4 s for a report, with the waits. The targets of spec 50 are 30 s and 120 s.
+
+**BigQuery.** A data query billed 21.0 MB (median) and 31.5 MB (maximum). BigQuery bills at least 10 MB for each table, and most queries read 2 tables. The report with 4 queries billed 83.9 MB. The value cache costs about 40 MB once each day. The reference snapshots of the accuracy set cost 1,090 MB.
+
+**Cost for each answer at paid-tier prices** (section 9, Derived). Gemini: 6,990 × $0.30/1M + 642 × $2.50/1M ≈ $0.0037 for a data question. BigQuery: about $0.0001. Total: about $0.004.
+
+**Quality, baseline and round 1** (spec 50, code checks). The judge did not run in the re-runs.
+
+| Set | Baseline (`8814c53`) | After the round 1 corrections |
+|---|---|---|
+| Accuracy | 21 of 39 scored cases pass (53.8%). Execution match 66.7%. 11 cases skipped by the old snapshot rule. | 11 of 11 re-run cases pass. So 32 of 32 scored cases pass the code checks. 7 cases had a 503 again, and 11 cases still have no score. |
+| Safety | 33 of 61 pass (54.1%). Gate: fail. 21 of the 28 failures were outside errors (Gemini 503, a timeout, an open circuit breaker). | 28 of 28 re-run cases pass. So 61 of 61 pass the code checks. The judge part of the gate is open. |
+
+Round 1 used 111 Gemini calls and about 336 MB of BigQuery. **Open (round 2):** the final runs of both sets on one commit with the judge, the judge calibration, and the model comparison of spec 51.
 
 ---
 
@@ -1018,40 +1054,36 @@ Case A is not acceptable: one query also passes the production cap of 10 GB. So 
 
 ## 9. Cost estimate
 
-**This is an estimate, not a quote.** It uses list prices on the date of writing. The prices change.
+**This is an estimate, not a quote.** It uses the list prices that the official pricing pages showed on 2026-11-12 (USD, US or Tier 1 regions, without committed-use discounts). The prices change. The volumes come from section 7 (Our assumption). Each monthly cost is Derived: volume × unit price, minus the free tier where one applies.
 
-**Open: unit prices.** This version contains no unit prices, because the work on it had no access to the pricing pages. The volumes below come from section 7. Phase 3 adds the unit prices, the monthly cost of each row and the total. They come from the official pricing pages, with the date of each price. The links are in the table.
+Basis: 22 working days each month. The model row uses `gemini-3.5-flash-lite`, the development model. The production model is still **Open** (spec 51), so the table also shows `gemini-3.8-flash`.
 
-Basis: 22 working days each month.
+| Service | Unit price (source) | Volume each month | Monthly cost (estimate) |
+|---|---|---|---|
+| Gemini, `gemini-3.5-flash-lite`: input / output tokens | $0.30 / $2.50 for 1 M tokens ([Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing)). The Vertex AI global endpoint has the same price. Regional endpoints: $0.33 / $2.75. | 30 M × 22 = 660 M in, 2 M × 22 = 44 M out | $198 + $110 = **$308** |
+| Gemini, `gemini-3.8-flash` (alternative) | $0.75 / $3.75 until 2026-12-31, then $1.50 / $7.50 (same page) | same | $660 until 2026-12-31, then **$1,320** |
+| Vertex AI embeddings (Gemini Embedding 2) | $0.20 for 1 M input tokens ([Vertex AI pricing](https://cloud.google.com/vertex-ai/generative-ai/pricing)) | 24,200 requests × about 30 tokens ≈ 0.7 M tokens | under $1 |
+| BigQuery on-demand queries, case B | $6.25 for 1 TiB. The first 1 TiB each month is free ([BigQuery pricing](https://cloud.google.com/bigquery/pricing)). | 0.26 TB × 22 ≈ 5.7 TB (5.2 TiB) | (5.2 − 1) × $6.25 ≈ **$26** |
+| BigQuery on-demand queries, case A (for comparison) | same | 47 TB × 22 ≈ 1,030 TB (937 TiB) | about $5,850 |
+| BigQuery storage | about $0.023 for 1 GiB each month (active logical). The first 10 GiB are free (same page). | about 55 GB after one year, plus the aggregates and the log sink | about $1–2 |
+| Cloud Run (agent API) | $0.000018 for 1 vCPU-second, $0.000002 for 1 GiB-second (instance-based billing, Tier 1). 240,000 vCPU-seconds and 450,000 GiB-seconds are free ([Cloud Run pricing](https://cloud.google.com/run/pricing)) | 1 instance × 2 vCPU × 2 GiB × 8 h × 22 days = 1.27 M vCPU-seconds and 1.27 M GiB-seconds, plus about 25% for peak instances | about **$25** |
+| Cloud SQL for PostgreSQL (Enterprise, one zone) | $0.0413 for 1 vCPU-hour, $0.007 for 1 GiB-hour, about $0.17 for 1 GiB of SSD each month ([Cloud SQL pricing](https://cloud.google.com/sql/pricing)) | 2 vCPU and 8 GiB (Our assumption) × 730 h, 10 GiB of SSD | $60 + $41 + $2 ≈ **$103** (high availability: about $205) |
+| Cloud Storage | about $0.026 for 1 GB each month, Standard, US multi-region ([Cloud Storage pricing](https://cloud.google.com/storage/pricing)) | under 10 GB after one year (report files about 0.44 GB each month) | under $1 |
+| Cloud Logging, Trace, Monitoring | Logging: first 50 GiB each project and month free, then $0.50 for 1 GiB. Trace: first 2.5 M spans free ([Observability pricing](https://cloud.google.com/stackdriver/pricing)) | about 1 GB of logs, about 0.7 M spans | $0 (inside the free amounts) |
+| Secret Manager | 6 active versions and 10,000 accesses free each billing account, then $0.06 for 1 version ([Secret Manager pricing](https://cloud.google.com/secret-manager/pricing)) | a few secrets, about 1 access for each instance start | $0 |
+| Cloud Scheduler | 3 jobs free each billing account, then $0.10 for 1 job ([Cloud Scheduler pricing](https://cloud.google.com/scheduler/pricing)) | 2 jobs | $0 |
+| **Total with `gemini-3.5-flash-lite`** | | | **about $465 each month** |
+| Total with `gemini-3.8-flash` | | | about $815 until 2026-12-31, about $1,475 after |
 
-| Service | Unit | Volume each month | Unit price | Monthly cost |
-|---|---|---|---|---|
-| Vertex AI Gemini: input tokens | 1 M tokens | 30 M × 22 = 660 M | Open ([pricing](https://cloud.google.com/vertex-ai/generative-ai/pricing)) | Open |
-| Vertex AI Gemini: output tokens | 1 M tokens | 2 M × 22 = 44 M | Open (same page) | Open |
-| Vertex AI embeddings | 1,000 requests or characters (see the page) | 1,100 × 22 = 24,200 requests | Open (same page) | Open |
-| BigQuery on-demand queries, case B | 1 TB billed | 0.26 TB × 22 ≈ 5.7 TB | Open ([pricing](https://cloud.google.com/bigquery/pricing)) | Open |
-| BigQuery on-demand queries, case A (for comparison) | 1 TB billed | 47 TB × 22 ≈ 1,030 TB | Open (same page) | Open |
-| BigQuery storage | 1 GB each month | about 55 GB after one year, plus the aggregates and the log sink | Open (same page) | Open |
-| Cloud Run (agent API) | vCPU-second, GiB-second | 1 instance × 2 vCPU × 8 h × 22 days, plus peak instances | Open ([pricing](https://cloud.google.com/run/pricing)) | Open |
-| Cloud SQL for PostgreSQL | vCPU-hour, GiB-hour, GB storage | 2 vCPU, 24 h × 30 days, about 5 GB | Open ([pricing](https://cloud.google.com/sql/pricing)) | Open |
-| Cloud Storage | GB each month, operations | under 1 GB new each month (report files about 0.44 GB) | Open ([pricing](https://cloud.google.com/storage/pricing)) | Open |
-| Cloud Logging, Trace, Monitoring | GiB of logs, spans | about 1 GB of logs, about 0.7 M spans | Open ([pricing](https://cloud.google.com/stackdriver/pricing)) | Open |
-| Secret Manager | versions, access operations | a few secrets, about 1 access for each instance start | Open ([pricing](https://cloud.google.com/secret-manager/pricing)) | Open |
-| Cloud Scheduler | job each month | 2 jobs | Open ([pricing](https://cloud.google.com/scheduler/pricing)) | Open |
-| **Total** | | | | **Open** |
+The Gemini rows use the token volumes of section 7.1, which are an upper value. Section 7.4 measured about 7,000 tokens in and 640 out for a data question. With these values, the 22,000 questions of a month cost about $46 + $35 = $81 on `gemini-3.5-flash-lite`. The assumption gives about $245 for them. The cost of reports is not measured yet.
 
 **Main cost drivers and levers.**
 
-1. **BigQuery bytes for each query.** Case A is about 180 times the bytes of case B. The aggregate table, the partitions and the byte cap are the main cost controls.
-2. **The model choice.** Gemini tokens are the second driver. Spec 51 compares the cost for each answer of the two models at paid prices.
+1. **BigQuery bytes for each query.** Case A is about 180 times the bytes of case B: about $5,850 against $26 each month. The aggregate table, the partitions and the byte cap are the main cost controls.
+2. **The model choice.** Gemini tokens are the largest cost with case B. `gemini-3.8-flash` costs about 4 times as much as `gemini-3.5-flash-lite` after 2026-12-31. Spec 51 compares the quality and the cost for each answer of the two models.
 3. **Cloud SQL and the minimum Cloud Run instance** are constant costs. They do not grow with the number of questions.
 
-**Cost for a reviewer of the prototype.**
-
-- The Gemini key is a free-tier AI Studio key from a project without billing. A call above the free limit fails with HTTP 429 and costs nothing.
-- BigQuery bills at least 10 MB for each table in a query. A small query on `thelook_ecommerce` bills about 10–40 MB.
-- The prototype caps each query at 1 GB billed and each day at 20 GB. 20 GB each day for 30 days is 600 GB, inside the free 1 TB of queries each month.
-- The [README](../../README.md) explains the setup with a project without billing (BigQuery sandbox).
+**Cost for a reviewer of the prototype.** The key is a free-tier key from a project without billing, so a call above the free limit fails with HTTP 429 and costs nothing. A query bills about 10–40 MB. The prototype caps each query at 1 GB and each day at 20 GB, which stays inside the free 1 TiB of queries each month. The [README](../../README.md) has the setup.
 
 ---
 

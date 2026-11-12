@@ -116,16 +116,16 @@ sequenceDiagram
 
     U->>C: Delete all the reports we made in this conversation
     C->>G: user message
-    G->>L: understand the request
-    L-->>G: tool call delete_reports, scope = this conversation
-    G->>S: find reports where owner = user and conversation = current
+    G->>L: route the message
+    L-->>G: intent delete, scope = this conversation (structured output)
+    G->>S: code finds the reports: owner = user, conversation = current
     S-->>G: 3 reports
     G-->>C: interrupt with the list of 3 reports
     C-->>U: show the list, ask to type "delete 3"
     U->>C: delete 3
     C->>G: resume with "delete 3"
     G->>G: check the answer and the hash of the report IDs
-    G->>S: soft delete 3 reports, write an audit event
+    G->>S: tool delete_reports with the grant: soft delete 3 reports, audit event
     G-->>C: 3 reports deleted, undo possible for 30 days
     C-->>U: show the result
 ```
