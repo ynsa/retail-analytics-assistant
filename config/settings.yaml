@@ -129,3 +129,5 @@ eval:                              # evaluation runner (spec 23)
   judge_tokens_out_per_call: 400
   prices:                            # paid tier, USD for 1M tokens (2026-11-11). The free tier costs $0.
     gemini-3.5-flash-lite: {input_per_m: 0.30, output_per_m: 2.50}
+    gemini-3.8-flash: {input_per_m: 0.75, output_per_m: 3.75}   # until 2026-12-31, then 1.50 / 7.50
+    gemini-3.1-flash-lite: {input_per_m: 0.25, output_per_m: 1.50}
