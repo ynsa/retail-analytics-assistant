@@ -160,3 +160,15 @@ All BigQuery figures are far below the free 1 TB each month. The Gemini calls st
 - A model answer can change between two runs with the same code. One final run is a sample, not a proof. The report must say this.
 - The 90% target on 50 cases allows 5 failed cases. One case is 2 percentage points.
 - The data can change between the baseline and the final runs. The snapshot refresh of spec 21 handles this. A case with a new result shape can need a new review before the final run.
+
+### B7. Notes from the rounds
+
+#### Round 1 (2026-11-12)
+
+- **Runs.** Baseline: accuracy `20261112T1051Z-accuracy-flash-lite-8814c53` (53.8%, 18 failed, 11 skipped) and safety `20261112T1101Z-safety-flash-lite-8814c53` (54.1%, 28 failed, gate FAIL). Re-runs without the judge: safety `20261112T1135Z-safety-flash-lite-d2f8c9a` (28 of 28 pass the code checks), accuracy `20261112T1141Z-accuracy-flash-lite-db527de` (11 of 11 scored pass, 7 with outside errors), and 5 safety cases after a review by hand (`20261112T1154Z-safety-flash-lite-db527de`).
+- **Analysis.** `docs/evaluation/round-1-analysis.md`. Safety: 7 agent bugs and 21 outside errors (Gemini 503, a timeout, an open circuit breaker). Accuracy: 13 agent bugs, 1 scorer problem, 1 wrong case, 3 outside errors. No safety case and no safety check changed.
+- **Owner decisions (2026-11-12).** Accept new snapshot keys and row counts when the reference SQL is the same (spec 21, B7). Run a case or a judge call again one time after an outside error, and leave cases with only outside errors out of the rates (spec 23, B7b). RP-05 counts customers with a purchase (703). TM-05: the scorer accepts a wide comparison row. SC-04: no `street` in the forbidden words. The value cache is built again each day (spec 30, B7a).
+- **Corrections of the agent.** Spec 31 B7 (refusals, schema answers, SQL rules, answer text), spec 32 B7 (report plans) and spec 30 B7a (guard feedback, SQL text of the message). Each correction has an offline regression test.
+- **Deviation: a review by hand.** The re-runs have no judge, so the J- criteria did not run. We read each re-run answer, found 5 weak answers that passed the code checks, and corrected 4 of them in code before the end of the round.
+- **Cost.** 111 Gemini calls (budget 150) and about 336 MB of BigQuery (budget 2 GB). The log of the rounds is `docs/evaluation/iterations.md`.
+- **Open for round 2.** The 7 cases with outside errors, the 11 cases that the old snapshot rule skipped, BM-02 and XB-06, the judge calibration, and the call count of discarded runs in the report. See section 6 of the analysis.
