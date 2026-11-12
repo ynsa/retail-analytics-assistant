@@ -24,6 +24,7 @@ from langgraph.runtime import Runtime
 from langgraph.types import interrupt
 from opentelemetry import trace
 
+from opsfleet_agent import capabilities
 from opsfleet_agent.agent.nodes.common import end_turn, node, turn_of
 from opsfleet_agent.agent.state import AgentState, TurnContext, TurnState
 from opsfleet_agent.agent.tools import ConfirmationGrant, ToolContext
@@ -495,3 +496,6 @@ def build_delete_flow() -> Any:
     )
     g.add_edge("apply_delete", END)
     return g.compile()
+
+
+capabilities.register("delete")  # spec 37, B2.5

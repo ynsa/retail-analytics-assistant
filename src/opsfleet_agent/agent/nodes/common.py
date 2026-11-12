@@ -3,7 +3,7 @@
 Each node runs in a `node` span. An `AgentError` (also `LimitExceeded`) ends the turn with its
 one-sentence message, and the chat continues. The graph catches it in the node wrapper, not in the
 CLI (spec 31, B2.1). A failure message ends with "Trace: <8 characters>.", and an unexpected
-exception writes its stack trace to `data/logs/agent.log` (spec 36, B2.6).
+exception writes its stack trace to `data/logs/<UTC date>.jsonl` (spec 36, B2.6).
 """
 
 from __future__ import annotations

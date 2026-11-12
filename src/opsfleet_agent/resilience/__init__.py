@@ -7,3 +7,7 @@
 - `safe_node.py`: the log file for unexpected errors.
 - `checkpoint.py`: a checkpoint saver that does not stop the turn when a write fails.
 """
+
+from opsfleet_agent import capabilities
+
+capabilities.register("resilience")  # spec 37, B2.5

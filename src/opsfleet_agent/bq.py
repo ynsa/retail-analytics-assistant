@@ -29,6 +29,7 @@ from opentelemetry.trace import Span
 from opsfleet_agent.config import BigQuerySettings, PerQueryLimits, ResilienceSettings
 from opsfleet_agent.errors import AgentError, ErrorType, LimitExceeded
 from opsfleet_agent.limits import TurnBudget
+from opsfleet_agent.observability.redact import mask_sql
 from opsfleet_agent.resilience.breaker import CircuitBreaker
 from opsfleet_agent.resilience.errors_map import bq_down, is_timeout, map_bq_error
 from opsfleet_agent.resilience.policies import (
@@ -147,7 +148,7 @@ class BigQueryService:
         labels = {"app": "opsfleet-agent", "purpose": _label(purpose)}
         if user_id:
             labels["user"] = _label(user_id)
-        with span("bq.query", "sql", purpose=purpose) as sp:
+        with span("bq.query", "sql", purpose=purpose, sql_masked=mask_sql(sql)) as sp:
             trace_id = current_trace_id()
             if trace_id:
                 labels["trace_id"] = trace_id

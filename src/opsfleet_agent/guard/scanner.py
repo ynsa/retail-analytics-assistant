@@ -80,20 +80,28 @@ class ScanResult:
         return f"{self.text}\n\n_{SCANNER_NOTE}_" if self.found else self.text
 
 
+def scan_text(text: str) -> ScanResult:
+    """The scan without a span. The trace and log redactor (spec 35) uses it, because a span
+    inside the span exporter would write more spans."""
+    hits: dict[str, int] = {}
+    for name, pattern, accept in PATTERNS:
+
+        def replace(match: re.Match[str], name: str = name, accept=accept) -> str:
+            if not accept(match):
+                return match.group(0)
+            hits[name] = hits.get(name, 0) + 1
+            return REMOVED
+
+        text = pattern.sub(replace, text)
+    return ScanResult(text=text, hits=hits)
+
+
 class OutputScanner:
     def scan(self, text: str, target: str = "answer") -> ScanResult:
-        hits: dict[str, int] = {}
-        for name, pattern, accept in PATTERNS:
-
-            def replace(match: re.Match[str], name: str = name, accept=accept) -> str:
-                if not accept(match):
-                    return match.group(0)
-                hits[name] = hits.get(name, 0) + 1
-                return REMOVED
-
-            text = pattern.sub(replace, text)
+        result = scan_text(text)
+        hits = result.hits
         with span("guard.scan", "guard", target=target) as sp:
             sp.set_attribute("hits_total", sum(hits.values()))
             for name, count in hits.items():
                 sp.set_attribute(f"hits_{name}", count)
-        return ScanResult(text=text, hits=hits)
+        return result

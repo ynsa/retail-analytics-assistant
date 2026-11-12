@@ -22,6 +22,7 @@ from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from opsfleet_agent import capabilities
 from opsfleet_agent.agent.nodes.common import turn_of
 from opsfleet_agent.agent.nodes.finish import finish
 from opsfleet_agent.agent.nodes.load_context import load_context
@@ -112,3 +113,6 @@ def build_graph(
     g.add_edge("finish", "summarize")
     g.add_edge("summarize", END)
     return g.compile(checkpointer=checkpointer)
+
+
+capabilities.register("agent_core")  # spec 37, B2.5

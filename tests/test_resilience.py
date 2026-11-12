@@ -847,8 +847,10 @@ def test_21_an_exception_in_any_node_gives_a_message_and_the_chat_continues(
     assert first.error_type == "internal_error"
     assert first.answer.startswith(messages.text("internal"))
     assert f"Trace: {first.trace_id[:8]}." in first.answer
-    log = config.settings.data_path("logs", "agent.log").read_text()
-    assert "RuntimeError: a bug" in log
+    log = "".join(
+        f.read_text() for f in config.settings.data_path("logs").glob("*.jsonl")
+    )
+    assert "RuntimeError: a bug" in log and first.trace_id in log
     llm.replies = [route_reply("chitchat", chitchat_kind="greeting")]
     assert session.ask("hi").answer.startswith("Hello, Daniel.")
 

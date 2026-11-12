@@ -6,23 +6,26 @@ The session builds the services once, creates a TurnBudget for each turn, runs t
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Any, Literal
+from datetime import date, datetime
+from typing import Any
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
 
-from opsfleet_agent.agent.context import PromptLibrary
+from opsfleet_agent import capabilities
+from opsfleet_agent.agent.context import PROTECTED_PROMPTS, PromptLibrary
 from opsfleet_agent.agent.graph import build_graph
 from opsfleet_agent.agent.state import Services, TurnContext
 from opsfleet_agent.agent.tools import ToolRegistry
 from opsfleet_agent.bq import BigQueryService
+from opsfleet_agent.commands import CommandOutcome, run_command
 from opsfleet_agent.config import AppConfig, Settings
-from opsfleet_agent.errors import AgentError, ConfigError, ErrorType, ReportNotFound
+from opsfleet_agent.errors import ConfigError, ErrorType
 from opsfleet_agent.guard.empty_result import EmptyResultChecker
 from opsfleet_agent.guard.masker import ResultMasker
 from opsfleet_agent.guard.sql_guard import SqlGuard
@@ -37,10 +40,16 @@ from opsfleet_agent.llm import GeminiClient
 from opsfleet_agent.memory import conversations
 from opsfleet_agent.memory.conversations import canonical_id, new_conversation_id
 from opsfleet_agent.memory.pinned import with_user
+from opsfleet_agent.observability.progress import PROGRESS, ProgressEvent
+from opsfleet_agent.observability.turn_metrics import (
+    TURN_SPANS,
+    TurnFacts,
+    turn_metrics,
+    write_turn_record,
+)
 from opsfleet_agent.reports.delete_flow import build_delete_flow, undo_text
 from opsfleet_agent.reports.deletion import DeleteReportsTool, undo_batch
-from opsfleet_agent.reports.files import display_path
-from opsfleet_agent.reports.flow import build_report_flow, list_text
+from opsfleet_agent.reports.flow import build_report_flow
 from opsfleet_agent.reports.library import ReportLibrary
 from opsfleet_agent.resilience import messages
 from opsfleet_agent.resilience.checkpoint import GuardedSaver
@@ -52,6 +61,8 @@ from opsfleet_agent.resilience.safe_node import (
 from opsfleet_agent.schema import Schema, load_schema
 from opsfleet_agent.store.db import connect
 from opsfleet_agent.tracing import current_trace_id, init_tracing, span
+
+_log = logging.getLogger("opsfleet_agent.session")
 
 
 @dataclass(frozen=True)
@@ -115,12 +126,16 @@ class ConfirmationView:
 
 
 @dataclass(frozen=True)
-class CommandOutcome:
-    """The result of a slash command (spec 37, B3). Commands make no model call and no query."""
+class Greeting:
+    """The greeting panel of the CLI (spec 37, A2.1)."""
 
-    kind: Literal["message", "error"]
-    text: str
-    path: str | None = None  # a written file, for /export
+    name: str
+    role: str
+    brands: tuple[str, ...]  # empty: all brands
+    data_from: date | None
+    data_to: date
+    conversation_id: str
+    resumed: bool = False
 
 
 def build_prompts(settings: Settings) -> PromptLibrary:
@@ -175,6 +190,7 @@ def build_services(
             config.secrets.google_api_key,
             resilience=settings.resilience,
             reset_timezone=settings.limits.per_day.reset_timezone,
+            capture_prompts=settings.tracing.capture_prompts,
         ),
         bq=bq,
         schema=Schema.from_cache(raw_schema, settings.bigquery.dataset),
@@ -219,7 +235,11 @@ class AssistantSession:
         self.user = user
         self.services = services
         settings = config.settings
-        init_tracing(settings.data_path("traces"))
+        init_tracing(
+            settings.data_path("traces"),
+            settings.tracing.attribute_max_chars,
+            settings.tracing.otlp_endpoint,
+        )
         init_logging(settings.data_path("logs"))
         self.conn = conn or connect(
             settings.data_path("app.db"),
@@ -250,6 +270,8 @@ class AssistantSession:
         self.conversation_id = (
             canonical_id(conversation_id) if conversation_id else new_conversation_id()
         )
+        self.last_trace_id: str | None = None  # for `/trace` without an ID
+        self.prompt_version = services.prompts.version(*PROTECTED_PROMPTS)
         conversations.create(self.conn, self.conversation_id, user.id, services.clock())
         if conversation_id and self.pending:
             # Spec 33, B2.6 #16: a delete that waited in an earlier session expires at load.
@@ -353,14 +375,23 @@ class AssistantSession:
         return None
 
     def send(
-        self, text: str, on_answer: Callable[[TurnResult], None] | None = None
+        self,
+        text: str,
+        on_answer: Callable[[TurnResult], None] | None = None,
+        on_progress: Callable[[ProgressEvent], None] | None = None,
     ) -> TurnResult:
         """The next user input: the answer to a waiting delete, or a new question.
 
         `on_answer` (spec 34, B2.4) gets the result as soon as the answer is ready, before the
-        summary of older turns runs. The returned result also has the cost of the summary."""
+        summary of older turns runs. The returned result also has the cost of the summary.
+        `on_progress` (spec 37, B2.2) gets an event when a node of the graph starts."""
         if self.pending is not None:
-            return self._run(Command(resume=text), resume=True, on_answer=on_answer)
+            return self._run(
+                Command(resume=text),
+                resume=True,
+                on_answer=on_answer,
+                on_progress=on_progress,
+            )
         turn_no = self._turn_no() + 1
         return self._run(
             {
@@ -382,6 +413,7 @@ class AssistantSession:
             resume=False,
             on_answer=on_answer,
             question=text,
+            on_progress=on_progress,
         )
 
     def _turn_no(self) -> int:
@@ -415,6 +447,7 @@ class AssistantSession:
         resume: bool,
         on_answer: Callable[[TurnResult], None] | None = None,
         question: str | None = None,
+        on_progress: Callable[[ProgressEvent], None] | None = None,
     ) -> TurnResult:
         budget = TurnBudget(
             self.config.settings.limits,
@@ -439,8 +472,22 @@ class AssistantSession:
             user_id=self.user.id,
             conversation_id=self.conversation_id,
             resume=resume,
+            model=self.config.settings.models.default,
+            prompt_version=self.prompt_version,
         ) as sp:
             trace_id = current_trace_id()
+            self.last_trace_id = trace_id
+            if on_progress is not None and trace_id:
+                PROGRESS.listen(trace_id, on_progress)
+            _log.info(
+                "turn start",
+                extra={
+                    "user_id": self.user.id,
+                    "conversation_id": self.conversation_id,
+                    "resume": resume,
+                    "user_text": question or "",
+                },
+            )
             try:
                 state = self._stream(graph_input, context, trace_id, on_answer)
             except KeyboardInterrupt:
@@ -475,8 +522,22 @@ class AssistantSession:
                 if not result.saved:
                     sp.set_attribute("checkpoint_failed", True)
                 turn_no = int(state.get("turn_no") or turn_no)
+            finally:
+                PROGRESS.stop(trace_id)
             sp.set_attribute("turn_no", turn_no)
-        self._record(result, turn_no, started_at, question)
+            sp.set_attribute("status", result.status)
+            _log.info(
+                "turn end",
+                extra={
+                    "user_id": self.user.id,
+                    "conversation_id": self.conversation_id,
+                    "turn_no": turn_no,
+                    "status": result.status,
+                    "error_type": result.error_type,
+                    "seconds": result.totals.get("seconds"),
+                },
+            )
+        self._record(result, turn_no, started_at, question, resume)
         return result
 
     def _stream(
@@ -569,9 +630,11 @@ class AssistantSession:
         turn_no: int,
         started_at: datetime,
         question: str | None,
+        resume: bool = False,
     ) -> None:
-        """Spec 34, B2.5: the turn row in `conversation_turns`. A failed write of the log does
-        not stop the chat."""
+        """Spec 34, B2.5 and spec 35, B2.4: the turn row in `conversation_turns`, with the
+        figures of the turn. A failed write of the log does not stop the chat."""
+        spans = TURN_SPANS.take(result.trace_id)
         if turn_no <= 0:
             return
         try:
@@ -587,6 +650,14 @@ class AssistantSession:
                 intent=result.intent,
                 status=result.status,
                 error_type=result.error_type,
+                user_id=self.user.id,
+            )
+            write_turn_record(
+                self.conn,
+                self.conversation_id,
+                turn_no,
+                turn_metrics(_facts(result), spans, self.user.id),
+                resumed=resume,
             )
         except sqlite3.Error:
             log_exception("conversation log", result.trace_id)
@@ -644,38 +715,36 @@ class AssistantSession:
         return CommandOutcome(kind, " ".join(lines))
 
     def command(self, name: str, args: list[str]) -> CommandOutcome:
-        """`/reports`, `/open <id>`, `/export <id> --format html|md` (spec 32) and
-        `/undo [batch]` (spec 33). A waiting delete stays, except for `/undo`."""
-        name = name.lstrip("/").lower()
-        try:
-            if name == "reports":
-                listing = self.library.list(self.user)
-                return CommandOutcome(
-                    "message", list_text(self.services.prompts, listing)
-                )
-            if name == "open":
-                if len(args) != 1:
-                    return CommandOutcome("error", "Usage: /open <id>")
-                return CommandOutcome(
-                    "message", self.library.get(self.user, args[0]).body_markdown
-                )
-            if name == "export":
-                fmt = _export_format(args)
-                if fmt is None:
-                    return CommandOutcome(
-                        "error", "Usage: /export <id> --format html|md"
-                    )
-                path = display_path(self.library.export(self.user, args[0], fmt))
-                return CommandOutcome("message", f"Saved: {path}", path=path)
-            if name == "undo":
-                if len(args) > 1:
-                    return CommandOutcome("error", "Usage: /undo [batch]")
-                return self.undo(args[0] if args else None)
-        except ReportNotFound as exc:
-            return CommandOutcome("error", exc.user_message)
-        except AgentError as exc:
-            return CommandOutcome("error", exc.user_message)
-        return CommandOutcome("error", f"Unknown command '/{name}'. Type /help.")
+        """A slash command (spec 37, A2.4): no model call and no query. A waiting delete stays,
+        except for `/undo`."""
+        return run_command(self, name, args)
+
+    def last_trace(self) -> str | None:
+        """The trace of the last turn of this chat, or of this conversation (after a resume)."""
+        if self.last_trace_id:
+            return self.last_trace_id
+        row = self.conn.execute(
+            "SELECT trace_id FROM conversation_turns WHERE conversation_id = ? "
+            "AND trace_id IS NOT NULL ORDER BY turn_no DESC LIMIT 1",
+            (self.conversation_id,),
+        ).fetchone()
+        return row["trace_id"] if row else None
+
+    # --- start (spec 37, B2.6) -------------------------------------------------------------------
+    def greeting(self, resumed: bool = False) -> Greeting:
+        return Greeting(
+            name=self.user.name,
+            role=self.user.role.value,
+            brands=tuple(self.user.brands),
+            data_from=self.services.values.first_date("order_items"),
+            data_to=self.services.clock().date(),
+            conversation_id=self.conversation_id,
+            resumed=resumed,
+        )
+
+    def missing_capabilities(self) -> list[str]:
+        """The parts of the prototype that are not active (spec 37, B2.5)."""
+        return capabilities.missing()
 
 
 def _answer_of(state: dict[str, Any], turn: dict[str, Any]) -> str:
@@ -694,13 +763,15 @@ def build_tools(settings: Settings, clock: Callable[[], datetime]) -> ToolRegist
     return registry
 
 
-def _export_format(args: list[str]) -> str | None:
-    """`<id> --format html|md` (the format is html when it is not given)."""
-    if not args:
-        return None
-    rest = args[1:]
-    if not rest:
-        return "html"
-    if len(rest) == 2 and rest[0] == "--format" and rest[1] in ("html", "md"):
-        return rest[1]
-    return None
+def _facts(result: TurnResult) -> TurnFacts:
+    return TurnFacts(
+        answer=result.answer,
+        intent=result.intent,
+        status=result.status,
+        error_type=result.error_type,
+        totals=result.totals,
+        steps=result.steps,
+        confirmation=result.confirmation is not None,
+        delete_outcome=result.delete_outcome,
+        report_id=result.report_id,
+    )

@@ -38,7 +38,7 @@ Resilience (spec 36) is active:
 - When the main model still fails, a second free-tier model (`gemini-3.1-flash-lite`, setting `models.fallback`) answers once.
 - When the daily free-tier quota of the main model is used up, the same question goes to the second model. "Please try again tomorrow" shows only when the second model also fails.
 - After 3 failures in a row, the assistant stops the calls to that service for 60 s and answers at once with a clear message.
-- Each failure message ends with a trace ID, for example "Trace: 4f2a9c1e." The details go to `data/logs/agent.log`. The chat never stops after an error. Ctrl-C stops the current answer and the running query.
+- Each failure message ends with a trace ID, for example "Trace: 4f2a9c1e." The details go to the log `data/logs/<date>.jsonl`. The chat never stops after an error. Ctrl-C stops the current answer and the running query.
 - The daily limits reset at midnight Pacific time, as the Gemini free tier does.
 
 The long-conversation memory (spec 34) is active:
@@ -48,7 +48,14 @@ The long-conversation memory (spec 34) is active:
 - Query results stay out of the prompt: the history has a short reference, and the full masked rows stay in `data/app.db` for 30 days. "Save this as a report" uses them without a new query.
 - At the end of a chat, the CLI shows the conversation ID. `--resume <ID>` continues the conversation for 90 days. A user can resume only the own conversations.
 
-The statistics and the full CLI follow in Phase 2 (specs 35 and 37).
+Observability and statistics (spec 35) are active:
+
+- Each turn writes one masked trace to `data/traces/<date>.jsonl`: the routing, the model calls with their tokens, the SQL, the guard decision, the BigQuery job and the answer. SQL literals become `'<s:N>'` (brands, categories and other business values stay), and email addresses, phone numbers and addresses become `[removed]`. The logs in `data/logs/<date>.jsonl` use the same masking.
+- Each turn also writes one row of figures to `data/app.db`: the time, the answer length, the tokens, the queries and bytes, the nodes and tools, the errors by type, the self-correction, the guard blocks, the delete confirmations and the fallback calls.
+- `/trace` shows the steps of the last turn, `/trace 4f2a9c1e` the steps of an error message. `/stats` shows the user's own figures. `opsfleet-agent stats --all` shows the figures of all users, and `--export csv` writes them without any question or answer text.
+- Traces and logs older than 30 days, and texts older than 90 days, are deleted at the start of each chat. No data leaves the machine: there is no LangSmith and no other trace service (spec 35, B2.6).
+
+The full CLI follows in Phase 2 (spec 37).
 
 The production design document and the diagrams (specs 10 and 11) are ready for review.
 
@@ -84,7 +91,7 @@ A report costs 3 to 5 Gemini calls (route, plan, text, and at most one correctio
 
 A simple question costs 3 Gemini calls (route, SQL, answer) and 1 query. A greeting or an access question costs 1 call and no query.
 
-The cost limits for each answer and for each day are in `config/settings.yaml`, and the agent limits (attempts, steps, message length) are in its `agent` section. The prompts are in `src/opsfleet_agent/agent/prompts/`. The traces of each answer are in `data/traces/`.
+The cost limits for each answer and for each day are in `config/settings.yaml`, and the agent limits (attempts, steps, message length) are in its `agent` section. The prompts are in `src/opsfleet_agent/agent/prompts/`. The masked traces of each answer are in `data/traces/`, the logs in `data/logs/`.
 
 At the first start, the assistant builds `data/value_cache.json` with one small query (about 40 MB billed). The cache holds the brand names, the filter values and the date range of the data. The assistant builds it again after 7 days. The start stops when a brand in `config/users.yaml` does not exist in the data, and the message gives the close names.
 

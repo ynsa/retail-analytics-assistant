@@ -17,6 +17,7 @@ from typing import Any
 
 from langgraph.runtime import Runtime
 
+from opsfleet_agent import capabilities
 from opsfleet_agent.agent.state import AgentState, TurnContext
 from opsfleet_agent.config import ContextSettings
 from opsfleet_agent.errors import AgentError
@@ -163,3 +164,6 @@ def _summarize(
         if scanned.found:
             sp.set_attribute("scanner_hits", sum(scanned.hits.values()))
         return {"summary": summary, "messages": compact(len(turns))}
+
+
+capabilities.register("memory")  # spec 37, B2.5

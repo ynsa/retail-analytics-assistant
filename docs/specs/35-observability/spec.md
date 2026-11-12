@@ -1,6 +1,6 @@
 # Spec 35: Observability and statistics
 
-- **Status:** Approved (owner review, 2026-11-11)
+- **Status:** Done (2026-11-12)
 - **Phase and stream:** Phase 2, stream C
 - **Depends on:** 00 (trace format, error types), 30 (output scanner), 31 (nodes), 34 (`conversation_turns`), 36 (retry and breaker events)
 - **Requirements covered:** Req 7 (observability). Part of Req 2 (no PII in logs and traces).
@@ -54,14 +54,14 @@ The product owner and the support team can see when the assistant fails and why.
 
 ### A5. Done when
 
-- [ ] Each turn writes one row in `conversation_turns` with the metric columns, also for a refusal, a limit, a cancel and an internal error.
-- [ ] Each turn writes one trace with the spans of B2.2.
-- [ ] `/trace` shows the last turn as a tree in less than 1 s.
-- [ ] `/stats` shows each figure of B2.4. A unit test with a fixture database checks each value.
-- [ ] The export has no text column and no PII.
-- [ ] The redaction tests in B4 pass: no email, phone, address or PII literal in any log line or span.
-- [ ] Retention deletes old files and texts at start. A test with a fake clock proves it.
-- [ ] No data leaves the machine. No external service receives traces.
+- [x] Each turn writes one row in `conversation_turns` with the metric columns, also for a refusal, a limit, a cancel and an internal error.
+- [x] Each turn writes one trace with the spans of B2.2.
+- [x] `/trace` shows the last turn as a tree in less than 1 s.
+- [x] `/stats` shows each figure of B2.4. A unit test with a fixture database checks each value.
+- [x] The export has no text column and no PII.
+- [x] The redaction tests in B4 pass: no email, phone, address or PII literal in any log line or span.
+- [x] Retention deletes old files and texts at start. A test with a fake clock proves it.
+- [x] No data leaves the machine. No external service receives traces.
 
 ---
 
@@ -265,3 +265,51 @@ stats:
 - Masked prompts still contain the user's questions (after the scanner). This is necessary for the deep dive of Req 7.
 - The JSONL files grow with long debugging sessions. At the expected use (about 10 questions each day on one machine), 30 days stay under 100 MB.
 - The statistics are local to one machine. Production uses Cloud Logging, a BigQuery log sink and Cloud Monitoring (architecture section 7).
+
+### B7. Implementation notes (2026-11-12)
+
+#### Deviations from this spec
+
+| # | Spec text | Implementation | Reason |
+|---|---|---|---|
+| 1 | B2.4: the column `status` with the values `answered`, `refused`, ... | A new column `outcome` has these values. `status` stays `ok`, `error` or `cancelled` (spec 36). | Spec 34 and spec 36 already use `status`. The resume view and the tests read it. |
+| 2 | B2.3 rule 1: "each other string literal" is masked | A date or a timestamp literal (`'2026-10-01'`, `'2026-10-01 00:00:00'`) also stays. | A date is not PII, and the deep dive needs the period of a query. |
+| 3 | B2.3 rule 1: a number compared to a PII column | The list is the PII columns of spec 30 plus `user_id`. | A user ID identifies one customer. |
+| 4 | B2.3 rule 1: the SQL dialect | The masker parses with the BigQuery dialect, then with the MySQL dialect. SQL that does not parse: comments go away, and a quote that never closes is masked to the end of the text. The output is the SQL that sqlglot writes again, without comments. | `'Levi''s'` (B4 #2) is not valid BigQuery SQL. The MySQL dialect reads it and the back-quotes. The code review found the open quote and the comment cases. |
+| 5 | B2.2: the attribute list | The list of B2.2 plus the attributes that specs 30–36 already write (counts, codes, the role, the target of a scan, `tokens_estimated`, `summary_source`, `report_action`, the totals of the turn, ...). `ATTRIBUTE_ALLOWLIST` in `redact.py` has the full list. `error_type`, `error_detail`, `interrupted` and `purpose` are allowed for each kind. | These attributes hold no row value and no unmasked free text. Without them, `/trace` and the tests of specs 30–36 lose information. |
+| 6 | B2.2: `sql_masked` on the `sql` spans | Also on `guard.check`: the SQL of the model before the scope rewrite. `/trace` shows this SQL (the first 400 characters). | A blocked query never reaches BigQuery (A2.6). The guard span is the only place for it. |
+| 7 | B2.1: the turn figures come from the spans | The counts of model calls, attempts, tokens, queries, bytes and fallback calls come from the `TurnBudget` totals of the turn. The other figures come from the spans. | The budget counts each call, also of code paths and fakes without a span. The two sources give the same numbers for the real clients. |
+| 8 | B2.4: `tools_used` | The nodes that run in every turn (`load_context`, `scan_output`, `finish`) are not counted. | Their count is the number of turns. |
+| 9 | B2.4: the typed answer of a delete confirmation | The second part of the turn adds its counts and its time to the row of the first part. The outcome and `confirmation_outcome` come from the second part. | One turn number holds both parts (spec 33, B7 #3). |
+| 10 | B2.4: the percentile method | The median also uses the nearest rank. With 4 values, the median is the 2nd value. | One method for all figures. |
+| 11 | B2.2: the `limit` span | `limit.exceeded` has `limit_name`. `value` and `max` are not set. | The limit message has the values. |
+| 12 | B1: logs in `data/logs/<UTC date>.jsonl` | As specified. The text file `data/logs/agent.log` of spec 36 is gone: its stack traces are now the field `exception` of a JSON line. Retention also deletes old `.log` files. | One log format. |
+| 13 | B2.6: `tracing.otlp_endpoint` | The setting exists and is `null`. The prototype has no OTLP exporter: a value only writes a warning to the log. | No span leaves the machine. An exporter needs the owner's approval and a new dependency. |
+| 14 | B2.5: texts become NULL | Migration 5 builds `conversation_turns` again with nullable texts and the metric columns. The old rows keep their texts; their figures are empty, so `/stats` does not count them. | SQLite cannot drop a `NOT NULL` constraint. |
+| 15 | B3: settings | Also `stats.export_dir` is a folder inside `paths.data_dir` (`exports`). | The same rule as `reports.dir` (spec 32, B7 #2). |
+
+#### What the code does
+
+- `observability/redact.py`: `mask_sql()`, `mask_text()`, `mask_prompt()`, `ATTRIBUTE_ALLOWLIST` and `Redactor`. All functions are idempotent. The JSONL exporter (`tracing.py`) calls the `Redactor` for each attribute and each span event before the write. The events (`retry`, `fallback`, `circuit_open`, `context_cut`, ...) are now in the JSONL record as `events`.
+- `llm.py` sets `prompt_masked` and `output_masked` (setting `tracing.capture_prompts`). `bq.py` and the guard set `sql_masked`. The output scanner has `scan_text()`, a scan without a span, for the exporter.
+- `observability/logging_setup.py`: the JSON formatter masks the message, each extra field and the stack trace. The session logs "turn start" (with the masked user text) and "turn end" with the trace ID.
+- `observability/turn_metrics.py`: `TurnMetricsProcessor` keeps the raw spans of the last 64 traces in memory. The session takes the spans of its trace at the end of the turn and writes the metric columns (`write_turn_record()`).
+- `observability/stats.py`: `compute_stats()`, `Stats.groups()` (text rows for the CLI and the UI), `stats_text()` and `export()`. The definitions of the figures are in the module text.
+- `observability/trace_view.py`: `load_trace()` reads the files newest first and checks the `user_id` of the `turn` span. An 8-character trace ID is enough.
+- `observability/retention.py`: `prune()` runs at the start of `chat` (`startup.py`) and in `opsfleet-agent purge`.
+- `commands.py`: `/trace` and `/stats` for the session, with the structured `data` (`TraceTree`, `Stats`) for the CLI and the UI.
+
+#### Tests
+
+- `tests/test_observability.py` covers the cases 1–18 of B4. Case 10 uses a fixture of 40 turns with each figure of B2.4 written by hand in the test. Case 18 runs a session with an email address, a phone number, a street address and a postal code in the messages, in the SQL and in an error, then scans each trace and log file with the scanner patterns.
+- `tests/test_cli.py` covers `opsfleet-agent stats` (both formats, the user and `--all`) and `purge` with the retention.
+- 948 unit tests pass.
+
+#### Live check (2026-11-12)
+
+The live CLI session of spec 37 (B7) wrote the traces and the turn rows. `/trace` showed 17 steps of a data question with the masked SQL. `/stats` showed the 4 turns of `maya` of the day. The traces and logs of the session have no email address, phone number or address.
+
+#### Open points
+
+- The scanner patterns do not find a customer name or a postal code that a user types into a question. Such text stays in the masked prompt and in the log for 30 days, and in `conversation_turns` for 90 days (B6).
+- `/trace` reads all trace files of 30 days for an old trace ID. A 30 MB file takes about 0.1 s.

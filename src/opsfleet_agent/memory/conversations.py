@@ -106,9 +106,11 @@ def record_turn(
     intent: str | None,
     status: str,
     error_type: str | None,
+    user_id: str | None = None,
 ) -> None:
     """Write the turn row and update the conversation. A second write of the same turn (the
-    typed answer of a delete confirmation) keeps the question and replaces the answer."""
+    typed answer of a delete confirmation) keeps the question and replaces the answer. Spec 35
+    adds the figures of the turn (`observability.turn_metrics`)."""
     question = masked(scanner, user_text)
 
     def write() -> None:
@@ -116,8 +118,8 @@ def record_turn(
             conn.execute(
                 """
                 INSERT INTO conversation_turns (conversation_id, turn_no, trace_id, started_at,
-                    user_text, answer_text, intent, status, error_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    user_text, answer_text, intent, status, error_type, user_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (conversation_id, turn_no) DO UPDATE SET
                     trace_id = excluded.trace_id,
                     answer_text = excluded.answer_text,
@@ -135,6 +137,7 @@ def record_turn(
                     intent,
                     status,
                     error_type,
+                    user_id,
                 ),
             )
             conn.execute(
@@ -217,8 +220,8 @@ def last_turns(
         TurnRow(
             turn_no=r["turn_no"],
             started_at=r["started_at"],
-            user_text=r["user_text"],
-            answer_text=r["answer_text"],
+            user_text=r["user_text"] or "",  # NULL after 90 days (spec 35)
+            answer_text=r["answer_text"] or "",
             intent=r["intent"],
             status=r["status"],
             error_type=r["error_type"],

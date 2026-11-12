@@ -3,7 +3,8 @@
 The node wrapper (`agent.nodes.common.node`) and the session use these helpers:
 
 - `failure_answer()`: the user message of an error, with "Trace: <8 characters>." for a failure.
-- `log_exception()`: the stack trace goes to `data/logs/agent.log`, never to the screen.
+- `log_exception()`: the masked stack trace goes to `data/logs/<UTC date>.jsonl` (spec 35),
+  never to the screen.
 """
 
 from __future__ import annotations
@@ -12,32 +13,18 @@ import logging
 from pathlib import Path
 
 from opsfleet_agent.errors import AgentError, ErrorType, ReportNotFound
+from opsfleet_agent.observability import logging_setup
+from opsfleet_agent.observability.logging_setup import LOGGER_NAME
 from opsfleet_agent.resilience import messages
 
-LOGGER_NAME = "opsfleet_agent"
-LOG_FILE = "agent.log"
 _logger = logging.getLogger(LOGGER_NAME)
 _logger.propagate = False  # the CLI shows only the messages, never a stack trace
 _logger.addHandler(logging.NullHandler())
 
 
-def init_logging(log_dir: Path) -> Path:
-    """Write the log of this process to `<log_dir>/agent.log` (once for each folder)."""
-    log_dir.mkdir(parents=True, exist_ok=True)
-    path = (log_dir / LOG_FILE).resolve()
-    for handler in _logger.handlers:
-        if (
-            isinstance(handler, logging.FileHandler)
-            and Path(handler.baseFilename) == path
-        ):
-            return path
-    handler = logging.FileHandler(path, encoding="utf-8")
-    handler.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
-    )
-    _logger.addHandler(handler)
-    _logger.setLevel(logging.INFO)
-    return path
+def init_logging(log_dir: Path, debug: bool | None = None) -> Path:
+    """The JSON logs of spec 35 in `<log_dir>/<UTC date>.jsonl`."""
+    return logging_setup.init_logging(log_dir, debug=debug)
 
 
 def log_exception(where: str, trace_id: str | None) -> None:

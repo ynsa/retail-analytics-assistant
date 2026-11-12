@@ -10,6 +10,7 @@ Rows that an earlier version wrote with the UTC date stay as they are (spec 00, 
 
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 import time
 from collections.abc import Callable
@@ -21,6 +22,19 @@ from zoneinfo import ZoneInfo
 from opsfleet_agent.config import Limits
 from opsfleet_agent.errors import LimitExceeded
 from opsfleet_agent.store.db import retry_locked
+from opsfleet_agent.tracing import span
+
+
+def exceeded(limit: str, message: str) -> LimitExceeded:
+    """The error of a limit, with one `limit.exceeded` span (spec 35, B2.2)."""
+    error = LimitExceeded(limit, message)
+    with (
+        contextlib.suppress(LimitExceeded),
+        span("limit.exceeded", "limit", limit_name=limit),
+    ):
+        raise error
+    return error
+
 
 TurnKind = Literal["question", "report"]
 RESET_NOTE = (
@@ -89,7 +103,7 @@ class DailyLedger:
 
     def check_llm(self) -> None:
         if self.today()["llm_calls"] >= self._limits.max_llm_calls:
-            raise LimitExceeded(
+            raise exceeded(
                 "per_day.max_llm_calls",
                 f"The daily limit of model calls ({self._limits.max_llm_calls}) is reached. "
                 + RESET_NOTE,
@@ -98,7 +112,7 @@ class DailyLedger:
     def check_bq(self) -> None:
         if self.today()["bq_bytes_billed"] >= self._limits.max_bq_bytes_billed:
             gb = self._limits.max_bq_bytes_billed / 1e9
-            raise LimitExceeded(
+            raise exceeded(
                 "per_day.max_bq_bytes_billed",
                 f"The daily limit of BigQuery data ({gb:g} GB) is reached. "
                 + RESET_NOTE,
@@ -207,12 +221,12 @@ class TurnBudget:
 
     def _time_exceeded(self) -> None:
         if self.kind == "report":
-            raise LimitExceeded(
+            raise exceeded(
                 "per_turn.max_seconds_report",
                 f"The report took longer than {self.max_seconds:g} s. "
                 "Please ask for a shorter period or fewer topics.",
             )
-        raise LimitExceeded(
+        raise exceeded(
             "per_turn.max_seconds",
             f"The answer took longer than {self.max_seconds:g} s. Please ask a narrower question.",
         )
@@ -222,7 +236,7 @@ class TurnBudget:
         """Call before each Gemini call. Raises LimitExceeded when a limit is reached."""
         self.check_time()
         if self.llm_calls >= self._limits.max_llm_calls - self.reserved_llm_calls:
-            raise LimitExceeded(
+            raise exceeded(
                 "per_turn.max_llm_calls",
                 f"This question needs more steps than allowed ({self._limits.max_llm_calls} model calls). "
                 "Please ask a narrower question.",
@@ -231,7 +245,7 @@ class TurnBudget:
             self.tokens_in >= self._limits.max_input_tokens
             or self.tokens_out >= self._limits.max_output_tokens
         ):
-            raise LimitExceeded(
+            raise exceeded(
                 "per_turn.max_tokens", "This question needs more text than allowed."
             )
         self._ledger.check_llm()
@@ -256,7 +270,7 @@ class TurnBudget:
         """Call before each BigQuery query (not before a free dry run)."""
         self.check_time()
         if self.bq_queries >= self._limits.max_bq_queries:
-            raise LimitExceeded(
+            raise exceeded(
                 "per_turn.max_bq_queries",
                 f"This question needs more queries than allowed ({self._limits.max_bq_queries}).",
             )

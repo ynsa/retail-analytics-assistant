@@ -139,6 +139,60 @@ MIGRATIONS: list[str] = [
     CREATE INDEX result_cache_owner ON result_cache (owner_id, ref);
     CREATE INDEX result_cache_expiry ON result_cache (expires_at);
     """,
+    # 5: spec 35, the figures of each turn. The table is built again, because the texts become
+    # NULL after 90 days (retention) and SQLite cannot drop a NOT NULL constraint.
+    """
+    CREATE TABLE conversation_turns_v5 (
+        conversation_id TEXT NOT NULL,
+        turn_no INTEGER NOT NULL,
+        trace_id TEXT,
+        started_at TEXT NOT NULL,           -- UTC, ISO 8601
+        user_text TEXT DEFAULT '',          -- masked; NULL after 90 days
+        answer_text TEXT DEFAULT '',        -- NULL after 90 days
+        intent TEXT,
+        status TEXT NOT NULL DEFAULT 'ok',  -- ok, error, cancelled (spec 36)
+        error_type TEXT,
+        user_id TEXT,
+        kind TEXT,                          -- question, report, delete, other
+        outcome TEXT,                       -- spec 35, B2.4: answered, true_zero, refused, ...
+        duration_ms REAL NOT NULL DEFAULT 0,
+        answer_words INTEGER NOT NULL DEFAULT 0,
+        answer_chars INTEGER NOT NULL DEFAULT 0,
+        llm_calls INTEGER NOT NULL DEFAULT 0,
+        llm_attempts INTEGER NOT NULL DEFAULT 0,
+        tokens_in INTEGER NOT NULL DEFAULT 0,
+        tokens_out INTEGER NOT NULL DEFAULT 0,
+        bq_queries INTEGER NOT NULL DEFAULT 0,
+        bq_bytes_billed INTEGER NOT NULL DEFAULT 0,
+        bq_query_bytes TEXT NOT NULL DEFAULT '[]',   -- JSON: bytes billed of each query
+        attempts_total INTEGER NOT NULL DEFAULT 0,
+        retried INTEGER NOT NULL DEFAULT 0,
+        errors TEXT NOT NULL DEFAULT '{}',           -- JSON: error type -> count
+        guard_block_reason TEXT,
+        empty_result_kind TEXT,
+        confirmation_outcome TEXT,
+        tools_used TEXT NOT NULL DEFAULT '{}',       -- JSON: node or tool -> count
+        model TEXT,
+        fallback_used INTEGER NOT NULL DEFAULT 0,
+        fallback_calls INTEGER NOT NULL DEFAULT 0,
+        retries INTEGER NOT NULL DEFAULT 0,
+        circuit_open INTEGER NOT NULL DEFAULT 0,
+        masker_hits INTEGER NOT NULL DEFAULT 0,
+        scanner_hits INTEGER NOT NULL DEFAULT 0,
+        prompt_version TEXT,
+        PRIMARY KEY (conversation_id, turn_no)
+    );
+    INSERT INTO conversation_turns_v5 (conversation_id, turn_no, trace_id, started_at, user_text,
+        answer_text, intent, status, error_type, user_id)
+    SELECT t.conversation_id, t.turn_no, t.trace_id, t.started_at, t.user_text, t.answer_text,
+        t.intent, t.status, t.error_type,
+        (SELECT c.user_id FROM conversations c WHERE c.id = t.conversation_id)
+    FROM conversation_turns t;
+    DROP TABLE conversation_turns;
+    ALTER TABLE conversation_turns_v5 RENAME TO conversation_turns;
+    CREATE INDEX conversation_turns_user ON conversation_turns (user_id, started_at);
+    CREATE INDEX conversation_turns_started ON conversation_turns (started_at);
+    """,
 ]
 
 

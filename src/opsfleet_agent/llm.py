@@ -32,6 +32,7 @@ from pydantic import BaseModel
 from opsfleet_agent.config import ModelSettings, ResilienceSettings
 from opsfleet_agent.errors import AgentError, ErrorType, LimitExceeded
 from opsfleet_agent.limits import TurnBudget, next_reset
+from opsfleet_agent.observability.redact import cut, mask_prompt, mask_text
 from opsfleet_agent.resilience.breaker import BreakerBoard
 from opsfleet_agent.resilience.errors_map import (
     daily_quota_failure,
@@ -102,8 +103,12 @@ class GeminiClient:
         hooks: RetryHooks | None = None,
         reset_timezone: str = RESET_TIMEZONE,
         clock: Callable[[], datetime] | None = None,
+        capture_prompts: bool = True,
     ) -> None:
         self._settings = settings
+        self.capture_prompts = (
+            capture_prompts  # spec 35: masked prompts in the `llm` span
+        )
         self._api_key = api_key
         # Created once, on the first call, so tests and --help need no key. The client must stay
         # referenced: a genai.Client closes its HTTP connection when Python collects it.
@@ -176,6 +181,10 @@ class GeminiClient:
             prompt_version=prompt_version,
         ) as sp:
             sp.set_attribute("fallback_used", False)
+            if self.capture_prompts:
+                sp.set_attribute(
+                    "prompt_masked", cut(mask_prompt(prompt, prompt_version))
+                )
             charged = [False]  # the first attempt is in charge_llm()
 
             def charge() -> None:
@@ -353,10 +362,11 @@ class GeminiClient:
             return gemini_unavailable(main_failure, circuit_open)
         return gemini_unavailable(failure, circuit_open)
 
-    @staticmethod
     def _done(
-        sp: Span, budget: TurnBudget, response: LlmResponse, fallback_used: bool
+        self, sp: Span, budget: TurnBudget, response: LlmResponse, fallback_used: bool
     ) -> LlmResponse:
+        if self.capture_prompts and response.text:
+            sp.set_attribute("output_masked", cut(mask_text(response.text)))
         sp.set_attribute("model", response.model)
         sp.set_attribute("fallback_used", fallback_used)
         sp.set_attribute("tokens_in", response.tokens_in)

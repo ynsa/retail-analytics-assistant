@@ -68,6 +68,26 @@ resilience:                        # spec 36
 paths:
   data_dir: data
 
+tracing:                           # spec 35
+  capture_prompts: true            # masked prompts and model outputs in the llm spans
+  attribute_max_chars: 2000
+  otlp_endpoint: null              # off. Needs the user's approval before any use.
+
+retention:                         # spec 35: prune() at the start of chat and in purge
+  traces_days: 30
+  logs_days: 30
+  turn_text_days: 90               # question and answer texts in conversation_turns
+  turn_metrics_days: 365           # the figures of a turn
+
+stats:                             # spec 35
+  default_days: 7
+  max_days: 90
+  export_dir: exports              # inside paths.data_dir: data/exports/
+
+cli:                               # spec 37
+  show_footer: true                # "12.4 s · 3 model calls · 2 queries · 34 MB · trace 4f2a9c1e"
+  status_line: true
+
 agent:                             # spec 31
   max_attempts_per_step: 3         # SQL attempts for each query step
   max_steps_per_question: 3        # query steps for each question

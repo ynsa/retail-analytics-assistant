@@ -174,6 +174,38 @@ class EvalSettings(_Strict):
     )
 
 
+class TracingSettings(_Strict):
+    """Spec 35, B3."""
+
+    capture_prompts: bool = True  # masked prompts and outputs in the `llm` spans
+    attribute_max_chars: int = Field(default=2000, gt=0)
+    otlp_endpoint: str | None = None  # off. Needs the user's approval before any use.
+
+
+class RetentionSettings(_Strict):
+    """Spec 35, B2.5: `prune()` at the start of `chat` and in `purge`."""
+
+    traces_days: int = Field(default=30, gt=0)
+    logs_days: int = Field(default=30, gt=0)
+    turn_text_days: int = Field(default=90, gt=0)
+    turn_metrics_days: int = Field(default=365, gt=0)
+
+
+class StatsSettings(_Strict):
+    """Spec 35, B3."""
+
+    default_days: int = Field(default=7, gt=0)
+    max_days: int = Field(default=90, gt=0)
+    export_dir: str = "exports"  # inside paths.data_dir: data/exports/
+
+
+class CliSettings(_Strict):
+    """Spec 37, B3."""
+
+    show_footer: bool = True
+    status_line: bool = True
+
+
 class Settings(_Strict):
     models: ModelSettings
     bigquery: BigQuerySettings
@@ -183,6 +215,10 @@ class Settings(_Strict):
     reports: ReportSettings = Field(default_factory=ReportSettings)
     resilience: ResilienceSettings = Field(default_factory=ResilienceSettings)
     context: ContextSettings = Field(default_factory=ContextSettings)
+    tracing: TracingSettings = Field(default_factory=TracingSettings)
+    retention: RetentionSettings = Field(default_factory=RetentionSettings)
+    stats: StatsSettings = Field(default_factory=StatsSettings)
+    cli: CliSettings = Field(default_factory=CliSettings)
 
     def project_path(self, path: Path) -> Path:
         """A path from the settings: relative paths start at the project root."""

@@ -22,6 +22,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 from opentelemetry import trace
 
+from opsfleet_agent import capabilities
 from opsfleet_agent.agent.formatting import ResultData, data_block
 from opsfleet_agent.agent.nodes.common import (
     brands_text,
@@ -870,3 +871,6 @@ def build_report_flow() -> Any:
         g.add_conditional_edges(name, _next_or_end(nxt), {nxt: nxt, END: END})
     g.add_edge("render", END)
     return g.compile()
+
+
+capabilities.register("reports")  # spec 37, B2.5

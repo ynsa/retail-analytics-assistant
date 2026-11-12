@@ -22,6 +22,7 @@ from sqlglot import exp
 from sqlglot.errors import OptimizeError, ParseError, TokenError
 from sqlglot.optimizer.qualify import qualify
 
+from opsfleet_agent import capabilities
 from opsfleet_agent.config import Role
 from opsfleet_agent.errors import ErrorType
 from opsfleet_agent.guard.filters import FilterLiteral, extract_filters, string_literals
@@ -47,6 +48,7 @@ from opsfleet_agent.guard.scope import (
 )
 from opsfleet_agent.guard.value_cache import ValueCache
 from opsfleet_agent.identity import UserContext
+from opsfleet_agent.observability.redact import mask_sql
 from opsfleet_agent.schema import Schema
 from opsfleet_agent.tracing import span
 
@@ -196,6 +198,7 @@ class SqlGuard:
             user_id=self.user.id,
             role=self.user.role.value,
             purpose=purpose,
+            sql_masked=mask_sql(sql),
         ) as sp:
             try:
                 result = self._check(sql)
@@ -542,3 +545,5 @@ def _syntax_feedback(exc: Exception) -> str:
 
 
 __all__ = ["POLICY_REASONS", "FilterLiteral", "GuardOutcome", "GuardResult", "SqlGuard"]
+
+capabilities.register("guard_full")  # spec 37, B2.5

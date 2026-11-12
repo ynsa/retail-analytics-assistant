@@ -678,7 +678,9 @@ def test_each_decision_writes_one_guard_span_without_values(
     assert second["outcome"] == "policy_block" and second["reason_code"] == "pii_column"
     assert second["error_type"] == "guard_policy_block"
     text = json.dumps(records)
-    assert "Calvin" not in text and "SELECT" not in text
+    # Spec 35: the guard span has the masked source SQL, never the user's scope values.
+    assert "Calvin" not in text and "scope_brands" not in text
+    assert first["sql_masked"].startswith("SELECT p.brand")
 
 
 def test_guard_bug_never_passes(guards, monkeypatch):

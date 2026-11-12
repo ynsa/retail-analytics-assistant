@@ -291,7 +291,7 @@ All unit tests use fake clients and a fake clock. No real wait happens.
 | 11 | B2.3: the turn row gets `fallback_used` (spec 35) | `TurnResult.totals` has `fallback_calls` and `llm_attempts`. Spec 35 adds the column to the turn row. | Spec 35 owns the metric columns. |
 | 12 | B2.6 #5: a failed checkpoint write | `resilience/checkpoint.py`: `GuardedSaver` wraps the checkpoint saver. A failed write is logged, and the answer ends with "This turn is not saved." (`TurnResult.saved = False`). | LangGraph writes the checkpoint inside the graph run. Without the wrapper, the answer is lost. |
 | 13 | B2.5: "Each failure message ends with the trace" | The failure types get the trace: `llm_timeout`, `llm_rate_limited`, `llm_error`, `bq_permission`, `bq_timeout`, `bq_error`, `tool_error` (not a report that is not found) and `internal_error`. A limit, a guard block, a rejected confirmation and an empty result are answers about the request, so they get no trace. | The spec 00 and spec 30 messages stay as they are. |
-| 14 | A2.11: the internal message | "Something went wrong on my side. The chat continues. Trace: 4f2a9c1e." The stack trace goes to `data/logs/agent.log`. | As A2.11. The old text was "… so I could not answer. Please try again." |
+| 14 | A2.11: the internal message | "Something went wrong on my side. The chat continues. Trace: 4f2a9c1e." The stack trace goes to `data/logs/agent.log` (spec 35 moved it to `data/logs/<UTC date>.jsonl`). | As A2.11. The old text was "… so I could not answer. Please try again." |
 
 #### Fallback model
 
