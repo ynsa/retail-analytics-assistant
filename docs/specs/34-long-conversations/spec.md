@@ -333,3 +333,18 @@ The evaluation adapter needs no change: it calls `send(text)` and reads the same
 
 - 843 unit tests pass (807 after spec 36). `tests/test_memory.py` covers the cases 1–17 of B4 with a fake Gemini that records each request, the script of B4.1 (32 turns), the context builder, the conversation log, the resume messages, the facts that the user sets, and `on_answer` before the summary.
 - Summary calls of the script: turns 9, 13, 17, 21, 25 and 29. The largest request: under 14,000 estimated tokens. The window at turn 32: turns 25 to 32.
+
+#### Live check (2026-11-12)
+
+One real conversation as `maya`, then `--resume` of it in a new session (`AssistantSession.resume()`, the same call as `chat --resume`). To keep the limit of 10 Gemini calls for this work, the run had no retries and no fallback model (`max_retries: 0`, `fallback: null`), a counter that stopped at 9 calls, and a byte cap of 150 MB for each query.
+
+| Turn | Message | Calls | Queries | Result |
+|---|---|---|---|---|
+| 1 | "Use only the Women department until I say otherwise." | 1 | 0 | `chitchat`. "OK. I will use this for the next answers of this conversation: department = Women." Pinned: `standing_filters: {department: Women}`. |
+| 2 | "What was the revenue of my brands in Q3 2026?" | 3 | 1 | $9,183.35 for 1 Jul – 30 Sep 2026. The SQL has `p.department = 'Women'` and the brand scope `@scope_brands`. No "Assumed" line: the user named the period. |
+| 3 | "And how many orders in the same period?" | 3 | 1 | 148 orders. The follow-up used the pinned period (2026-07-01..2026-09-30), the Women filter and the brand scope. |
+| 4 (resumed) | "Which department filter do we use now, and which period did we look at?" | 2 | 0 | `schema_kind = conversation`. "We are currently using the Women department filter. … Q3 2026 (1 Jul – 30 Sep 2026)." |
+
+- Conversation `C-8VMQS`. The resume view showed the 3 turns from `conversation_turns`. No summary yet (3 turns).
+- In total: 9 Gemini calls, 2 queries, 41.9 MB billed (20.97 MB each). `usage_daily` for 2026-11-12 (Pacific date): 17 calls, 8 queries, 157,286,400 bytes before; 26 calls, 10 queries, 199,229,440 bytes after.
+- The model also added `p.brand IN ('Calvin Klein', 'Carhartt')` in turns 2 and 3, because it read "my brands" as a brand filter. The result is the same: the guard limits each query to the scope of the user.
