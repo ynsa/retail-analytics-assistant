@@ -150,8 +150,8 @@ def build_services(
     config: AppConfig, refresh_schema: bool = False, refresh_cache: bool = False
 ) -> Services:
     """Create the real Gemini and BigQuery clients. Reading the table schemas is free. The value
-    cache (spec 30) costs one small query (about 40 MB billed) when it is missing or older than
-    7 days. The query counts in the daily limit."""
+    cache (spec 30) costs one small query (about 40 MB billed) when it is missing or from an
+    earlier UTC day. The query counts in the daily limit."""
     from opsfleet_agent.bq_client import BigQueryRunner  # the client's file, unchanged
 
     settings = config.settings

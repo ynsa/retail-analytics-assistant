@@ -85,7 +85,7 @@ The empty-result checks run at most 5 small queries for one empty result. Usuall
 | | Brand scope | Rewrite each table reference to a code-made, scoped subquery. Brand names go in as the array parameter `@scope_brands`. | A filter that the model writes | Code enforces the scope. A parameter handles apostrophes ("Levi's"). |
 | | `users` table | Always replaced by a subquery without PII columns, for all roles | Rely only on the column check | Defense in depth: PII columns do not exist in the source that the query reads. |
 | | `orders` for managers | Only orders that contain an order item of the manager's brands. `num_of_item` is not available. | Full orders | From gap analysis B2: order-level fields mix brands. |
-| | Filter values and date range | From a local cache (`data/value_cache.json`), refreshed every 7 days | A query for each check | Most empty-result checks then need no query. |
+| | Filter values and date range | From a local cache (`data/value_cache.json`), refreshed every day (changed on 2026-11-12, see B7a) | A query for each check | Most empty-result checks then need no query. |
 | | Brand names in `users.yaml` | Exact match, character by character, against the brand list in the cache | Case-insensitive match | 2,756 named brands with close variants. An exact name is the only safe key. |
 
 ### B2. Design
@@ -244,7 +244,7 @@ Rules:
 
 #### B2.8 Value cache and brand check in `users.yaml`
 
-- `data/value_cache.json` holds the distinct values of the columns in B2.7 check 1, and the date range of each table. One query builds it. It reads only these small columns (about 30 MB billed). The file has a `built_at` date. The code builds it again after 7 days, or with `chat --refresh-cache`.
+- `data/value_cache.json` holds the distinct values of the columns in B2.7 check 1, and the date range of each table. One query builds it. It reads only these small columns (about 30 MB billed). The file has a `built_at` date. The code builds it again on each new UTC day (until 2026-11-12: after 7 days), or with `chat --refresh-cache`.
 - At the start of `chat`, the code compares each brand of the current user with the brand list in the cache. The match is exact, character by character. The apostrophe `'` and the typographic `’` are different characters.
 - A wrong brand stops the start, with up to 3 close names from `difflib.get_close_matches` (cutoff 0.8) and from a case-insensitive comparison.
 - Wrong brands of other users give one warning line. They do not stop the start.
@@ -443,7 +443,7 @@ All tests are unit tests without network, except the `live` tests. The tests use
 - The strict pairing rule blocks some useful questions, for example "the top customers in California". The answer offers totals by state as the alternative.
 - `brand LIKE 'Calvin%'` is not checked as a brand literal. The rewrite still keeps the scope, so the result contains only the user's brands.
 - The scanner patterns are for US-style text. Other formats can pass. The earlier layers keep PII out of the data, so the scanner is the last net, not the main control.
-- Google can generate the dataset again. Then brand names and the date range can change. The value cache is rebuilt after 7 days.
+- Google can generate the dataset again. Then brand names and the date range can change. The value cache is rebuilt each day.
 - Spec 00 allows 6 queries for each answer. One query, 3 attempts and the empty-result checks can need more. The checks then stop with `unknown` (B2.7).
 
 ### B7. Implementation notes (2026-11-11)
@@ -490,3 +490,7 @@ All tests are unit tests without network, except the `live` tests. The tests use
 - A `policy_block` ends the turn with `user_message`. It never goes back to the model.
 - `SqlGuard.check(sql, purpose=...)` writes one `guard` span. The report flow (spec 32) can call it for each report query.
 - `OutputScanner.scan(text, target=...)` is ready for report bodies, report files (spec 32) and the summary (spec 34).
+
+### B7a. Notes from round 1 of spec 50 (2026-11-12)
+
+- **Value cache: one day.** The dataset changes its full history each day. On 2026-11-12, the first sale moved from 2019-01-07 to 2019-01-12, but the cache of 2026-11-11 still gave 2019-01-07 to the prompts and to the access answer. `MAX_AGE_DAYS` is now 1: the code builds the cache again on the first start of each UTC day. The cost is one query of about 40 MB each day. Test: `tests/test_value_cache.py`.

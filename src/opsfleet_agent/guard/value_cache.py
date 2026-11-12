@@ -1,7 +1,8 @@
 """Value cache: distinct filter values and the date range of the data (spec 30, B2.8).
 
 One small query builds `data/value_cache.json` (about 40 MB billed: only short columns). The code
-builds it again after 7 days, or on request (`chat --refresh-cache`). The cache also holds the brand
+builds it again on each new UTC day, or on request (`chat --refresh-cache`). The dataset changes
+its full history each day, so the date range of an older cache can be wrong (spec 50 round 1). The cache also holds the brand
 list, so the brand names in `config/users.yaml` can be checked at the start.
 """
 
@@ -18,7 +19,7 @@ from opsfleet_agent.config import Role, UsersConfig
 from opsfleet_agent.errors import AgentError, ErrorType
 from opsfleet_agent.limits import TurnBudget
 
-MAX_AGE_DAYS = 7
+MAX_AGE_DAYS = 1  # a cache of an earlier UTC day is stale
 
 # Columns with a small set of values (spec 30, B2.7 check 1), by table.
 CACHED_COLUMNS: dict[str, tuple[str, ...]] = {
@@ -126,7 +127,7 @@ def load_value_cache(
     refresh: bool = False,
     today: date | None = None,
 ) -> ValueCache:
-    """Read the cache file. Build it again when it is missing, older than 7 days, or on request."""
+    """Read the cache file. Build it again when it is missing, from an earlier day, or on request."""
     if path.exists() and not refresh:
         try:
             cache = ValueCache.from_json(path.read_text(encoding="utf-8"))

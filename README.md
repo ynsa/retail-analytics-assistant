@@ -217,7 +217,7 @@ A simple question costs 3 Gemini calls (route, SQL, answer) and 1 query. A greet
 
 The cost limits for each answer and for each day are in `config/settings.yaml`, and the agent limits (attempts, steps, message length) are in its `agent` section. The prompts are in `src/opsfleet_agent/agent/prompts/`. The masked traces of each answer are in `data/traces/`, the logs in `data/logs/`.
 
-At the first start, the assistant builds `data/value_cache.json` with one small query (about 40 MB billed). The cache holds the brand names, the filter values and the date range of the data. The assistant builds it again after 7 days. The start stops when a brand in `config/users.yaml` does not exist in the data, and the message gives the close names.
+At the first start, the assistant builds `data/value_cache.json` with one small query (about 40 MB billed). The cache holds the brand names, the filter values and the date range of the data. The assistant builds it again on the first start of each UTC day, because the dataset changes each day. The start stops when a brand in `config/users.yaml` does not exist in the data, and the message gives the close names.
 
 ## Local test UI
 

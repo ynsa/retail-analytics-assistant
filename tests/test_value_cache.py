@@ -120,13 +120,13 @@ def test_load_builds_once_then_reads_the_file(tmp_path, budget):
     }
     assert bq.purposes == ["value_cache"]
     again = load_value_cache(
-        path, FakeBQ([]), budget, DATASET, today=date(2026, 11, 12)
+        path, FakeBQ([]), budget, DATASET, today=date(2026, 11, 11)
     )
     assert again == cache
     assert "Levi's" in path.read_text(encoding="utf-8")
 
 
-def test_cache_is_built_again_after_7_days_or_on_request(tmp_path, budget):
+def test_cache_is_built_again_on_a_new_day_or_on_request(tmp_path, budget):
     path = tmp_path / "value_cache.json"
     load_value_cache(
         path,
@@ -135,8 +135,11 @@ def test_cache_is_built_again_after_7_days_or_on_request(tmp_path, budget):
         DATASET,
         today=date(2026, 11, 1),
     )
+    same_day = FakeBQ([frame_result(_cache_frame())])
+    load_value_cache(path, same_day, budget, DATASET, today=date(2026, 11, 1))
+    assert same_day.queries == []
     stale = FakeBQ([frame_result(_cache_frame())])
-    load_value_cache(path, stale, budget, DATASET, today=date(2026, 11, 8))
+    load_value_cache(path, stale, budget, DATASET, today=date(2026, 11, 2))
     assert len(stale.queries) == 1
     forced = FakeBQ([frame_result(_cache_frame())])
     load_value_cache(
