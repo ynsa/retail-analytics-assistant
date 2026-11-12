@@ -36,6 +36,7 @@ Resilience (spec 36) is active:
 
 - A short failure of Gemini or BigQuery gets a fixed number of retries (Gemini 2, BigQuery 1), always inside the time limit of the answer.
 - When the main model still fails, a second free-tier model (`gemini-3.1-flash-lite`, setting `models.fallback`) answers once.
+- When the daily free-tier quota of the main model is used up, the same question goes to the second model. "Please try again tomorrow" shows only when the second model also fails.
 - After 3 failures in a row, the assistant stops the calls to that service for 60 s and answers at once with a clear message.
 - Each failure message ends with a trace ID, for example "Trace: 4f2a9c1e." The details go to `data/logs/agent.log`. The chat never stops after an error. Ctrl-C stops the current answer and the running query.
 - The daily limits reset at midnight Pacific time, as the Gemini free tier does.

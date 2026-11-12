@@ -182,10 +182,13 @@ def test_3_retry_after_of_30_seconds_goes_to_the_fallback_at_once(
     assert result.fallback_used and result.model == FALLBACK and result.text == "fb"
 
 
-def test_4_daily_quota_no_retry_no_fallback_and_breaker_open_until_midnight(
+def test_4_daily_quota_no_retry_and_breaker_open_until_midnight(
     config, budget, clock, sleeps
 ):
-    client, sdk = gemini(config, {MAIN: [rate_limited("40s", daily=True)]}, clock)
+    """Without a fallback model, a daily-quota 429 ends the turn with the daily message."""
+    client, sdk = gemini(
+        config, {MAIN: [rate_limited("40s", daily=True)]}, clock, fallback=None
+    )
     with pytest.raises(AgentError) as err:
         call(client, budget)
     assert err.value.error_type is ErrorType.LLM_RATE_LIMITED
@@ -197,16 +200,86 @@ def test_4_daily_quota_no_retry_no_fallback_and_breaker_open_until_midnight(
     assert breaker.open_until == datetime(2026, 11, 13, 8, 0, tzinfo=UTC)
 
 
-def test_after_a_daily_quota_the_fallback_model_answers(config, ledger, clock):
+# Owner decision (2026-11-12, spec 36 B7): after a daily-quota error of the main model, the same
+# turn tries the fallback model. "Try again tomorrow" shows only when the fallback also fails.
+
+
+def test_daily_quota_tries_the_fallback_in_the_same_turn(config, budget, clock, sleeps):
+    client, sdk = gemini(
+        config, {MAIN: [rate_limited("40s", daily=True)], FALLBACK: [ok("fb")]}, clock
+    )
+    result = call(client, budget)
+    assert result.fallback_used and result.model == FALLBACK and result.text == "fb"
+    assert sdk.calls == [MAIN, FALLBACK] and sleeps == []
+    assert budget.totals()["fallback_calls"] == 1
+    breaker = client.breakers.get(f"gemini:{MAIN}")
+    assert breaker.state == "open" and breaker.reason == "daily_quota"
+
+
+@pytest.mark.parametrize(
+    "fallback_error",
+    [server_error(), rate_limited(daily=True), rate_limited("1s")],
+    ids=["server", "daily", "busy"],
+)
+def test_daily_quota_and_failed_fallback_give_the_daily_message(
+    config, budget, clock, fallback_error
+):
     client, sdk = gemini(
         config,
-        {MAIN: [rate_limited(daily=True)], FALLBACK: [ok("fb")]},
+        {MAIN: [rate_limited(daily=True)], FALLBACK: [fallback_error]},
         clock,
     )
-    with pytest.raises(AgentError):
-        call(client, TurnBudget(config.settings.limits, ledger))
-    result = call(client, TurnBudget(config.settings.limits, ledger))
-    assert result.fallback_used and sdk.calls == [MAIN, FALLBACK]
+    with pytest.raises(AgentError) as err:
+        call(client, budget)
+    assert err.value.error_type is ErrorType.LLM_RATE_LIMITED
+    assert err.value.user_message == messages.text("llm_daily")
+    assert sdk.calls == [MAIN, FALLBACK]
+
+
+def test_daily_quota_and_a_refusing_fallback_keep_the_refusal(config, budget, clock):
+    """The fallback refused the request itself (a 400): that message is more useful."""
+    client, sdk = gemini(
+        config,
+        {MAIN: [rate_limited(daily=True)], FALLBACK: [client_error(400)]},
+        clock,
+    )
+    with pytest.raises(AgentError) as err:
+        call(client, budget)
+    assert err.value.user_message != messages.text("llm_daily")
+    assert sdk.calls == [MAIN, FALLBACK]
+
+
+def test_after_a_daily_quota_the_next_turn_goes_to_the_fallback_directly(
+    config, ledger, clock
+):
+    client, sdk = gemini(
+        config,
+        {MAIN: [rate_limited(daily=True)], FALLBACK: [ok("fb1"), ok("fb2")]},
+        clock,
+    )
+    first = call(client, TurnBudget(config.settings.limits, ledger))
+    second = call(client, TurnBudget(config.settings.limits, ledger))
+    assert first.fallback_used and second.fallback_used
+    assert sdk.calls == [
+        MAIN,
+        FALLBACK,
+        FALLBACK,
+    ]  # the open breaker skips the main model
+
+
+def test_after_a_daily_quota_both_models_down_give_the_daily_message(
+    config, ledger, clock
+):
+    client, sdk = gemini(
+        config,
+        {MAIN: [rate_limited(daily=True)], FALLBACK: [server_error(), server_error()]},
+        clock,
+    )
+    for _ in range(2):
+        with pytest.raises(AgentError) as err:
+            call(client, TurnBudget(config.settings.limits, ledger))
+        assert err.value.user_message == messages.text("llm_daily")
+    assert sdk.calls == [MAIN, FALLBACK, FALLBACK]
 
 
 def test_5_main_fails_three_times_and_the_fallback_answers(

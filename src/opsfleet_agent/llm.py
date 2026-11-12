@@ -194,7 +194,9 @@ class GeminiClient:
                         lambda: self._with_retries(main, request, budget, sp, charge),
                     )
                 except ServiceFailure as exc:
-                    if not exc.temporary or fallback is None:
+                    # Owner decision (2026-11-12, spec 36 B7): a daily-quota error of the main
+                    # model also tries the fallback model in the same turn.
+                    if not (exc.temporary or exc.daily_quota) or fallback is None:
                         raise self._final(exc, None) from exc
                     failure = exc
                 else:
@@ -344,8 +346,11 @@ class GeminiClient:
             if failure.temporary or failure.daily_quota:
                 return gemini_unavailable(failure, circuit_open)
             return failure
-        if not failure.temporary:
+        if not failure.temporary and not failure.daily_quota:
             return failure  # the fallback model refused the request itself (400, key, safety)
+        if main_failure.daily_quota:
+            # Both models failed after the daily quota of the main model: "try again tomorrow".
+            return gemini_unavailable(main_failure, circuit_open)
         return gemini_unavailable(failure, circuit_open)
 
     @staticmethod

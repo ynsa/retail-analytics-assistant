@@ -329,4 +329,15 @@ All unit tests use fake clients and a fake clock. No real wait happens.
 
 #### Note about a daily quota (2026-11-12)
 
-B4 #4 says: no fallback after a daily-quota error. B2.3 says: the fallback runs when the breaker of the main model is open. The code follows both. So the turn with the daily-quota error ends with "The daily Gemini free-tier limit is reached. Please try again tomorrow.", and the next question uses the fallback model, because the daily quota opened the breaker of the main model. The owner can choose one behavior later. The code review of spec 34 (B7) found this point.
+B4 #4 says: no fallback after a daily-quota error. B2.3 says: the fallback runs when the breaker of the main model is open. The first version followed both. So the turn with the daily-quota error ended with "The daily Gemini free-tier limit is reached. Please try again tomorrow.", and the next question used the fallback model. The code review of spec 34 (B7) found this point.
+
+#### Decision: a daily quota tries the fallback in the same turn (owner, 2026-11-12)
+
+- After a daily-quota 429 of the main model, the same turn tries the fallback model at once. There is no retry and no wait, as before.
+- The breaker of the main model stays open until midnight Pacific time. The next turns go directly to the fallback model.
+- The user gets "The daily Gemini free-tier limit is reached. Please try again tomorrow." only when the fallback model also fails (a timeout, a 5xx, a busy 429 or its own daily quota), or when no fallback model is set (`models.fallback: null`).
+- When the fallback model refuses the request itself (a 400, a wrong key, a safety block), the user gets that message. It tells more than the daily message.
+- This replaces B4 #4 ("no fallback after a daily-quota error").
+- Code: `GeminiClient.generate()` and `GeminiClient._final()` in `llm.py`.
+- Tests (`tests/test_resilience.py`): the fallback answers in the same turn, the daily message after a failed fallback (server error, daily quota, busy), a refusing fallback, the next turn goes to the fallback directly, both models down, and no fallback model.
+- The evaluation runner sets `models.fallback: null` (spec 23). So an evaluation run still ends a turn with the daily message.
