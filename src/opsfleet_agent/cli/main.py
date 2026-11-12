@@ -4,6 +4,7 @@
     opsfleet-agent conversations --user maya
     opsfleet-agent stats [--user maya | --all] [--days N] [--export csv|json]
     opsfleet-agent purge [--dry-run]
+    opsfleet-agent ui [--port 8000]
 
 The rules of the assistant are in the session and the core modules. This package only reads the
 input and shows the results.
@@ -232,6 +233,38 @@ def purge_command(
         ui.line(f"Files deleted: {result.files_deleted}.")
     if pruned is not None:
         ui.line(pruned.summary())
+
+
+@app.command("ui")
+def ui_command(
+    port: int = typer.Option(8000, "--port", help="The port on 127.0.0.1."),
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        help="Keep 127.0.0.1. Use 0.0.0.0 only inside a container (spec 52).",
+    ),
+) -> None:
+    """Start the local test UI (spec 52) on http://127.0.0.1:8000."""
+    from opsfleet_agent.session import build_services
+    from opsfleet_agent.startup import check_secrets, start_error
+    from opsfleet_agent.ui.backend import AssistantFactory, UiBackend
+    from opsfleet_agent.ui.server import serve
+
+    ui = Ui()
+    config = _config(ui)
+    try:
+        check_secrets(config)
+        with ui.status("Starting: reading the table schemas and the value cache"):
+            try:
+                services = build_services(config)
+            except Exception as exc:
+                raise StartError(start_error(exc), 3) from exc
+    except StartError as exc:
+        ui.line(exc.message, "red")
+        raise typer.Exit(code=exc.exit_code) from exc
+    backend = UiBackend(config, AssistantFactory(config, services))
+    ui.line(f"Local test UI: http://127.0.0.1:{port}  (Ctrl-C to stop)")
+    serve(backend, host=host, port=port)
 
 
 def main() -> None:

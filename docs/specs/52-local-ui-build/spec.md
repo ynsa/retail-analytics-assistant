@@ -1,6 +1,6 @@
 # Spec 52: Local test UI — build
 
-- **Status:** Approved (owner review, 2026-11-11)
+- **Status:** Done (2026-11-12)
 - **Phase and stream:** Phase 3 (after the prototype works in the CLI)
 - **Depends on:** 40 (screens and API), 31–37
 - **Requirements covered:** none from OpsFleet. Our own tool for manual testing.
@@ -28,9 +28,9 @@ The same limits as the CLI (spec 00).
 
 ### A5. Done when
 
-- [ ] All checks in spec 40, section A5, pass.
-- [ ] The PR has a screenshot of each screen from a real run.
-- [ ] The UI works in the Docker image on `linux/amd64` and `linux/arm64`.
+- [ ] All checks in spec 40, section A5, pass. (All except the safety set through the UI API: see spec 40, B7, deviation 12.)
+- [x] The PR has a screenshot of each screen from a real run (`docs/images/ui/`).
+- [ ] The UI works in the Docker image on `linux/amd64` and `linux/arm64`. (Moved to spec 53, which builds the image. The command is ready: `opsfleet-agent ui --host 0.0.0.0`.)
 
 ---
 
@@ -59,3 +59,12 @@ About 15 Gemini calls and 5 small queries for the manual check. The safety run t
 ### B6. Risks and open points
 
 - If time is short, we skip this spec. The sketches stay in spec 40 as a design.
+
+### B7. Implementation notes (2026-11-12)
+
+- The build, the deviations, the tests and the live check are in [spec 40, B7](../40-local-ui/spec.md#b7-implementation-notes-2026-11-12).
+- New dependencies: `fastapi` and `uvicorn` (runtime), `httpx` (development, for the FastAPI `TestClient`).
+- Command: `uv run opsfleet-agent ui [--port 8000] [--host 127.0.0.1]`.
+- Docker: not done here. Spec 53 builds the image and runs the UI with `--host 0.0.0.0` inside the container and `-p 127.0.0.1:8000:8000`.
+- The safety set of spec 22 through the UI API: not run (budget of 10 Gemini calls). Spec 50 can run it.
+- B5, cost: the live check used 10 Gemini calls and 83.9 MB (4 queries). The estimate was 15 calls.

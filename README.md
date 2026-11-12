@@ -63,7 +63,7 @@ The full CLI (spec 37) is active:
 - The delete confirmation is a red panel, and the prompt changes to `confirm>`.
 - With piped input, the CLI prints plain text without colors and without the status line. A real session is in [docs/images/cli-session.txt](docs/images/cli-session.txt).
 
-With spec 37, the command-line prototype of Phase 2 is complete. Phase 3 runs the evaluation on the real agent, builds the local UI and the Docker image (specs 50–55).
+With spec 37, the command-line prototype of Phase 2 is complete. The local test UI (specs 40 and 52) is also ready: see [Local test UI](#local-test-ui). Phase 3 runs the evaluation on the real agent and builds the Docker image (specs 50, 51 and 53–55).
 
 The production design document and the diagrams (specs 10 and 11) are ready for review.
 
@@ -116,6 +116,24 @@ A simple question costs 3 Gemini calls (route, SQL, answer) and 1 query. A greet
 The cost limits for each answer and for each day are in `config/settings.yaml`, and the agent limits (attempts, steps, message length) are in its `agent` section. The prompts are in `src/opsfleet_agent/agent/prompts/`. The masked traces of each answer are in `data/traces/`, the logs in `data/logs/`.
 
 At the first start, the assistant builds `data/value_cache.json` with one small query (about 40 MB billed). The cache holds the brand names, the filter values and the date range of the data. The assistant builds it again after 7 days. The start stops when a brand in `config/users.yaml` does not exist in the data, and the message gives the close names.
+
+## Local test UI
+
+A small web page for manual tests (specs 40 and 52). It uses the same assistant session as the CLI, so every safety rule stays the same. The CLI stays the main interface.
+
+```bash
+uv run opsfleet-agent ui                   # then open http://127.0.0.1:8000
+```
+
+- Select a test user from `config/users.yaml`, then chat. The left pane has the earlier conversations and the reports of this user. The right pane shows the steps of the selected answer and its cost against the limits.
+- A long answer shows the current stage and a clock. The input is locked until the answer is ready.
+- A delete shows the list of reports. Confirm works only for the exact text `delete N`. Undo works for 30 days.
+- A report shows its chart and its action items. "Open HTML" and "Download Markdown" give the files of `data/reports/<user>/`.
+- The server listens only on `127.0.0.1`. The page loads no file from the internet.
+
+![Local test UI: a report in the chat](docs/images/ui/05-report.png)
+
+More screenshots are in `docs/images/ui/`.
 
 ## Evaluate the assistant
 

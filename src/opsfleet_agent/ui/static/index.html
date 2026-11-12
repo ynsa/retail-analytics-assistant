@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Retail Analytics Assistant · local test UI</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="/static/app.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <span class="topbar-title">Retail Analytics Assistant</span>
+      <span class="topbar-sub">· local test UI</span>
+    </header>
+
+    <!-- 1. Start: choose the test user -->
+    <main id="start" class="start" hidden>
+      <section class="start-card" aria-labelledby="start-title">
+        <h1 id="start-title">Who is testing?</h1>
+        <form id="start-form">
+          <div id="user-list" class="user-list" role="radiogroup"></div>
+          <p id="start-error" class="form-error" role="alert" hidden></p>
+          <button id="start-button" class="button primary wide" type="submit" disabled>
+            Start a new conversation
+          </button>
+        </form>
+      </section>
+      <p class="start-note">
+        One user for each conversation. To test another user, start a new conversation.
+      </p>
+      <footer class="dev-note">Development build · runs only on this computer</footer>
+    </main>
+
+    <!-- 2–5. Chat: history, conversation, steps -->
+    <main id="chat" class="chat" hidden>
+      <aside class="side" aria-label="History">
+        <div class="tabs" role="tablist">
+          <button id="tab-conversations" class="tab" role="tab" aria-selected="true" type="button">
+            Conversations
+          </button>
+          <button id="tab-reports" class="tab" role="tab" aria-selected="false" type="button">
+            Reports
+          </button>
+        </div>
+        <div id="panel-conversations" class="side-panel" role="tabpanel">
+          <button id="new-conversation" class="button outline wide" type="button">
+            + New conversation
+          </button>
+          <ul id="conversation-list" class="side-list"></ul>
+        </div>
+        <div id="panel-reports" class="side-panel" role="tabpanel" hidden>
+          <ul id="report-list" class="side-list"></ul>
+        </div>
+      </aside>
+
+      <section class="center" aria-label="Conversation">
+        <div class="center-head">
+          <span id="user-name" class="user-name"></span>
+          <span id="user-chips" class="chips"></span>
+          <span id="conversation-id" class="conversation-id"></span>
+          <button id="change-user" class="link" type="button">Change user</button>
+        </div>
+        <div id="messages" class="messages" aria-live="polite"></div>
+        <form id="ask-form" class="ask">
+          <input
+            id="ask-input"
+            class="ask-input"
+            type="text"
+            autocomplete="off"
+            maxlength="4000"
+            placeholder="Ask about the sales of your brands"
+            aria-label="Your question"
+          />
+          <button id="ask-button" class="button primary" type="submit">Ask</button>
+        </form>
+      </section>
+
+      <aside class="steps" aria-label="Steps of the selected answer">
+        <h2 class="pane-title">Steps of the selected answer</h2>
+        <div id="steps-body" class="steps-body">
+          <p class="muted">Select an answer to see its steps.</p>
+        </div>
+        <h2 class="pane-title">This answer</h2>
+        <div id="totals-body" class="totals-body"></div>
+      </aside>
+    </main>
+  </body>
+</html>

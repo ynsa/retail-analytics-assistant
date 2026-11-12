@@ -4,15 +4,19 @@
 aiosqlite==0.22.1
     # via langgraph-checkpoint-sqlite
 annotated-doc==0.0.6
-    # via typer
+    # via
+    #   fastapi
+    #   typer
 annotated-types==0.8.0
     # via pydantic
 anyio==4.16.0
     # via
+    #   fastapi
     #   google-genai
     #   httpx
     #   httpx2
     #   langsmith
+    #   starlette
 certifi==2026.10.23
     # via
     #   httpcore
@@ -23,6 +27,8 @@ cffi==2.1.1 ; platform_python_implementation != 'PyPy'
     # via cryptography
 charset-normalizer==3.5.2
     # via requests
+click==8.5.1
+    # via uvicorn
 colorama==0.4.6 ; sys_platform == 'win32'
     # via typer
 contourpy==1.4.0
@@ -37,6 +43,8 @@ distro==1.9.0
     # via
     #   google-genai
     #   langsmith
+fastapi==0.162.5
+    # via opsfleet-agent
 fonttools==4.68.0
     # via matplotlib
 google-api-core==2.44.0
@@ -73,6 +81,7 @@ h11==0.16.0
     # via
     #   httpcore
     #   httpcore2
+    #   uvicorn
 httpcore==1.0.9
     # via httpx
 httpcore2==2.16.0 ; sys_platform != 'emscripten'
@@ -144,6 +153,7 @@ numpy==2.5.4
     #   pandas
 opentelemetry-api==1.45.2
     # via
+    #   fastapi
     #   google-api-core
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
@@ -188,6 +198,7 @@ pycparser==3.12 ; implementation_name != 'PyPy' and platform_python_implementati
     # via cffi
 pydantic==2.14.3
     # via
+    #   fastapi
     #   google-genai
     #   langchain-core
     #   langgraph
@@ -237,6 +248,8 @@ sqlglot==30.31.0
     # via opsfleet-agent
 sqlite-vec==0.1.9
     # via langgraph-checkpoint-sqlite
+starlette==1.10.0
+    # via fastapi
 tenacity==9.1.4
     # via
     #   google-genai
@@ -250,6 +263,7 @@ typer==0.29.1
 typing-extensions==4.16.0
     # via
     #   anyio
+    #   fastapi
     #   google-genai
     #   grpcio
     #   httpx2
@@ -261,9 +275,12 @@ typing-extensions==4.16.0
     #   opentelemetry-semantic-conventions
     #   pydantic
     #   pydantic-core
+    #   starlette
     #   typing-inspection
 typing-inspection==0.4.5
-    # via pydantic
+    # via
+    #   fastapi
+    #   pydantic
 tzdata==2026.6
     # via
     #   opsfleet-agent
@@ -274,6 +291,8 @@ uuid-utils==0.19.0
     # via
     #   langchain-core
     #   langsmith
+uvicorn==0.54.0
+    # via opsfleet-agent
 websockets==17.4
     # via
     #   google-genai
