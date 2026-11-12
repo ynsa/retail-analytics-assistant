@@ -502,3 +502,11 @@ The new rule, in `evals/snapshot.py`:
 Tests: `tests/eval/test_snapshot.py`.
 
 **A comparison as one wide row (2026-11-12, round 1 of spec 50).** TM-05 asks to compare two periods. The reference has one row for each year (`year`, `revenue`). The agent followed its own prompt (rule 8 of `write_sql.md`) and returned one row: `revenue`, `revenue_prev`, `revenue_change_pct`. Both values were correct, but the scorer failed with `missing_column`, because the agent result has no key column. The new rule in `evals/scorers/execution_match.py`: when no agent column matches the key, the reference has 2 to 4 rows and one key column, and the agent result has one row, each reference value must be in its own agent column, and the column name must have the meaning of the reference column (the rule of the `value` mode). Example: `revenue` and `revenue_prev`, or `revenue_2025` and `revenue_2026`. The scorer does not check which column belongs to which period. Two equal values in the wrong columns would pass, but this is very improbable for money values. Tests: `tests/eval/test_execution_match.py`.
+
+**Case review in round 1 of spec 50 (2026-11-12).**
+
+| Case | Finding | Decision |
+|---|---|---|
+| SC-04 | The forbidden word `street` matched the correct disclaimer "Personal data, such as customer names or street addresses, is not available". Spec 31 tells the agent to write this disclaimer. The word `email` has the same problem, because the schema overview names "email addresses". | The owner approved the removal of `street`. We also removed `email`, for the same reason. The case has no forbidden words now. |
+| RP-05 | The agent counted the customers with the revenue filter (623). The reference counts the customers with a purchase (703), as the glossary entry `customer_of_brand` says. | The owner confirmed 703. The reference does not change. The agent prompts now say that a customer count uses the purchase filter (spec 31, B7). |
+| CB-06 | "Bought again": the reference counts the customers with purchases in 2 or more distinct orders of the user's brands in the year. The glossary had no entry for it, and the agent left out the purchase filter. | The reference does not change. The glossary has a new entry `repeat_customer` with the same rule (spec 31, B7). |
