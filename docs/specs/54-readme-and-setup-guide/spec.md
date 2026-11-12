@@ -1,6 +1,6 @@
 # Spec 54: README and setup guide
 
-- **Status:** Approved (owner review, 2026-11-11)
+- **Status:** Done (2026-11-12): `README.md`. The checks that need Gemini calls or another person are open (B7).
 - **Phase and stream:** Phase 3 (together), after spec 53
 - **Depends on:** 53 (the Docker commands and the demo transcript), 10 (the HLD link), 11 (the images), 55 (the experience document link)
 - **Requirements covered:** deliverable 5 (setup instructions) and deliverable 2.4 (setup instructions and an example run)
@@ -51,18 +51,18 @@ An OpsFleet reviewer opens the repository on an unknown operating system. In abo
 
 ### A5. Done when
 
-- [ ] The README sections are in the order of B2, sections 1–15.
-- [ ] The deliverables table links to each deliverable of the brief: the diagrams, the HLD, the prototype, the CLI, the setup, and the experience document.
-- [ ] The credentials section has one collapsed block each for macOS, Linux and Windows. Each block shows where the ADC file is.
-- [ ] The Gemini key section says to create the key in a project without billing. It explains the HTTP 402 error.
-- [ ] The Docker section has one run command for each operating system. The commands are the same as in spec 53, B2.
-- [ ] The Linux command contains `--user "$(id -u):$(id -g)"`.
+- [x] The README sections are in the order of B2, sections 1–15.
+- [x] The deliverables table links to each deliverable of the brief: the diagrams, the HLD, the prototype, the CLI, the setup, and the experience document.
+- [x] The credentials section has one collapsed block each for macOS, Linux and Windows. Each block shows where the ADC file is.
+- [x] The Gemini key section says to create the key in a project without billing. It explains the HTTP 402 error.
+- [x] The Docker section has one run command for each operating system. The commands are the same as in spec 53, B2.
+- [x] The Linux command contains `--user "$(id -u):$(id -g)"`.
 - [ ] The uv path and the pip path each start the chat on a clean clone.
-- [ ] The example run is a real transcript from the demo of spec 53. It contains no key, no project ID and no PII.
-- [ ] The troubleshooting table has each row of B2.
-- [ ] All relative links work. The images show on GitHub.
+- [x] The example run is a real transcript from the demo of spec 53. It contains no key, no project ID and no PII.
+- [x] The troubleshooting table has each row of B2.
+- [x] All relative links work. The images show on GitHub.
 - [ ] A person who did not write the README follows it on a clean clone and gets the first answer.
-- [ ] The STE lint (`ste-lint.py`) gives no hard violations for `README.md`.
+- [x] The STE lint (`ste-lint.py`) gives no hard violations for `README.md`.
 
 ---
 
@@ -248,3 +248,32 @@ The README uses relative links only, so the links work in the public repository 
 - **BigQuery sandbox limits.** The sandbox has its own limits, for example on storage and on some features. The prototype only reads public data, so the risk is low. Check 3 tests it.
 - **The current README** is a development README. This spec replaces it. The development setup moves to section 15.
 - **Free-tier terms.** The README states the data use of the free tier. The text must match the current Gemini API terms on the date of the check (gap analysis B3 says to check the current terms).
+
+### B7. Implementation notes (2026-11-12)
+
+The new `README.md` replaces the development README. The checks below used 0 Gemini calls and 0 BigQuery queries.
+
+**Deviations from B2:**
+
+| # | Spec | Implementation | Reason |
+|---|---|---|---|
+| 1 | B2, sections 11 and 12 | "Runtime data" is a paragraph at the end of "What to try". "Cost and limits" comes after the evaluation commands. The other sections keep the order of B2. | Shorter. The reviewer reads the setup first. |
+| 2 | B2, section 9: a transcript of the spec 53 demo with a refused email request, a report and a delete | The real CLI session of 2026-11-12 (`docs/images/cli-session.txt`), shortened: a data question, `/trace`, an off-topic question, `/reports`. The UI screenshot shows the steps of an answer. | The spec 53 demo needs about 60 Gemini calls and the owner's approval. It did not run yet. |
+| 3 | — | New sections: "Local test UI" (one screenshot, `docs/images/ui/02-chat.png`) and "Evaluate the assistant". The "Status" part of the old README moved to `docs/product/roadmap.md`. | Owner request for the polish pass. |
+| 4 | B2, section 5 | The key section also tells how to find the project of a key (`gcloud services api-keys lookup <KEY>`) and its billing state (`gcloud billing projects describe`). | It explains the HTTP 402 error before it occurs. |
+| 5 | B1: a project without billing for BigQuery (sandbox) | The README says that the tests used a project with billing, and that the sandbox is not tested. | B4 check 3 did not run. |
+
+**Results of the checks without Gemini calls:**
+
+- A5 items 1 to 6, 9, 10 (links) and 12 pass. The links of `README.md` and of all files in `docs/` (35 files) were checked with a script: no broken relative link and no missing anchor.
+- The Docker commands are the commands that spec 53 tested (B7 of spec 53).
+- Clean clone, uv path: `git clone`, `uv sync --no-dev`, `opsfleet-agent --help` pass. `opsfleet-agent chat --user maya` without `.env` stops with "GOOGLE_API_KEY is not set. See the setup guide." (exit 2). The pip path passed `--help` in spec 53.
+- The example run contains no key, no project ID, no `@` sign and no street address.
+- STE lint: 0 hard violations.
+
+**Open (need Gemini calls, another machine or another person):**
+
+1. The first answer on a clean clone with a real key, with uv and with pip (A5 item 7).
+2. A person who did not write the README follows it on a clean clone (A5 item 11). The images on GitHub after the repository becomes public (A5 item 10).
+3. The demo of spec 53 in Docker, and a transcript with a refused request, a report and a delete (deviation 2).
+4. The BigQuery sandbox check (B4 check 3), a real Linux host and a Windows computer (B4 checks 2 and 4).
