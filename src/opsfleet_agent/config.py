@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from enum import StrEnum
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 from dotenv import load_dotenv
@@ -49,6 +50,19 @@ class PerQueryLimits(_Strict):
 class PerDayLimits(_Strict):
     max_llm_calls: int = Field(gt=0)
     max_bq_bytes_billed: int = Field(gt=0)
+    # Google resets the Gemini free-tier daily quota at midnight Pacific time, so the daily
+    # counter uses the date of this time zone (2026-11-12).
+    reset_timezone: str = "America/Los_Angeles"
+
+    @model_validator(mode="after")
+    def _check_timezone(self) -> PerDayLimits:
+        try:
+            ZoneInfo(self.reset_timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(
+                f"limits.per_day.reset_timezone '{self.reset_timezone}' is not a known time zone"
+            ) from exc
+        return self
 
 
 class Limits(_Strict):

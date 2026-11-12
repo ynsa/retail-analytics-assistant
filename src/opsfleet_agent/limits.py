@@ -1,7 +1,11 @@
-"""Cost limits for each turn and for each UTC day (spec 00, A4 and B2).
+"""Cost limits for each turn and for each day (spec 00, A4 and B2).
 
 The code checks the budget before each Gemini call and each BigQuery query.
 A prompt cannot enforce a limit, so the limits live here.
+
+The day of the daily counter is the date in `limits.per_day.reset_timezone` (default
+`America/Los_Angeles`), because Google resets the Gemini free-tier quota at midnight Pacific time.
+Rows that an earlier version wrote with the UTC date stay as they are (spec 00, note of 2026-11-12).
 """
 
 from __future__ import annotations
@@ -9,21 +13,40 @@ from __future__ import annotations
 import sqlite3
 import time
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from datetime import time as day_time
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from opsfleet_agent.config import Limits
 from opsfleet_agent.errors import LimitExceeded
 
 TurnKind = Literal["question", "report"]
+RESET_NOTE = (
+    "The limit resets at midnight Pacific time. "
+    "A developer can change it in config/settings.yaml."
+)
 
 
-def utc_day(now: datetime | None = None) -> str:
-    return (now or datetime.now(UTC)).strftime("%Y-%m-%d")
+def ledger_day(now: datetime, timezone: str) -> str:
+    """The key of the daily counter: the date in the reset time zone."""
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    return now.astimezone(ZoneInfo(timezone)).strftime("%Y-%m-%d")
+
+
+def next_reset(now: datetime, timezone: str) -> datetime:
+    """The next midnight in the reset time zone, as a UTC time."""
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    zone = ZoneInfo(timezone)
+    local = now.astimezone(zone)
+    midnight = datetime.combine(local.date() + timedelta(days=1), day_time(0), zone)
+    return midnight.astimezone(UTC)
 
 
 class DailyLedger:
-    """Counts the Gemini calls and the BigQuery bytes of each UTC day in `usage_daily`."""
+    """Counts the Gemini calls and the BigQuery bytes of each day in `usage_daily`."""
 
     def __init__(
         self,
@@ -35,8 +58,12 @@ class DailyLedger:
         self._limits = limits.per_day
         self._clock = clock or (lambda: datetime.now(UTC))
 
+    def day(self) -> str:
+        """The key of the current day in `usage_daily`."""
+        return ledger_day(self._clock(), self._limits.reset_timezone)
+
     def today(self) -> dict[str, int]:
-        day = utc_day(self._clock())
+        day = self.day()
         row = self._conn.execute(
             "SELECT * FROM usage_daily WHERE day = ?", (day,)
         ).fetchone()
@@ -64,7 +91,7 @@ class DailyLedger:
             raise LimitExceeded(
                 "per_day.max_llm_calls",
                 f"The daily limit of model calls ({self._limits.max_llm_calls}) is reached. "
-                "The limit resets at midnight UTC. A developer can change it in config/settings.yaml.",
+                + RESET_NOTE,
             )
 
     def check_bq(self) -> None:
@@ -73,7 +100,7 @@ class DailyLedger:
             raise LimitExceeded(
                 "per_day.max_bq_bytes_billed",
                 f"The daily limit of BigQuery data ({gb:g} GB) is reached. "
-                "The limit resets at midnight UTC. A developer can change it in config/settings.yaml.",
+                + RESET_NOTE,
             )
 
     def add(
@@ -85,7 +112,7 @@ class DailyLedger:
         bq_queries: int = 0,
         bq_bytes_billed: int = 0,
     ) -> None:
-        day = utc_day(self._clock())
+        day = self.day()
         with self._conn:
             self._conn.execute(
                 """

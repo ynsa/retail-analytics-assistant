@@ -264,8 +264,10 @@ typing-extensions==4.16.0
     #   typing-inspection
 typing-inspection==0.4.5
     # via pydantic
-tzdata==2026.6 ; sys_platform == 'emscripten' or sys_platform == 'win32'
-    # via pandas
+tzdata==2026.6
+    # via
+    #   opsfleet-agent
+    #   pandas
 urllib3==2.8.0
     # via requests
 uuid-utils==0.19.0

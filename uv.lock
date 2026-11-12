@@ -1478,6 +1478,7 @@ dependencies = [
     { name = "rich" },
     { name = "sqlglot" },
     { name = "typer" },
+    { name = "tzdata" },
 ]
 
 [package.dev-dependencies]
@@ -1505,6 +1506,7 @@ requires-dist = [
     { name = "rich", specifier = ">=15.0.0" },
     { name = "sqlglot", specifier = ">=30.31.0" },
     { name = "typer", specifier = ">=0.29.1" },
+    { name = "tzdata", specifier = ">=2026.6" },
 ]
 
 [package.metadata.requires-dev]

@@ -23,12 +23,13 @@ limits:
     max_bytes_billed: 1000000000   # 1 GB
     timeout_s: 30
     max_rows_to_llm: 200
-  per_day:                         # UTC day
+  per_day:                         # the day of reset_timezone (spec 00, note of 2026-11-12)
     # Free tier of gemini-3.5-flash-lite: about 500 requests a day for each project (forum report,
     # 2026-11). 480 keeps a margin. The key's project has no billing, so a call above Google's limit
     # fails with HTTP 429 and is never billed.
     max_llm_calls: 480
     max_bq_bytes_billed: 20000000000   # 20 GB
+    reset_timezone: America/Los_Angeles  # Google resets the free-tier quota at midnight Pacific time
 
 paths:
   data_dir: data

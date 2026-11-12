@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from opsfleet_agent.errors import ErrorType, LimitExceeded
-from opsfleet_agent.limits import DailyLedger, TurnBudget
+from opsfleet_agent.limits import DailyLedger, TurnBudget, next_reset
 from opsfleet_agent.store.db import connect
 
 
@@ -66,13 +66,72 @@ def test_daily_bytes_limit(budget, ledger):
     assert "20 GB" in exc.value.user_message
 
 
-def test_daily_counter_resets_on_a_new_utc_day(conn, config):
-    day = [datetime(2026, 11, 11, 23, 0, tzinfo=UTC)]
+def test_daily_counter_resets_at_midnight_pacific_time(conn, config):
+    """Google resets the free-tier quota at midnight Pacific time (spec 00, note of 2026-11-12).
+    In November, Pacific time is UTC-8: the day changes at 08:00 UTC, not at 00:00 UTC."""
+    day = [datetime(2026, 11, 11, 23, 0, tzinfo=UTC)]  # 15:00 on 11 Nov in Los Angeles
     ledger = DailyLedger(conn, config.settings.limits, clock=lambda: day[0])
     ledger.add(llm_calls=config.settings.limits.per_day.max_llm_calls)
-    day[0] = datetime(2026, 11, 12, 0, 1, tzinfo=UTC)
+    assert ledger.day() == "2026-11-11"
+    day[0] = datetime(2026, 11, 12, 0, 1, tzinfo=UTC)  # midnight UTC: same Pacific day
+    assert ledger.day() == "2026-11-11"
+    with pytest.raises(LimitExceeded) as exc:
+        ledger.check_llm()
+    assert "resets at midnight Pacific time" in exc.value.user_message
+    day[0] = datetime(2026, 11, 12, 8, 1, tzinfo=UTC)  # 00:01 on 12 Nov in Los Angeles
+    assert ledger.day() == "2026-11-12"
     assert ledger.today()["llm_calls"] == 0
     ledger.check_llm()  # no exception
+
+
+def test_daily_counter_follows_the_reset_time_zone_setting(conn, config):
+    limits = config.settings.limits
+    utc_limits = limits.model_copy(
+        update={"per_day": limits.per_day.model_copy(update={"reset_timezone": "UTC"})}
+    )
+    now = datetime(2026, 11, 12, 0, 1, tzinfo=UTC)
+    assert DailyLedger(conn, utc_limits, clock=lambda: now).day() == "2026-11-12"
+    assert DailyLedger(conn, limits, clock=lambda: now).day() == "2026-11-11"
+
+
+def test_old_utc_rows_stay_readable(conn, config):
+    """An earlier version wrote the UTC date. The row of the same date counts on."""
+    conn.execute("INSERT INTO usage_daily (day, llm_calls) VALUES ('2026-11-12', 16)")
+    now = datetime(2026, 11, 12, 20, 0, tzinfo=UTC)  # 12:00 on 12 Nov in Los Angeles
+    ledger = DailyLedger(conn, config.settings.limits, clock=lambda: now)
+    assert ledger.today()["llm_calls"] == 16
+    ledger.add(llm_calls=1)
+    assert ledger.today()["llm_calls"] == 17
+
+
+@pytest.mark.parametrize(
+    ("now", "expected"),
+    [
+        (
+            datetime(2026, 11, 12, 7, 0, tzinfo=UTC),
+            datetime(2026, 11, 12, 8, 0, tzinfo=UTC),
+        ),
+        (
+            datetime(2026, 11, 12, 9, 0, tzinfo=UTC),
+            datetime(2026, 11, 13, 8, 0, tzinfo=UTC),
+        ),
+        (
+            datetime(2026, 7, 1, 12, 0, tzinfo=UTC),
+            datetime(2026, 7, 2, 7, 0, tzinfo=UTC),
+        ),
+    ],
+)
+def test_next_reset_is_the_next_pacific_midnight(now, expected):
+    assert next_reset(now, "America/Los_Angeles") == expected
+
+
+def test_wrong_reset_time_zone_is_a_config_error(config):
+    from pydantic import ValidationError
+
+    from opsfleet_agent.config import PerDayLimits
+
+    with pytest.raises(ValidationError, match="not a known time zone"):
+        PerDayLimits(max_llm_calls=1, max_bq_bytes_billed=1, reset_timezone="Mars/Base")
 
 
 def test_budget_totals(budget):

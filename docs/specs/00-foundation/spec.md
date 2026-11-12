@@ -37,8 +37,10 @@ Proposed values for the development. All are in `config/settings.yaml`.
 | BigQuery queries for each answer | 6 | "This question needs more queries than allowed (6)." |
 | Tokens for each answer | 60,000 in, 8,000 out | "This question needs more text than allowed." |
 | Bytes billed for each query | 1 GB | "This query reads too much data (over 1 GB). Please narrow the period or the brands." |
-| Gemini calls for each day | 480 (was 300, raised on 2026-11-11 by the owner's decision: the free tier of `gemini-3.5-flash-lite` allows about 500) | "The daily limit of model calls is reached. The limit resets at midnight UTC." |
-| BigQuery bytes billed for each day | 20 GB | "The daily limit of BigQuery data is reached. The limit resets at midnight UTC." |
+| Gemini calls for each day | 480 (was 300, raised on 2026-11-11 by the owner's decision: the free tier of `gemini-3.5-flash-lite` allows about 500) | "The daily limit of model calls is reached. The limit resets at midnight Pacific time." |
+| BigQuery bytes billed for each day | 20 GB | "The daily limit of BigQuery data is reached. The limit resets at midnight Pacific time." |
+
+The day of the daily limits starts at midnight Pacific time (changed on 2026-11-12, see B7). Before, it started at midnight UTC.
 
 20 GB each day for 30 days is 600 GB, inside the free 1 TB each month.
 
@@ -171,7 +173,7 @@ class Tool(Protocol):
 
 | Table | Columns |
 |---|---|
-| `usage_daily` | `day` (UTC date), `llm_calls`, `tokens_in`, `tokens_out`, `bq_queries`, `bq_bytes_billed` |
+| `usage_daily` | `day` (the date in `limits.per_day.reset_timezone`, see B7), `llm_calls`, `tokens_in`, `tokens_out`, `bq_queries`, `bq_bytes_billed` |
 | `conversations` | `id`, `user_id`, `started_at`, `title` |
 | `reports` | defined in spec 32 |
 | `audit_events` | `id`, `at`, `user_id`, `conversation_id`, `action`, `details` (JSON) |
@@ -208,3 +210,15 @@ Unit tests: 0 calls. One manual check: 1 Gemini call and 1 small BigQuery query 
   - Spec 36 adds `schema=` and `allow_fallback=` to `GeminiClient.generate()`, and caps each Gemini attempt by the time that is left in the turn. So the 30 s timeout and the retries never exceed the answer limit.
   - Spec 35 adds the span attribute `error_type` and the span events `retry` and `circuit_open`.
   - Specs 32–35 add database tables and settings sections. Each spec lists its own.
+
+### B7. Implementation notes
+
+#### Reset time zone of the daily counter (2026-11-12)
+
+- Google resets the Gemini free-tier daily quota at midnight Pacific time, not at midnight UTC. Before this change, our counter started a new day 8 hours before Google (7 hours in summer). So the counter could show calls that Google already did not count, or the reverse.
+- The day of `usage_daily` is now the date in the time zone of the setting `limits.per_day.reset_timezone`. The default is `America/Los_Angeles`. A wrong time zone name stops the start with a clear message.
+- The limit messages say "The limit resets at midnight Pacific time."
+- Migration: none. The rows that the earlier version wrote with the UTC date stay. On the day of the change, the Pacific date and the UTC date were the same for most of the day, so the counter of that day continued.
+- `limits.next_reset(now, timezone)` gives the next midnight of the reset time zone. The circuit breaker of spec 36 uses it for a daily-quota error.
+- New dependency: `tzdata`. A small Docker image can have no system time zone data.
+- Tests: `tests/test_limits.py` (the day changes at 08:00 UTC in November, the setting, the old UTC rows, the next reset, a wrong time zone).

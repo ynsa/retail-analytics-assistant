@@ -21,6 +21,7 @@ dependencies = [
     "rich>=15.0.0",
     "sqlglot>=30.31.0",
     "typer>=0.29.1",
+    "tzdata>=2026.6",
 ]
 
 [project.scripts]

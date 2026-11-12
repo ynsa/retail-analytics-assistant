@@ -201,7 +201,7 @@ Warning block:
 | "the input device is not a TTY" | The run has no `-it`, or Git Bash on Windows | Add `-it`. On Windows, use PowerShell. |
 | "Permission denied" in `data/` on Linux | The container user is not the host user | Add `--user "$(id -u):$(id -g)"` |
 | "exec format error", or a platform warning | The image is for another CPU type | Build the image on this machine (section 7) |
-| "The daily limit … is reached" | The daily limit of the prototype (spec 00) | Wait until midnight UTC, or change `config/settings.yaml` |
+| "The daily limit … is reached" | The daily limit of the prototype (spec 00) | Wait until midnight Pacific time (spec 00, B7), or change `config/settings.yaml` |
 | "This query reads too much data" | The 1 GB cap for each query | Ask about a shorter period or fewer brands |
 | A warning about "end user credentials … without a quota project" | ADC has no quota project | Optional: `gcloud auth application-default set-quota-project <PROJECT_ID>` |
 | pip: "requires a different Python" | The Python version is not 3.12 or later | Use Python 3.12 |
