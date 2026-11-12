@@ -26,6 +26,7 @@ from opsfleet_agent.evals.snapshot import top_k_rows
 DEFAULT_REL = 0.005
 DEFAULT_ABS = 0.01
 RATIO_ABS = 0.0001  # 0.01 percentage points: 0.01 is too wide for a ratio
+MAX_WIDE_ROWS = 4  # a wide comparison row covers at most 4 periods
 # The `value` mode matches a column by its meaning (spec 21 B7, review point of 2026-11-11). These
 # words say nothing about the meaning of a column: "total_revenue" means "revenue".
 GENERIC_WORDS = frozenset(
@@ -230,6 +231,41 @@ def _score_value(
     return ScoreResult.fail("wrong_value", expected=target, got=table.rows[:3])
 
 
+def _score_wide_row(
+    ref: list[dict[str, Any]], table: _Table, expected: Expected
+) -> ScoreResult | None:
+    """A comparison as one wide row (spec 50 round 1, TM-05). The reference has one row for each
+    period (`year` 2025 and 2026). The agent has one row with one column for each period, for
+    example `revenue` and `revenue_prev`, or `revenue_2025` and `revenue_2026`. Each reference
+    value must be in its own agent column, and the column must have the meaning of the reference
+    column. None when the shapes do not fit this rule."""
+    keys = expected.key_columns()
+    if len(table.rows) != 1 or len(keys) != 1 or not 2 <= len(ref) <= MAX_WIDE_ROWS:
+        return None
+    row = table.rows[0]
+    used: set[int] = set()
+    mapping: dict[str, str] = {}
+    for ref_row in ref:
+        for col in expected.value_columns():
+            kind = expected.columns[col].kind
+            found = next(
+                (
+                    j
+                    for j, name in enumerate(table.columns)
+                    if j not in used
+                    and j < len(row)
+                    and same_meaning(col, name)
+                    and values_match(ref_row.get(col), row[j], kind, expected)
+                ),
+                None,
+            )
+            if found is None:
+                return None
+            used.add(found)
+            mapping[f"{col}@{ref_row.get(keys[0])}"] = table.columns[found]
+    return ScoreResult.ok(rule="wide_row", mapping=mapping)
+
+
 def score_table(
     ref: list[dict[str, Any]], table: _Table, expected: Expected
 ) -> ScoreResult:
@@ -245,7 +281,8 @@ def score_table(
         return _score_value(ref, table, expected)
     mapped = _map_keys(ref, table, expected)
     if mapped is None:
-        return ScoreResult.fail("missing_column", columns=table.columns)
+        wide = _score_wide_row(ref, table, expected)
+        return wide or ScoreResult.fail("missing_column", columns=table.columns)
     key_map, years = mapped
     agent_keys = _agent_keys(table, key_map, years, expected)
     ref_rows = top_k_rows(ref, expected) if expected.mode == "top_k" else ref

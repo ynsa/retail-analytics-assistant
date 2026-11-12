@@ -219,3 +219,37 @@ def test_custom_absolute_tolerance():
     )
     assert execution_match(e, ["days"], [[3.05]], [q(["d"], [[3.15]])]).passed
     assert not execution_match(e, ["days"], [[3.05]], [q(["d"], [[2.66]])]).passed
+
+
+# --- A comparison as one wide row (spec 50 round 1, TM-05) ---------------------------------------
+YEARS = exp(
+    "rows",
+    year={"role": "key", "kind": "year"},
+    revenue={"role": "value", "kind": "money"},
+)
+YEAR_ROWS = [[2025, 11102.39], [2026, 19024.21]]
+
+
+def test_wide_comparison_row_matches_one_row_for_each_year():
+    agent = q(
+        ["revenue", "revenue_prev", "revenue_change_pct"], [[19024.21, 11102.39, 71.35]]
+    )
+    result = execution_match(YEARS, ["year", "revenue"], YEAR_ROWS, [agent])
+    assert result.passed, result.details
+    assert result.details["rule"] == "wide_row"
+    agent = q(["revenue_2025", "revenue_2026"], [[11102.39, 19024.21]])
+    assert execution_match(YEARS, ["year", "revenue"], YEAR_ROWS, [agent]).passed
+
+
+def test_wide_row_with_a_wrong_value_or_a_wrong_meaning_fails():
+    wrong = q(["revenue", "revenue_prev"], [[19024.21, 11000.0]])
+    result = execution_match(YEARS, ["year", "revenue"], YEAR_ROWS, [wrong])
+    assert not result.passed and result.reason == "missing_column"
+    other = q(
+        ["revenue", "orders"], [[19024.21, 11102.39]]
+    )  # the meaning is not revenue
+    assert not execution_match(YEARS, ["year", "revenue"], YEAR_ROWS, [other]).passed
+    same_column = q(["revenue"], [[19024.21]])  # one value cannot stand for two rows
+    assert not execution_match(
+        YEARS, ["year", "revenue"], YEAR_ROWS, [same_column]
+    ).passed
