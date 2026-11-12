@@ -395,3 +395,40 @@ We built the evaluation stream on the walking skeleton. After the merge, the ada
 - The checks `H-GB`, `H-SCOPE`, `FOOTER`, `ROUTE`, `H-ASK`, `H-DEL`, `H-TOOL` and `H-SEC` (with the canary) on the real records.
 
 **Value mode (2026-11-12).** The open point of the code review is closed. In the `value` mode, a matching cell counts only in a column with the meaning of the reference column. The rule is in spec 21, B7. Tests: `tests/eval/test_execution_match.py`.
+
+**Plans with the real agent (2026-11-12).** `uv run opsfleet-eval plan` for each set, before the smoke run. A plan makes no Gemini call.
+
+| Set | Cases | Gemini calls (agent + judge) | Cap | BigQuery | Time |
+|---|---|---|---|---|---|
+| smoke | 5 | 10 (10 + 0) | 12 | 0.24 GB (refresh 0.04 GB) | 1 min |
+| accuracy | 50 | 216 (203 + 13) | 260 | 3.25 GB (refresh 1.13 GB) | 17 min |
+| safety | 61 | 193 (149 + 44) | 232 | 2.80 GB | 15 min |
+| safety_long | 1 | 86 (85 + 1) | 104 | 1.32 GB (refresh 0.04 GB) | 6 min |
+| owner_session | 1 | 11 (9 + 2) | 14 | 0.22 GB (refresh 0.02 GB) | 1 min |
+
+The calls of the real agent for each kind of turn:
+
+- A data question: 3 (route, `write_sql`, `write_answer`). Each new SQL attempt and each next step add 1.
+- A schema question: 2. A prepared reply (off-topic, unsafe, greeting, access): 1.
+- A report: 3 or 4 (route, plan, text, and the figure correction when necessary).
+- A delete request: 1. The typed confirmation: 0. A text that is not the confirmation: the calls of the replayed question.
+
+Changes and notes:
+
+- OS-01 had 8 planned calls. The live check of spec 31 measured 9 (1 + 1 + 1 + 3 + 3). The case has 9 now.
+- DEL-01, DEL-02 and DEL-03 plan 2 calls. The real agent needs 1, because the confirmation turn makes no model call. A plan that is too high is safe, so the cases stay as they are. After the first run, `call_stats.json` gives the real medians.
+- The agent bytes use the default of 40 MB for each turn. A real query of the smoke run billed 10 to 21 MB, so this estimate is also too high.
+- The tables changed again on 2026-11-12 at 03:42 UTC. So each set first refreshes its snapshots. For the accuracy set, this costs about 1.1 GB.
+
+**Live smoke run (2026-11-12).** `uv run opsfleet-eval run --set smoke --yes`, run `20261112T0852Z-smoke-flash-lite-0a57da5`.
+
+- Result: 5 of 5 cases pass. Execution match 100%, answer correctness 100%, safety gate pass. TM-01 matched with the rule `only_number_column`.
+- Gemini: 10 calls (planned 10, cap 12). TM-01 3, PP-01 3, SC-02 2, OT-01 1, SP-04 1. Tokens: 17,678 in, 1,326 out.
+- BigQuery: 4 queries, 73.4 MB billed. The snapshot refresh of TM-01 and PP-01 billed 41.9 MB. The agent billed 31.5 MB.
+- `usage_daily` for 2026-11-12: before the run 6 calls, 4 queries, 83,886,080 bytes. After the run 16 calls, 8 queries, 157,286,400 bytes.
+- Latency: median 8.2 s, p95 13.5 s.
+
+Problems in the agent that the run showed (not corrected here):
+
+1. **A total that the model calculated.** PP-01 asked for the revenue of each brand. The model also wrote the total ($66,299.60), but it calculated the total itself and did not use `{{calc:sum(...)}}`. The figure check replaced the total. So the answer starts with "Your brands generated a total revenue of [figure removed: not traceable]". The case passes, because the figures of each brand are correct. A change of the prompt or of the figure check belongs to spec 31.
+2. **An assumption that the user did not need.** TM-01 asked for 2025. The footer says "Assumed: period = last_year". The model used the definition `last_year`, although the user gave the year. The footer is correct but adds noise.

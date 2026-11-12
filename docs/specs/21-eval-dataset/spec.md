@@ -487,3 +487,5 @@ The rule:
 4. Otherwise the scorer fails with `wrong_value` and `problem: column_meaning`. The details name the columns that had the value.
 
 Risk: an agent result with two or more number columns and names without meaning (for example `f0_` and `f1_`) fails, also when the value is correct. The details show such cases in the report. Add a synonym to `SYNONYMS` in `evals/scorers/execution_match.py` when a correct name fails.
+
+**Planned calls of OS-01 (2026-11-12).** `expected_calls` is 9, not 8. The live check of spec 31 measured 9 calls for the five turns (1 + 1 + 1 + 3 + 3).
