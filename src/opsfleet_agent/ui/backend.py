@@ -18,11 +18,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
+from opsfleet_agent.cli.status import OTHER, STATUS_TEXTS, status_text
 from opsfleet_agent.config import AppConfig
 from opsfleet_agent.errors import AgentError, ConfigError, ReportNotFound
 from opsfleet_agent.identity import UserContext, resolve_user
 from opsfleet_agent.memory import conversations
 from opsfleet_agent.memory.conversations import canonical_id
+from opsfleet_agent.observability.progress import ProgressEvent
 from opsfleet_agent.reports.library import ReportLibrary
 from opsfleet_agent.resilience.safe_node import internal_message, log_exception
 from opsfleet_agent.session import CommandOutcome, ConfirmationView, TurnResult
@@ -31,11 +33,16 @@ from opsfleet_agent.store.db import connect
 from opsfleet_agent.tracing import init_tracing
 from opsfleet_agent.ui import views
 from opsfleet_agent.ui.history import conversation_turns, report_of_trace
-from opsfleet_agent.ui.stages import Stage, StageWatcher, limit_text
 from opsfleet_agent.ui.trace_reader import load_turn, load_turns
 
 Emit = Callable[[str, dict[str, Any]], None]
 TRACE_NOT_FOUND = "Trace not found."
+REPORT_START = "plan_report"  # from this node on, the time limit of a report applies
+
+
+def limit_text(kind: str, seconds: float) -> str:
+    """The limit line under the status text, for example "Limit for a question: 60 s"."""
+    return f"Limit for a {kind}: {seconds:g} s"
 
 
 class UiError(Exception):
@@ -63,7 +70,10 @@ class SessionLike(Protocol):
     def pending(self) -> ConfirmationView | None: ...
 
     def send(
-        self, text: str, on_answer: Callable[[TurnResult], None] | None = None
+        self,
+        text: str,
+        on_answer: Callable[[TurnResult], None] | None = None,
+        on_progress: Callable[[ProgressEvent], None] | None = None,
     ) -> TurnResult: ...
 
     def cancel_pending(self, reason: str = "abandoned") -> TurnResult | None: ...
@@ -126,8 +136,7 @@ class UiBackend:
         self.factory = factory
         self.clock = clock
         self.trace_dir: Path = self.settings.data_path("traces")
-        self.watcher = StageWatcher(self.settings.limits.per_turn.max_seconds_report)
-        init_tracing(self.trace_dir).add_span_processor(self.watcher)
+        init_tracing(self.trace_dir)
         self._live: dict[str, LiveSession] = {}
         self._lock = threading.Lock()
 
@@ -277,17 +286,30 @@ class UiBackend:
         lock; this method releases it. Text that is not the confirmation cancels a waiting delete
         and goes again as a new question (spec 33, A2.8)."""
         session = live.session
+        limits = self.settings.limits.per_turn
+        max_attempts = self.settings.agent.max_attempts_per_step
 
-        def on_stage(stage: Stage) -> None:
-            emit("stage", {"text": stage.text, "limit": stage.limit})
+        def on_progress(event: ProgressEvent) -> None:
+            """The status texts of the CLI (spec 37, B2.2). A node that is not in the table keeps
+            the current text. A report has its own time limit."""
+            if event.node not in STATUS_TEXTS:
+                return
+            stage: dict[str, Any] = {"text": status_text(event, max_attempts)}
+            if event.node == REPORT_START:
+                stage["limit"] = limit_text("report", limits.max_seconds_report)
+            emit("stage", stage)
 
-        question_s = self.settings.limits.per_turn.max_seconds_question
-        on_stage(Stage("Reading the question", limit_text("question", question_s)))
+        emit(
+            "stage",
+            {
+                "text": OTHER,
+                "limit": limit_text("question", limits.max_seconds_question),
+            },
+        )
         try:
-            with self.watcher.watch(session.conversation_id, on_stage):
-                result = self._send(session, text, emit)
-                if result.replay_input:
-                    self._send(session, text, emit)
+            result = self._send(session, text, emit, on_progress)
+            if result.replay_input:
+                self._send(session, text, emit, on_progress)
         except Exception:  # noqa: BLE001 - the page continues after any bug (spec 36)
             log_exception("ui", None)
             emit("error", {"message": internal_message(None)})
@@ -296,11 +318,16 @@ class UiBackend:
             emit("done", {})
 
     @staticmethod
-    def _send(session: SessionLike, text: str, emit: Emit) -> TurnResult:
+    def _send(
+        session: SessionLike,
+        text: str,
+        emit: Emit,
+        on_progress: Callable[[ProgressEvent], None],
+    ) -> TurnResult:
         def on_answer(result: TurnResult) -> None:
             emit("turn", views.turn_view(result, final=False))
 
-        result = session.send(text, on_answer=on_answer)
+        result = session.send(text, on_answer=on_answer, on_progress=on_progress)
         emit("turn", views.turn_view(result))
         return result
 

@@ -18,10 +18,10 @@ from fastapi.testclient import TestClient
 from opsfleet_agent.config import AppConfig, ReportSettings
 from opsfleet_agent.identity import UserContext
 from opsfleet_agent.memory import conversations
+from opsfleet_agent.observability.progress import ProgressEvent
 from opsfleet_agent.reports.library import ReportLibrary
 from opsfleet_agent.session import CommandOutcome, ConfirmationView, TurnResult
 from opsfleet_agent.store.db import connect
-from opsfleet_agent.tracing import span
 from opsfleet_agent.ui.backend import UiBackend
 from opsfleet_agent.ui.server import STATIC, create_app
 from tests.report_helpers import make_report
@@ -67,8 +67,8 @@ def result(**fields: Any) -> TurnResult:
 
 @dataclass
 class FakeSession:
-    """The part of `AssistantSession` that the UI uses. Each `send()` writes a `turn` span with
-    two node spans, so the stage watcher sees real spans."""
+    """The part of `AssistantSession` that the UI uses. Each `send()` sends the progress events
+    of `progress` (spec 37, B2.2) before the answer."""
 
     conversation_id: str
     user: UserContext
@@ -76,23 +76,31 @@ class FakeSession:
     waiting: ConfirmationView | None = None
     sent: list[str] = field(default_factory=list)
     commands: list[tuple[str, list[str]]] = field(default_factory=list)
+    progress: list[ProgressEvent] = field(
+        default_factory=lambda: [
+            ProgressEvent("load_context"),  # not in the table: no new text
+            ProgressEvent("route"),
+            ProgressEvent("run_query"),
+        ]
+    )
 
     @property
     def pending(self) -> ConfirmationView | None:
         return self.waiting
 
     def send(
-        self, text: str, on_answer: Callable[[TurnResult], None] | None = None
+        self,
+        text: str,
+        on_answer: Callable[[TurnResult], None] | None = None,
+        on_progress: Callable[[ProgressEvent], None] | None = None,
     ) -> TurnResult:
         self.sent.append(text)
-        with span("turn", "turn", conversation_id=self.conversation_id):
-            with span("node.route", "node", intent="analysis"):
-                pass
-            with span("node.run_query", "node", step_index=0):
-                pass
-            outcome = self.results.pop(0)
-            if on_answer is not None:
-                on_answer(outcome)
+        for event in self.progress:
+            if on_progress is not None:
+                on_progress(event)
+        outcome = self.results.pop(0)
+        if on_answer is not None:
+            on_answer(outcome)
         if outcome.confirmation is None:
             self.waiting = None
         return outcome
@@ -270,7 +278,7 @@ def test_message_streams_stages_then_the_answer(client, factory):
     names = [name for name, _ in events]
     assert names[0] == "stage" and names[-1] == "done"
     stages = [data["text"] for name, data in events if name == "stage"]
-    assert stages == ["Reading the question", "Reading the question", "Running query 1"]
+    assert stages == ["Working", "Reading the question", "Running the query (BigQuery)"]
     assert events[0][1]["limit"] == "Limit for a question: 60 s"
     turns = [data for name, data in events if name == "turn"]
     assert [t["final"] for t in turns] == [
@@ -643,29 +651,38 @@ def test_report_files_only_for_the_owner(client, config):
     assert bad.status_code == 400
 
 
-# --- the stage watcher and the CLI ----------------------------------------------------------------
-def test_report_stages_count_the_planned_queries(backend):
-    seen: list[str] = []
-    with (
-        backend.watcher.watch("C-X", lambda s: seen.append(s.limit or s.text)),
-        span("turn", "turn", conversation_id="C-X"),
-    ):
-        with span("node.route", "node") as route:
-            route.set_attribute("intent", "report")
-        with span("node.plan_report", "node") as plan:
-            plan.set_attribute("planned_queries", 4)
-        with span("node.run_query", "node", step_index=1):
-            pass
-        with span("node.build_report", "node"):
-            pass
-    with span("turn", "turn", conversation_id="C-OTHER"), span("node.route", "node"):
-        pass  # another conversation: no stage
-    assert seen == [
+# --- the status texts and the CLI ----------------------------------------------------------------
+def test_report_stages_use_the_status_texts_and_the_report_limit(client, factory):
+    """The same texts as the CLI status line (spec 37, B2.2). A retry shows its attempt, and
+    the report flow changes the limit line."""
+    factory.queued = [result(intent="report")]
+    conversation_id = start(client)
+    factory.sessions[0].progress = [
+        ProgressEvent("route"),
+        ProgressEvent("plan_report"),
+        ProgressEvent("write_sql"),
+        ProgressEvent("write_sql", attempt=2),
+        ProgressEvent("run_query"),
+        ProgressEvent("render"),
+    ]
+    response = client.post(
+        f"/api/conversations/{conversation_id}/messages",
+        json={"user": "maya", "text": "Create a report for Q3."},
+    )
+    stages = [d for n, d in events_of(response.text) if n == "stage"]
+    assert [s["text"] for s in stages] == [
+        "Working",
         "Reading the question",
-        "Limit for a report: 150 s",
         "Planning the report",
-        "Running query 2 of 4",
+        "Writing the query",
+        "Writing the query (attempt 2 of 3)",
+        "Running the query (BigQuery)",
         "Drawing the charts",
+    ]
+    assert [s.get("limit") for s in stages[:3]] == [
+        "Limit for a question: 60 s",
+        None,
+        "Limit for a report: 150 s",
     ]
 
 
@@ -725,10 +742,12 @@ def test_real_session_through_the_ui_api(config, persona_file, monkeypatch):
     )
     events = events_of(response.text)
     stages = [d["text"] for n, d in events if n == "stage"]
+    assert stages[0] == "Working"
     assert {
-        "Writing SQL",
-        "Checking the SQL",
-        "Running query 1",
+        "Reading the question",
+        "Writing the query",
+        "Checking the query",
+        "Running the query (BigQuery)",
         "Writing the answer",
     } <= set(stages)
     turn = [d for n, d in events if n == "turn"][-1]
