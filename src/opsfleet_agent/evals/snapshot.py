@@ -2,7 +2,10 @@
 
 A snapshot is the result of one reference SQL for one user, with the date and the change times of
 the tables. The refresh runs a reference SQL again only when the tables changed, the SQL changed,
-or a relative period ("last month") moved. A new result with another shape sets `needs_review`.
+or a relative period ("last month") moved. A new result with other columns, or an empty result
+where the old one had rows (or the reverse), sets `needs_review`. With the same reference SQL, new
+keys or a new row count are accepted: the dataset changes its full history each day, so the new
+result is still the correct reference (owner decision, 2026-11-12).
 
 Cost rules: a free dry run before each query, `maximum_bytes_billed` on each query, and only the
 columns that the reference SQL selects.
@@ -139,6 +142,15 @@ def top_k_rows(rows: list[dict[str, Any]], expected: Expected) -> list[dict[str,
     return rows[:k] + [r for r in rows[k:] if r.get(value_col) == border]
 
 
+# The shape changes that a person must review. Other changes ("row count …", "keys changed") are
+# accepted when the reference SQL is the same.
+REVIEW_REASONS = ("columns changed", "empty result", "result is not empty any more")
+
+
+def needs_human_review(reason: str | None) -> bool:
+    return bool(reason) and str(reason).startswith(REVIEW_REASONS)
+
+
 def shape_changed(old: Snapshot, new: Snapshot, expected: Expected) -> str | None:
     """The reason of a shape change, or None. A change of a value is not a change of shape."""
     if old.columns != new.columns:
@@ -194,8 +206,12 @@ class SnapshotStore:
         return Snapshot(**json.loads(path.read_text(encoding="utf-8")))
 
     def needs_review(self, case_id: str) -> str | None:
+        """The reason of a change that a person must review. A flag from before the rule of
+        2026-11-12 with an accepted reason (keys or row count) does not count."""
         for key, entry in self.index().items():
-            if key.split("/")[0] == case_id and entry.needs_review:
+            if key.split("/")[0] != case_id or not entry.needs_review:
+                continue
+            if entry.reason is None or needs_human_review(entry.reason):
                 return entry.reason or "needs_review"
         return None
 
@@ -380,16 +396,17 @@ def refresh(
             change = None
             if old is not None and old.sql_sha256 == sha:
                 change = shape_changed(old, new, ref.expected)
-            if change is None and new.is_empty() and old is None:
-                change = None  # a true zero is a valid first snapshot (ER cases)
-            store.save(new, change)
+            review = change if needs_human_review(change) else None
+            store.save(new, review)
             item.action = (
                 "needs_review"
-                if change
+                if review
                 else ("created" if old is None else "refreshed")
             )
-            if change:
-                item.reason = change
+            if review:
+                item.reason = review
+            elif change:
+                item.reason = f"{change} (accepted: same reference SQL)"
     return report
 
 

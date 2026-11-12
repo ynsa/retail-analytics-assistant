@@ -95,7 +95,9 @@ def test_table_change_with_same_shape_refreshes(tmp_path):
     assert store.current("PP-01").rows[0][1] == 40000.0
 
 
-def test_changed_row_count_sets_needs_review(tmp_path):
+def test_changed_row_count_with_the_same_sql_is_accepted(tmp_path):
+    """Spec 21 B7 (2026-11-12): the data changes its history each day. With the same reference
+    SQL, a new row count or new keys are the new reference, with a note."""
     users = load_config().users
     store = SnapshotStore(tmp_path)
     refresh([case()], users, FakeRunner(ROWS), store, max_bytes=10**8, now=NOW)
@@ -103,8 +105,39 @@ def test_changed_row_count_sets_needs_review(tmp_path):
         [["Calvin Klein", 1.0]], {"order_items": "2026-11-12T00:00:00+00:00"}
     )
     report = refresh([case()], users, newer, store, max_bytes=10**8, now=NOW)
-    assert report.items[0].action == "needs_review"
-    assert "row count" in store.needs_review("PP-01")
+    assert report.items[0].action == "refreshed"
+    assert (
+        "row count" in report.items[0].reason and "accepted" in report.items[0].reason
+    )
+    assert store.needs_review("PP-01") is None
+    assert store.current("PP-01").rows == [["Calvin Klein", 1.0]]
+
+
+def test_changed_keys_with_the_same_sql_are_accepted(tmp_path):
+    users = load_config().users
+    store = SnapshotStore(tmp_path)
+    refresh([case()], users, FakeRunner(ROWS), store, max_bytes=10**8, now=NOW)
+    newer = FakeRunner(
+        [["True Religion", 2.0], ["Carhartt", 1.0]],
+        {"order_items": "2026-11-12T00:00:00+00:00"},
+    )
+    report = refresh([case()], users, newer, store, max_bytes=10**8, now=NOW)
+    assert report.items[0].action == "refreshed"
+    assert store.needs_review("PP-01") is None
+
+
+def test_old_flag_with_an_accepted_reason_does_not_skip_the_case(tmp_path):
+    store = SnapshotStore(tmp_path)
+    refresh(
+        [case()], load_config().users, FakeRunner(ROWS), store, max_bytes=10**8, now=NOW
+    )
+    index = store.index()
+    index["PP-01/main"].needs_review, index["PP-01/main"].reason = True, "keys changed"
+    store._write_index(index)
+    assert store.needs_review("PP-01") is None
+    index["PP-01/main"].reason = "columns changed"
+    store._write_index(index)
+    assert store.needs_review("PP-01") == "columns changed"
 
 
 def test_empty_result_sets_needs_review(tmp_path):

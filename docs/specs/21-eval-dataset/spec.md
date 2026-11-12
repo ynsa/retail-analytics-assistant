@@ -360,7 +360,7 @@ flowchart TD
 ```
 
 - The snapshot file has: `case_id`, `user`, `params`, `sql_sha256`, `created_at`, the change time of each table, `bytes_billed`, `columns`, `rows`, `row_count`.
-- The "same shape" check compares the column list, the row count, the set of keys for `top_k` and `rows`, and empty or not empty. A change of a value is not a change of shape.
+- The "same shape" check compares the column list, the row count, the set of keys for `top_k` and `rows`, and empty or not empty. A change of a value is not a change of shape. Changed on 2026-11-12: with the same reference SQL, a new row count or new keys are accepted. See B7.
 - The runner checks the table change times again at the end of a run. If the data changed during the run, the runner marks the run `data_changed` and scores it again with a new snapshot.
 - A person who reviews a `needs_review` case updates the question, the SQL or the expected shape, and signs the review again.
 
@@ -489,3 +489,14 @@ The rule:
 Risk: an agent result with two or more number columns and names without meaning (for example `f0_` and `f1_`) fails, also when the value is correct. The details show such cases in the report. Add a synonym to `SYNONYMS` in `evals/scorers/execution_match.py` when a correct name fails.
 
 **Planned calls of OS-01 (2026-11-12).** `expected_calls` is 9, not 8. The live check of spec 31 measured 9 calls for the five turns (1 + 1 + 1 + 3 + 3).
+
+**Snapshot refresh after the daily data change (owner decision, 2026-11-12).** The dataset changes its full history each day, not only the new days. Example: the 2025 revenue was 1,789,731.36 on 2026-11-11 and 1,774,287.35 on 2026-11-12, and the top brand of 2025 changed. So the "same shape" rule flagged 11 of 50 cases (`keys changed` or `row count`) after the refresh of 2026-11-12, and the runner skipped them. The reference SQL did not change, so each new result is still the correct reference.
+
+The new rule, in `evals/snapshot.py`:
+
+1. When the reference SQL and its parameters are the same (`sql_sha256`), a new row count or new keys are accepted. The refresh stores the new snapshot, and the refresh item has the note "… (accepted: same reference SQL)".
+2. `needs_review` stays for `columns changed`, `empty result` and `result is not empty any more`. The ER cases and LC-01 depend on these flags.
+3. An old flag with an accepted reason (from before this rule) does not skip a case any more.
+4. The close results in the list above (CB-03, CB-07, PP-07, PP-09, MS-06) can change their order on a new day. The top-k tie rule of B2.6 still applies.
+
+Tests: `tests/eval/test_snapshot.py`.
