@@ -82,7 +82,10 @@ footer:
   no_period: all data up to {{ today }}
 
 scope_phrase:
-  manager: 'Write "Your brands had …" or "{{ brands }} had …", never "our store".'
+  manager: >-
+    Write "Your brands had …" or "{{ brands }} had …", never "our store". Customer and user
+    figures cover only the customers who bought these brands. Say so when the question is about
+    users, sign-ups or all customers.
   ceo: 'Write "The company had …", never "our store".'
 
 scope_rule:

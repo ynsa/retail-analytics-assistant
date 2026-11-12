@@ -21,3 +21,17 @@ def asks_personal_data(text: str) -> bool:
     """True when the message names personal data: names, emails, addresses, phones, locations.
     "Approved by email" is not a request for personal data, so a single "email" does not count."""
     return bool(_PERSONAL_DATA.search(text or ""))
+
+
+# A customer ID together with a demographic field (spec 30, A2.5): "the user_id, city and age".
+_CUSTOMER_ID = re.compile(r"\b(?:user_?ids?|customer\s+ids?)\b", re.IGNORECASE)
+_DEMOGRAPHIC = re.compile(
+    r"\b(?:city|cities|state|states|country|countries|age|ages|gender|traffic\s+source)\b",
+    re.IGNORECASE,
+)
+
+
+def asks_id_with_demographics(text: str) -> bool:
+    """True when the message asks for customer IDs together with a demographic field."""
+    text = text or ""
+    return bool(_CUSTOMER_ID.search(text) and _DEMOGRAPHIC.search(text))

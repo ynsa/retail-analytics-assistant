@@ -8,6 +8,7 @@ from typing import Any
 from langgraph.runtime import Runtime
 from pydantic import BaseModel, Field
 
+from opsfleet_agent.agent.context import PromptLibrary
 from opsfleet_agent.agent.nodes.common import (
     is_manager,
     node,
@@ -17,8 +18,12 @@ from opsfleet_agent.agent.nodes.common import (
 )
 from opsfleet_agent.agent.nodes.loop_control import with_step
 from opsfleet_agent.agent.periods import Calendar
-from opsfleet_agent.agent.personal_data import asks_personal_data
+from opsfleet_agent.agent.personal_data import (
+    asks_id_with_demographics,
+    asks_personal_data,
+)
 from opsfleet_agent.agent.state import AgentState, TurnContext, TurnState
+from opsfleet_agent.guard.rules import PAIRING_MESSAGE
 from opsfleet_agent.memory.context_builder import ModelRequest, builder_of
 from opsfleet_agent.schema import Schema, model_schema_text
 
@@ -113,6 +118,16 @@ def build_request(
     )
 
 
+def _code_refusal(lib: PromptLibrary, question: str) -> str | None:
+    """The refusal text of code for a question that asks for personal data, or for customer IDs
+    with a demographic field. None for other questions."""
+    if asks_personal_data(question):
+        return lib.reply("unsafe.personal_data")
+    if asks_id_with_demographics(question):
+        return PAIRING_MESSAGE
+    return None
+
+
 @node("write_sql")
 def write_sql(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any]:
     ctx = runtime.context
@@ -143,20 +158,16 @@ def write_sql(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any
     attempt = turn.get("attempt", 0) + 1
     turn = {**turn, "attempt": attempt, "plan": plan.model_dump()}
     sql = (plan.sql or "").strip()
-    no_query = bool(plan.cannot_answer or not sql)
-    if (
-        no_query
-        and not turn.get("results")
-        and asks_personal_data(turn.get("question") or "")
-    ):
-        # Spec 30 A2.4: the refusal of personal data with the alternative, written by code. The
-        # model's own refusal often repeats the list of the safety rules (spec 50 round 1).
+    refusal = (
+        _code_refusal(lib, turn.get("question") or "")
+        if (plan.cannot_answer or not sql) and not turn.get("results")
+        else None
+    )
+    if refusal is not None:
+        # Spec 30 A2.4 and A2.5: the refusal with the alternative, written by code. The model's
+        # own refusal often repeats the list of the safety rules (spec 50 round 1).
         return {
-            "turn": {
-                **turn,
-                "loop_outcome": "policy_block",
-                "block_message": lib.reply("unsafe.personal_data"),
-            }
+            "turn": {**turn, "loop_outcome": "policy_block", "block_message": refusal}
         }
     if plan.cannot_answer or not sql:
         reason = plan.cannot_answer or "No query can answer this question."
