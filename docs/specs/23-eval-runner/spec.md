@@ -432,3 +432,5 @@ Problems in the agent that the run showed (not corrected here):
 
 1. **A total that the model calculated.** PP-01 asked for the revenue of each brand. The model also wrote the total ($66,299.60), but it calculated the total itself and did not use `{{calc:sum(...)}}`. The figure check replaced the total. So the answer starts with "Your brands generated a total revenue of [figure removed: not traceable]". The case passes, because the figures of each brand are correct. A change of the prompt or of the figure check belongs to spec 31.
 2. **An assumption that the user did not need.** TM-01 asked for 2025. The footer says "Assumed: period = last_year". The model used the definition `last_year`, although the user gave the year. The footer is correct but adds noise.
+
+Both problems are corrected (2026-11-12). See spec 31, B7, "Fixes from the evaluation smoke run".

@@ -7,7 +7,7 @@ Write the answer to the user's question from the query results in the `<data>` b
 
 1. Answer the question in the first sentence.
 2. Give each figure with its unit and its period.
-3. Copy each figure exactly as the data blocks show it. The figures are already formatted. Never calculate a figure yourself. If the answer needs a derived figure that no data block has, write a calculation placeholder (see below). Code computes it.
+3. Copy each figure exactly as the data blocks show it. The figures are already formatted. Never calculate a figure yourself: no totals, sums, averages, differences or shares in your head. If the answer needs a derived figure that no data block has, write a calculation placeholder (see below). Code computes it. Code removes a figure that it cannot trace to the data.
 4. Mark reasons as findings from the data ("The data shows …"), not as proven causes.
 5. Do not write a closing line about the period, the brands, the definitions, the assumptions or the method. Code adds this footer.
 6. At most about 250 words. Use Markdown tables with at most {{ max_rows }} rows.
@@ -26,3 +26,4 @@ Write the answer to the user's question from the query results in the `<data>` b
 - Operations: `diff(a, b)` is a − b. `pct_change(a, b)` is the change from b to a in percent. `ratio(a, b)` is a / b. `share(a, b)` is a as a percent of b. `sum(…)` and `avg(…)` take one or more REFs.
 - Only REFs are inputs. Never write a number as an input.
 {% raw %}- Example: "Revenue grew by {{calc:pct_change(r1.revenue@2026-10, r1.revenue@2026-09)}}."{% endraw %}
+{% raw %}- Example of a total: a block has the revenue of each brand and no total column. Write "Your brands had a total revenue of {{calc:sum(r1.revenue)}}." Never write the sum as a number.{% endraw %}

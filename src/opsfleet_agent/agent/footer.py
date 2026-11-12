@@ -3,15 +3,25 @@
 Example:
 `Period: 1–31 Oct 2026 · Brands: Calvin Klein, Carhartt · Revenue = sale price of items that were
 not cancelled or returned.` and, when the model used a default, `Assumed: last month = …`.
+
+An assumption shows only when a default really applied. When the question names a period, an
+assumption about the period is not a default, so the footer leaves it out (smoke run TM-01: "the
+revenue in 2025" gave "Assumed: period = last_year").
 """
 
 from __future__ import annotations
 
+import re
 from datetime import date
 
 from opsfleet_agent.agent.context import PromptLibrary
 from opsfleet_agent.agent.nodes.common import is_manager
-from opsfleet_agent.agent.periods import format_day, parse_periods, span_of
+from opsfleet_agent.agent.periods import (
+    format_day,
+    parse_periods,
+    span_of,
+    states_period,
+)
 from opsfleet_agent.agent.state import TurnState
 from opsfleet_agent.identity import UserContext
 
@@ -20,6 +30,11 @@ PERIOD_KEYS = frozenset({"last_month", "quarter", "today", "sale_date"})
 MAX_DEFINITIONS = 4
 MAX_ASSUMPTIONS = 3
 MAX_ASSUMPTION_CHARS = 80
+# An assumption with one of these words is about the period.
+_PERIOD_WORDS = re.compile(
+    r"\b(?:period|date|dates|day|week|month|year|quarter|q[1-4])\b|last_|this_|\d{4}",
+    re.IGNORECASE,
+)
 
 
 def _unique(items: list[str]) -> list[str]:
@@ -62,8 +77,15 @@ def footer_parts(
             for plan in plans
             for a in plan.get("assumptions") or []
         ]
-    )[:MAX_ASSUMPTIONS]
-    return period_text, brands, sentences, assumptions
+    )
+    if states_period(turn.get("question")):
+        assumptions = [a for a in assumptions if not is_period_assumption(a)]
+    return period_text, brands, sentences, assumptions[:MAX_ASSUMPTIONS]
+
+
+def is_period_assumption(text: str) -> bool:
+    """`period = last_year`, `last month = 1–31 Oct 2026`, `dates = 2025-01-01..2025-12-31`."""
+    return bool(_PERIOD_WORDS.search(text))
 
 
 def build_footer(

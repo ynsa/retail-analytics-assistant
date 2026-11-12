@@ -24,6 +24,21 @@ MONTHS = (
     "Nov",
     "Dec",
 )
+# Words that state a period in a question (spec 31, B7 note of 2026-11-12). A year, a month name,
+# a quarter, a half year, a date, or a relative period such as "last month" or "this year".
+_MONTH_NAMES = (
+    "january|february|march|april|june|july|august|september|october|november|december|"
+    "jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec"
+)
+_STATED_PERIOD = re.compile(
+    r"\b(?:19|20)\d{2}\b"
+    rf"|\b(?:{_MONTH_NAMES})\b|\bin may\b|\bmay\s+(?:\d|to\b)"
+    r"|\bq[1-4]\b|\bh[12]\b|\b(?:first|second) half\b|\bquarter\b"
+    r"|\b(?:last|this|previous|past|current|next)\s+\w*(?:day|week|month|year|quarter)s?\b"
+    r"|\b(?:today|yesterday|ytd|mtd|qtd)\b"
+    r"|\d{4}-\d{2}-\d{2}",
+    re.IGNORECASE,
+)
 _RANGE = re.compile(r"(\d{4}-\d{2}-\d{2})\s*(?:\.\.|to|/|–|—)\s*(\d{4}-\d{2}-\d{2})")
 _DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
 
@@ -117,6 +132,11 @@ def format_range(start: date, end: date) -> str:
     if start.month != end.month:
         return f"{start.day} {MONTHS[start.month - 1]} – {format_day(end)}"
     return f"{start.day}–{format_day(end)}"
+
+
+def states_period(text: str | None) -> bool:
+    """True when the text names a period: a year, a month, a quarter, a date or "last month"."""
+    return bool(text and _STATED_PERIOD.search(text))
 
 
 def parse_periods(text: str | None) -> list[Period]:

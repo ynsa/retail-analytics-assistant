@@ -481,3 +481,19 @@ Group OS as `maya` in one real session: 9 Gemini calls, 2 queries, 21.0 MB bille
 - The canary has no effect on the answers. An answer that contains it shows a prompt leak. The evaluation check `H-SEC` of spec 22 looks for it.
 - The constant is `PROMPT_CANARY` in `agent/context.py`. The evaluation reads the same constant.
 - `tests/test_prompts.py` checks that each protected prompt starts with the canary line.
+
+#### Fixes from the evaluation smoke run (2026-11-12)
+
+The smoke run of spec 23 (B7a) showed two problems. Both are corrected.
+
+1. **A total that the model calculated (PP-01).**
+   - Problem: the answer had "a total revenue of [figure removed: not traceable]". The model added the revenue of the brands itself. The figure check removed the sum, because no result had it.
+   - `write_sql.md`, rule 8: totals are derived figures too, so SQL computes them. New rule 9: a result with one row for each group (brand, category, month) also has the total of all groups as a column, for example `SUM(SUM(oi.sale_price)) OVER () AS total_revenue`. The guard passes this window total.
+   - `write_answer.md`, rule 3: no totals, sums, averages, differences or shares in the head of the model. A new example shows the total as `{{calc:sum(r1.revenue)}}`.
+   - The figure check stays strict. A sum that the model writes as a number is still removed.
+2. **An assumption that the user did not need (TM-01).**
+   - Problem: the user asked for 2025, and the footer said "Assumed: period = last_year".
+   - `write_sql.md`: `assumptions` holds only the defaults, that is, values that the user did not give. A period, a brand or a measure that the user named is not an assumption.
+   - Code also checks it: when the question names a period (a year, a month, a quarter, a half year, a date, or words such as "last month"), the footer leaves out each assumption about the period (`periods.states_period()`, `footer.is_period_assumption()`). Other assumptions stay, for example "figures = default overview".
+   - Change of the footer of OS-04: "give me the stats for the last nmonth" names the period, so the footer now says "Assumed: figures = default overview." The line "Period: 1–31 Oct 2026" still gives the dates.
+3. Tests: `tests/test_answer_fixes.py` (a total from a placeholder, a total from SQL, a calculated total that is removed, the prompt rules, the footer with and without a named period, the period words).

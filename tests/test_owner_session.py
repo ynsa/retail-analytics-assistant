@@ -129,9 +129,8 @@ def test_group_os_owner_session(make_session):
         "Revenue = sale price of items that were not cancelled or returned"
         in os4.footer
     )
-    assert (
-        "Assumed: last month = 1–31 Oct 2026; figures = default overview." in os4.footer
-    )
+    # The user named "last month", so the period is not a default (spec 31, B7, TM-01 fix).
+    assert "_Assumed: figures = default overview._" in os4.footer
 
     os5 = session.ask("last month")
     assert os5.intent == "analysis" and os5.error_type is None
