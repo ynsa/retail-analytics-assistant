@@ -23,7 +23,7 @@ Each part of the work has one spec. The phases and the order are in [the roadmap
 | 30 | [Query safety](30-query-safety/spec.md) | 2 / C | 00, 01 | 3 | Done |
 | 31 | [Agent core](31-agent-core/spec.md) | 2 / C | 30 | 3 | Done |
 | 32 | [Reports](32-reports/spec.md) | 2 / C | 31 | 3 | Done |
-| 33 | [Delete with confirmation](33-delete-confirmation/spec.md) | 2 / C | 32 | 3 | Approved |
+| 33 | [Delete with confirmation](33-delete-confirmation/spec.md) | 2 / C | 32 | 3 | Done |
 | 34 | [Long conversations and memory](34-long-conversations/spec.md) | 2 / C | 31 | 3 | Approved |
 | 35 | [Observability and statistics](35-observability/spec.md) | 2 / C | 00 | 3 | Approved |
 | 36 | [Resilience](36-resilience/spec.md) | 2 / C | 00, 31 | 3 | Approved |

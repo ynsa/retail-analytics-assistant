@@ -1,6 +1,6 @@
 # Spec 33: Delete with confirmation
 
-- **Status:** Approved (owner review, 2026-11-11)
+- **Status:** Done (2026-11-12)
 - **Phase and stream:** Phase 2, stream C
 - **Depends on:** 00, 31, 32 (the `reports` and `report_entities` tables)
 - **Requirements covered:** Req 3 (destructive operations with a strict confirmation flow)
@@ -315,3 +315,74 @@ Unit tests with a fake Gemini, a temporary SQLite database and a temporary `data
 - The FTS5 search is word-based. It can miss a name with unusual punctuation. The exact entity match is the main path.
 - Files that the user copied to another place stay. The message says so.
 - The audit events keep report titles for 1 year. A title contains no PII, because the scanner checks it.
+
+### B7. Implementation notes (2026-11-12)
+
+#### Deviations from this spec
+
+| # | Spec text | Implementation | Reason |
+|---|---|---|---|
+| 1 | B2.2: the order of the entity steps | When X is not a known entity, code looks for close names first (step 4), then does the text search (step 3). When X is a known entity without a match, code also gives the close names. | A2.4 and B4 case 9: "Calvin" must give the close names. A text search for "Calvin" finds the reports about "Calvin Klein". |
+| 2 | B2.2 step 2: a known entity | The value cache has no `users.state` column, so a state is known only from the user's report entities. | The value cache of spec 30 has no state list. |
+| 3 | B2.3: `created_turn` must be the previous turn | `AgentState.turn_no` counts the turns. `load_context` increments it. The session always resumes the paused graph with the next input, so the check is a second net. `load_context` also cancels a pending delete in the state at the start of a new turn (`expired`). | With `interrupt()`, the next input is always the resume value. |
+| 4 | B2.3: the outcomes `abandoned` and `expired` from outside the graph | The session resumes the graph with `{"cancel": "abandoned"}` or `{"cancel": "expired"}`. Only code sends a dictionary. User text is always a string. | One path for all outcomes: one audit event and one span for each. |
+| 5 | B2.3: the payload has "the batch preview" | The payload has `type`, `rows`, `count`, `expected_text`, `text` (the full list and the request) and `not_found`. The batch ID exists only after the delete. | A batch ID before the delete can suggest that the delete happened. |
+| 6 | B3: the grant check of `ToolRegistry.run()` | The grant must have the same owner, the same `ids_hash` and the same sorted IDs as the arguments. `apply_delete` computes the hash again from the pending fields before it makes the grant. | The registry does not know the nonce. The two checks together bind the grant to the list. |
+| 7 | B2.4: purge order | Purge deletes the rows, sets `purged_at` and writes the audit event in one transaction. Then it deletes the trash folder. | A failed commit then keeps the files. |
+| 8 | B2.5: the reasons of `delete_cancelled` | Also `internal_error` (the hash check failed, B4 case 19). The error type is `internal_error`. All other cancels have the error type `confirmation_rejected`. | B4 case 19 needs a reason. |
+| 9 | B2.6 #13: read-only commands at the prompt | `/reports`, `/open` and `/export` keep the pending delete. `/help`, `/trace` and `/stats` come with specs 35 and 37. | Only these commands exist now. |
+| 10 | B2.6 #16: `--resume` | Spec 34 builds `--resume`. `AssistantSession(conversation_id=...)` is the hook: it cancels a pending delete of that conversation with `expired`. | The B4 case 18 test uses this hook. |
+| 11 | A4: the limits | `MAX_REPORTS = 50` and `CONFIRM_MINUTES = 10` are in `reports/delete_flow.py`. `UNDO_DAYS = 30` is in `reports/deletion.py`. They are not in `settings.yaml`. | They are safety rules, not cost limits. A change needs a review. |
+| 12 | B2.3 rule 5: the short answers | An empty answer is also `not_exact`. The CLI does not send an empty line (spec 37). The evaluation runner can. | An empty answer must never confirm or replay. |
+| 13 | B2.6 #4 | A scope `ids` without IDs, and a scope `entity` without a name, also give "Which reports? …". | The same case: no clear list. |
+
+#### Changes outside this spec
+
+- Spec 31: the node wrapper and the `span()` helper let `GraphBubbleUp` pass. An `interrupt()` is not an error, and the span gets `interrupted = true`. `finish` adds the confirmation list and the typed answer to the messages. `route.md` says that "delete 3" in a message is never a scope or a confirmation.
+- Spec 00: `ConfirmationGrant` and the grant check in `agent/tools.py`. `store/audit.py` writes the audit events and the `confirm` spans. Migration 3 adds `delete_batches`.
+- Spec 37: the CLI shows the red panel "Delete these reports?", changes the prompt to `confirm>`, sends other text again after the cancel, and has `/undo` and `opsfleet-agent purge [--dry-run]`. `/exit` and Ctrl-D cancel a pending delete. Spec 37 builds the full CLI.
+
+#### Interfaces for the CLI, the UI and the evaluation runner
+
+`AssistantSession` (in `session.py`):
+
+| Member | Use |
+|---|---|
+| `send(text) -> TurnResult` | The next user input. When a delete waits, `send()` resumes the paused graph with the text. Else it starts a new turn. |
+| `ask(question) -> TurnResult` | The same as `send()`. |
+| `pending -> ConfirmationView \| None` | The delete that waits for the typed confirmation. |
+| `cancel_pending(reason="abandoned") -> TurnResult \| None` | Cancel a waiting delete (`abandoned` or `expired`). Nothing is deleted. |
+| `close() -> TurnResult \| None` | End the chat. It cancels a waiting delete (`abandoned`). |
+| `command(name, args) -> CommandOutcome` | `reports`, `open <id>`, `export <id> --format html\|md`, `undo [batch]`. No model call, no query. `undo` first cancels a waiting delete. |
+| `AssistantSession(..., conversation_id=...)` | Continue a conversation. A waiting delete of it expires. |
+
+`ConfirmationView`: `kind` (`delete_reports`), `rows` (each with `report_id`, `title`, `created`, `reason`, `files`), `count`, `expected_text` (`delete 3`), `text` (the list and the request, ready to show), `not_found`.
+
+New fields of `TurnResult`: `confirmation` (a `ConfirmationView` when the turn ends at the confirmation, else None), `replay_input` (True: the text was not the confirmation, so the caller sends the same text again with `send()`), `delete_outcome` (`deleted`, `wrong_number`, `not_exact`, `other_text`, `expired`, `abandoned`, `changed`, `internal_error`, `undo_restored`, `undo_nothing`, `undo_too_old`), `batch_id`. When `confirmation` is set, `answer` is the list text and `error_type` is None.
+
+The loop of a caller:
+
+```python
+result = session.send(text)
+if result.confirmation:  # show the list, then read the next input
+    result = session.send(next_input)
+if result.replay_input:  # the delete is cancelled, the text is a new question
+    result = session.send(next_input)
+```
+
+#### Tests
+
+- 443 unit tests pass (390 after spec 32). `tests/test_delete_flow.py` covers each case of B4 and the edge cases of B2.6 with a real `interrupt()` and `Command(resume=...)`, an in-memory checkpoint, a fake clock and a temporary `data/reports/` folder. B4 case 19 changes the pending IDs in the subgraph checkpoint with `update_state()`.
+- `tests/test_cli.py` checks the panel, the replay of other text, and `purge --dry-run`.
+- `tests/test_delete_live.py` (marker `live`) runs the session below.
+
+#### Live check (2026-11-12)
+
+One session as `maya`, with the per-query byte cap lowered to 75 MB for this run. In total: 6 Gemini calls, 4 queries, 83.9 MB billed (`usage_daily` for 2026-11-12: 0 before, these values after).
+
+- The first try stopped at `plan_report` with the Gemini error `504 DEADLINE_EXCEEDED` after 41 s (2 calls, 0 queries). The chat showed "The language model returned an error." Nothing was saved. Earlier calls of the same size took 3–7 s, so the cause was on the server side. Spec 36 handles such errors.
+- "Create a report for Q1 2026 with action items for Q2, as an HTML file": 3 calls (route, plan, text), 4 queries (totals with the change against Q4 2025, revenue by month, top categories, return and cancellation rates), 83.9 MB, 18 s. Saved as `R-EXJ8A`, file `data/reports/maya/R-EXJ8A.html` (34 KB). The file has the 6 sections in order, 2 SVG charts (a line chart of the revenue by month and a bar chart of the top 10 categories), a data table under each chart, no `<script>` and no URL. The chart values equal the query values ($6,948.96, $5,753.43 and $5,984.31 for January to March, sum $18,686.70). No figure was removed. The model used the figures that the SQL computed, so the report has 0 code calculations.
+- "Delete all the reports we made in this conversation": 1 call (route, scope `conversation`). The list showed `R-EXJ8A` with the reason "this conversation" and "To delete it, type: delete 1".
+- `delete 1`: 0 calls. "Deleted 1 report. You can undo this for 30 days with /undo (batch D-GHMZR). The report files moved out of data/reports/maya/. I cannot delete copies in other folders." The HTML file moved to the trash folder.
+- `/undo`: 0 calls. "Restored 1 report of batch D-GHMZR. 1 report file is back in data/reports/maya/." The file is back.
+- The audit events: `delete_requested`, `delete_confirmation_shown`, `delete_confirmed`, `delete_undone`.

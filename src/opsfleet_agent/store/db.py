@@ -89,6 +89,21 @@ MIGRATIONS: list[str] = [
         VALUES (new.report_id, new.title, new.body_markdown);
     END;
     """,
+    # 3: spec 33, the delete batches of the soft delete and the undo.
+    """
+    CREATE TABLE delete_batches (
+        batch_id TEXT PRIMARY KEY,          -- D-4F8KQ
+        owner_id TEXT NOT NULL,
+        conversation_id TEXT,
+        created_at TEXT NOT NULL,           -- UTC, ISO 8601
+        report_ids TEXT NOT NULL,           -- JSON list
+        ids_hash TEXT NOT NULL,
+        files TEXT NOT NULL DEFAULT '[]',   -- JSON: report_id, column, path, trash_path
+        undone_at TEXT,
+        purged_at TEXT
+    );
+    CREATE INDEX delete_batches_owner ON delete_batches (owner_id, created_at);
+    """,
 ]
 
 

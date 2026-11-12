@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from langgraph.errors import GraphBubbleUp
 from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
@@ -107,6 +108,11 @@ def span(name: str, kind: str, **attributes: Any) -> Generator[Span]:
     ) as sp:
         try:
             yield sp
+        except GraphBubbleUp:
+            sp.set_attribute(
+                "interrupted", True
+            )  # a paused graph (spec 33), not an error
+            raise
         except AgentError as exc:
             sp.set_attribute("error_type", exc.error_type.value)
             if exc.detail:  # for debugging; spec 35 adds the masking of this text

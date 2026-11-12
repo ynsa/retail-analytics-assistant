@@ -129,3 +129,41 @@ reports:
   list_header: "Your reports:"
   list_more: "Showing the newest {{ shown }} of {{ total }} reports."
   exported: "Saved: {{ path }}"
+
+# Delete with confirmation (spec 33). Code writes every text. The model only gives the scope.
+delete:
+  which: >-
+    Which reports? For example: 'the reports of this conversation' or 'the reports about
+    Levi's'.
+  no_match_entity: No report matches '{{ entity }}'. Nothing was deleted.
+  no_match: No report matches this request. Nothing was deleted.
+  not_found: "Not found: {{ ids }}."
+  close_names: >-
+    No report names '{{ entity }}'. Close names in your reports: {{ names }}. Please name one
+    exactly.
+  too_many: >-
+    This request matches {{ count }} reports. I can delete at most {{ max }} at a time. Please
+    narrow it, for example by brand.
+  list_header_one: "This report will be deleted:"
+  list_header: "These {{ count }} reports will be deleted:"
+  ask: "To delete {{ 'it' if count == 1 else 'them' }}, type: {{ expected }}"
+  ask_note: Any other answer cancels. You can undo the delete for 30 days with /undo.
+  deleted: >-
+    Deleted {{ count }} {{ 'report' if count == 1 else 'reports' }}. You can undo this for 30
+    days with /undo (batch {{ batch_id }}).
+  files_moved: >-
+    The report files moved out of {{ folder }}. I cannot delete copies in other folders.
+  files_missing: "These files were not found: {{ files }}."
+  wrong_number: >-
+    The number does not match the list ({{ count }} {{ 'report' if count == 1 else 'reports' }}).
+    Nothing was deleted. Ask again if you want to delete.
+  not_exact: Nothing was deleted. To delete, ask again and type the exact text.
+  cancelled: Delete cancelled. Nothing was deleted.
+  expired: The delete request expired. Nothing was deleted.
+  changed: The list changed. Nothing was deleted. Please ask again.
+  internal: The delete check failed. Nothing was deleted. Please ask again.
+  undone: >-
+    Restored {{ count }} {{ 'report' if count == 1 else 'reports' }} of batch {{ batch_id }}.
+  undone_files: "{{ count }} report {{ 'file is' if count == 1 else 'files are' }} back in {{ folder }}."
+  nothing_to_undo: Nothing to undo.
+  undo_too_old: This delete is older than 30 days. The reports cannot be restored.

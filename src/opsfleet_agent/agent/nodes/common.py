@@ -11,6 +11,7 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any
 
+from langgraph.errors import GraphBubbleUp
 from langgraph.runtime import Runtime
 
 from opsfleet_agent.agent.state import AgentState, TurnContext, TurnState
@@ -54,6 +55,8 @@ def node(name: str) -> Callable[[NodeFn], NodeFn]:
                         if turn.get(key) is not None:
                             sp.set_attribute(key, turn[key])
                     return update
+            except GraphBubbleUp:
+                raise  # an interrupt() of the delete confirmation (spec 33) is not an error
             except AgentError as exc:
                 return end_turn(turn_of(state), exc.user_message, exc.error_type.value)
             except Exception:  # noqa: BLE001 - the chat must continue after any bug

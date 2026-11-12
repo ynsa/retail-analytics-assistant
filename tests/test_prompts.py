@@ -110,6 +110,16 @@ def test_every_prepared_reply_renders(lib):
         "path": "data/reports/maya/R-7K2PQ.html",
         "shown": 50,
         "total": 60,
+        # spec 33
+        "entity": "Calvin",
+        "names": "Calvin Klein, Calvin Klein Jeans",
+        "count": 3,
+        "max": 50,
+        "ids": "R-AAAAA",
+        "batch_id": "D-4F8KQ",
+        "expected": "delete 3",
+        "folder": "data/reports/maya/",
+        "files": "data/reports/maya/R-AAAAA.html",
     }
 
     def walk(node, path=""):

@@ -26,7 +26,13 @@ Reports (spec 32) are active:
 - On request ("… as an HTML file", "… as Markdown"), the assistant writes `data/reports/<user>/<report ID>.html` (inline SVG charts, no JavaScript, works offline) or `.md` (Mermaid charts with a data table).
 - "Save this as a report" saves the last answer without a new query. Each user sees only the own reports.
 
-The delete flow and the long-conversation memory follow in Phase 2 (specs 33–37). A `delete` request gets the answer "This part is not built yet".
+The delete with confirmation (spec 33) is active:
+
+- "Delete all the reports we made in this conversation" or "Delete all reports mentioning Levi's" shows the exact list of the user's reports and asks the user to type `delete N`. Only this typed text can start the delete. The model cannot.
+- Any other answer cancels. A new question at the confirmation cancels the delete, and the assistant then answers the question.
+- The delete moves the report files to a trash folder. `/undo` (or "Undo the delete") restores the reports and their files for 30 days. `opsfleet-agent purge` deletes older batches for good.
+
+The long-conversation memory, the statistics and the full CLI follow in Phase 2 (specs 34–37).
 
 The production design document and the diagrams (specs 10 and 11) are ready for review.
 
@@ -47,7 +53,12 @@ uv run pytest -m live                      # live tests: see the cost in each te
 
 Example questions: "What can I check?", "Give me the stats for last month", "Which 5 categories had the highest revenue last quarter?", "Why are customers in Texas spending less than customers in California?".
 
-Reports: "Create a report for Q1 2026 with action items for Q2, as an HTML file", "Save this as a report", "Show my reports". Chat commands (no model call, no query): `/reports`, `/open R-7K2PQ`, `/export R-7K2PQ --format html` or `--format md`.
+Reports: "Create a report for Q1 2026 with action items for Q2, as an HTML file", "Save this as a report", "Show my reports", "Delete all the reports we made in this conversation". Chat commands (no model call, no query): `/reports`, `/open R-7K2PQ`, `/export R-7K2PQ --format html` or `--format md`, `/undo`.
+
+```bash
+uv run opsfleet-agent purge --dry-run      # list the delete batches older than 30 days
+uv run opsfleet-agent purge                # delete them for good
+```
 
 A report costs 3 to 5 Gemini calls (route, plan, text, and at most one correction or figure rewrite) and up to 4 queries. Its time limit is 150 s.
 

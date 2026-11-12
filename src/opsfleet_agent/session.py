@@ -15,10 +15,12 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from langgraph.checkpoint.sqlite import SqliteSaver
+from langgraph.types import Command
 
 from opsfleet_agent.agent.context import PromptLibrary
 from opsfleet_agent.agent.graph import build_graph
 from opsfleet_agent.agent.state import Services, TurnContext
+from opsfleet_agent.agent.tools import ToolRegistry
 from opsfleet_agent.bq import BigQueryService
 from opsfleet_agent.config import AppConfig, Settings
 from opsfleet_agent.errors import AgentError, ConfigError, ReportNotFound
@@ -33,6 +35,8 @@ from opsfleet_agent.guard.value_cache import (
 from opsfleet_agent.identity import UserContext
 from opsfleet_agent.limits import DailyLedger, TurnBudget
 from opsfleet_agent.llm import GeminiClient
+from opsfleet_agent.reports.delete_flow import build_delete_flow, undo_text
+from opsfleet_agent.reports.deletion import DeleteReportsTool, undo_batch
 from opsfleet_agent.reports.files import display_path
 from opsfleet_agent.reports.flow import build_report_flow, list_text
 from opsfleet_agent.reports.library import ReportLibrary
@@ -63,6 +67,27 @@ class TurnResult:
     calculated_figures: int = 0  # spec 32: figures that code computed from placeholders
     report_id: str | None = None  # spec 32: the saved report of this turn
     report_files: tuple[str, ...] = ()  # spec 32: files written in this turn
+    # spec 33: a delete that waits for the typed confirmation, and the outcome of a delete
+    confirmation: ConfirmationView | None = None
+    replay_input: bool = (
+        False  # the text was not the confirmation: send it again as a turn
+    )
+    delete_outcome: str | None = (
+        None  # deleted, wrong_number, not_exact, other_text, ...
+    )
+    batch_id: str | None = None  # the delete batch of a delete or an undo
+
+
+@dataclass(frozen=True)
+class ConfirmationView:
+    """The waiting delete, from the `interrupt()` payload (spec 33, B2.3). The CLI shows it."""
+
+    kind: str  # "delete_reports"
+    rows: tuple[dict[str, Any], ...]  # report_id, title, created, reason, files
+    count: int
+    expected_text: str  # "delete 3"
+    text: str  # the full list and the request to type the text
+    not_found: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -138,6 +163,15 @@ def check_user_brands(config: AppConfig, values: ValueCache, user_id: str) -> li
 
 
 class AssistantSession:
+    """One conversation of one user.
+
+    `send(text)` is the only way to answer: when a delete waits for its confirmation
+    (`pending` is set), `send()` resumes the paused graph with the text. Otherwise it starts a
+    new turn. A `TurnResult` with `replay_input = True` means: the text was not the confirmation,
+    the delete is cancelled, and the caller sends the same text again as a new turn (spec 33,
+    A2.8). `cancel_pending()` cancels a waiting delete (`/exit`, Ctrl-C, Ctrl-D).
+    """
+
     def __init__(
         self,
         config: AppConfig,
@@ -145,6 +179,7 @@ class AssistantSession:
         services: Services,
         conn: sqlite3.Connection | None = None,
         checkpointer: Any | None = None,
+        conversation_id: str | None = None,
     ) -> None:
         self.config = config
         self.user = user
@@ -158,7 +193,12 @@ class AssistantSession:
                 settings.data_path("checkpoints.db"), check_same_thread=False
             )
             checkpointer = SqliteSaver(cp_conn)
-        self.graph = build_graph(checkpointer, flows={"report": build_report_flow()})
+        if services.tools is None:
+            services.tools = build_tools(settings, services.clock)
+        self.graph = build_graph(
+            checkpointer,
+            flows={"report": build_report_flow(), "delete": build_delete_flow()},
+        )
         self.monotonic: Callable[[], float] = (
             time.monotonic
         )  # a fake clock in the tests
@@ -166,14 +206,67 @@ class AssistantSession:
         self.empty_checker = EmptyResultChecker(
             self.guard, services.bq, services.values
         )
-        self.conversation_id = uuid.uuid4().hex
+        self.conversation_id = conversation_id or uuid.uuid4().hex
         with self.conn:
             self.conn.execute(
-                "INSERT INTO conversations (id, user_id, started_at) VALUES (?, ?, ?)",
+                "INSERT OR IGNORE INTO conversations (id, user_id, started_at) "
+                "VALUES (?, ?, ?)",
                 (self.conversation_id, user.id, datetime.now(UTC).isoformat()),
             )
+        if conversation_id and self.pending:
+            # Spec 33, B2.6 #16: a delete that waited in an earlier session expires at load.
+            self.cancel_pending("expired")
+
+    # --- turns --------------------------------------------------------------------------------
+    @property
+    def _config(self) -> dict[str, Any]:
+        return {"configurable": {"thread_id": self.conversation_id}}
+
+    @property
+    def pending(self) -> ConfirmationView | None:
+        """The delete that waits for the typed confirmation, or None."""
+        for item in self.graph.get_state(self._config).interrupts:
+            value = item.value
+            if isinstance(value, dict) and value.get("type") == "confirm_delete":
+                return ConfirmationView(
+                    kind="delete_reports",
+                    rows=tuple(dict(r) for r in value.get("rows") or []),
+                    count=int(value.get("count") or 0),
+                    expected_text=str(value.get("expected_text") or ""),
+                    text=str(value.get("text") or ""),
+                    not_found=tuple(value.get("not_found") or ()),
+                )
+        return None
+
+    def send(self, text: str) -> TurnResult:
+        """The next user input: the answer to a waiting delete, or a new question."""
+        if self.pending is not None:
+            return self._run(Command(resume=text), resume=True)
+        return self._run(
+            {
+                "messages": [{"role": "user", "text": text}],
+                "user": self.user.as_state(),
+                "conversation_id": self.conversation_id,
+                "turn": {},
+            },
+            resume=False,
+        )
 
     def ask(self, question: str) -> TurnResult:
+        """The same as `send()` (the name of spec 31, used by the evaluation runner)."""
+        return self.send(question)
+
+    def cancel_pending(self, reason: str = "abandoned") -> TurnResult | None:
+        """Cancel a waiting delete with the reason `abandoned` or `expired`. Nothing is deleted."""
+        if self.pending is None:
+            return None
+        return self._run(Command(resume={"cancel": reason}), resume=True)
+
+    def close(self) -> TurnResult | None:
+        """End the chat. A waiting delete is cancelled (spec 33, B2.6 #15)."""
+        return self.cancel_pending("abandoned")
+
+    def _run(self, graph_input: Any, resume: bool) -> TurnResult:
         budget = TurnBudget(
             self.config.settings.limits,
             self.ledger,
@@ -188,21 +281,15 @@ class AssistantSession:
             empty_checker=self.empty_checker,
             store=self.conn,
         )
-        config = {"configurable": {"thread_id": self.conversation_id}}
         with span(
-            "turn", "turn", user_id=self.user.id, conversation_id=self.conversation_id
+            "turn",
+            "turn",
+            user_id=self.user.id,
+            conversation_id=self.conversation_id,
+            resume=resume,
         ) as sp:
             trace_id = current_trace_id()
-            state = self.graph.invoke(
-                {
-                    "messages": [{"role": "user", "text": question}],
-                    "user": self.user.as_state(),
-                    "conversation_id": self.conversation_id,
-                    "turn": {},
-                },
-                config,
-                context=context,
-            )
+            state = self.graph.invoke(graph_input, self._config, context=context)
             turn = state.get("turn") or {}
             totals = budget.totals()
             for key, value in totals.items():
@@ -211,9 +298,12 @@ class AssistantSession:
                 sp.set_attribute("error_type", turn["error_type"])
             if turn.get("intent"):
                 sp.set_attribute("intent", turn["intent"])
+        confirmation = self.pending if state.get("__interrupt__") else None
+        report = turn.get("report") or {}
+        delete = turn.get("delete") or {}
         return TurnResult(
-            answer=state["messages"][-1]["text"],
-            error_type=turn.get("error_type"),
+            answer=confirmation.text if confirmation else state["messages"][-1]["text"],
+            error_type=None if confirmation else turn.get("error_type"),
             trace_id=trace_id,
             totals=totals,
             intent=turn.get("intent"),
@@ -224,13 +314,16 @@ class AssistantSession:
             unverified_figures=int(turn.get("unverified_figures") or 0),
             calc_errors=int(turn.get("calc_errors") or 0),
             calculated_figures=int(
-                ((turn.get("report") or {}).get("built") or {}).get(
-                    "calculated_figures"
-                )
-                or 0
+                (report.get("built") or {}).get("calculated_figures") or 0
             ),
-            report_id=(turn.get("report") or {}).get("saved_id"),
-            report_files=tuple((turn.get("report") or {}).get("files") or ()),
+            report_id=report.get("saved_id"),
+            report_files=tuple(report.get("files") or ()),
+            confirmation=confirmation,
+            replay_input=bool(not confirmation and turn.get("replay_input")),
+            delete_outcome=None
+            if confirmation
+            else delete.get("reason") or delete.get("outcome"),
+            batch_id=None if confirmation else delete.get("batch_id"),
         )
 
     # --- commands (no model call, no query) ---------------------------------------------------
@@ -243,8 +336,34 @@ class AssistantSession:
             self.services.clock,
         )
 
+    def undo(self, batch_id: str | None = None) -> CommandOutcome:
+        """`/undo [batch]`: cancel a waiting delete (`abandoned`), then restore the last batch."""
+        lines = []
+        if self.cancel_pending("abandoned") is not None:
+            lines.append(self.services.prompts.reply("delete.cancelled"))
+        ctx = TurnContext(
+            services=self.services,
+            budget=None,  # type: ignore[arg-type] - an undo makes no model call and no query
+            user=self.user,
+            guard=self.guard,
+            empty_checker=self.empty_checker,
+            store=self.conn,
+        )
+        result = undo_batch(
+            self.conn,
+            self.config.settings,
+            self.user,
+            batch_id,
+            now=self.services.clock(),
+            conversation_id=self.conversation_id,
+        )
+        lines.append(undo_text(ctx, result))
+        kind = "message" if result.outcome == "restored" else "error"
+        return CommandOutcome(kind, " ".join(lines))
+
     def command(self, name: str, args: list[str]) -> CommandOutcome:
-        """`/reports`, `/open <id>`, `/export <id> --format html|md` (spec 32, A2.6 and A2.7)."""
+        """`/reports`, `/open <id>`, `/export <id> --format html|md` (spec 32) and
+        `/undo [batch]` (spec 33). A waiting delete stays, except for `/undo`."""
         name = name.lstrip("/").lower()
         try:
             if name == "reports":
@@ -266,11 +385,22 @@ class AssistantSession:
                     )
                 path = display_path(self.library.export(self.user, args[0], fmt))
                 return CommandOutcome("message", f"Saved: {path}", path=path)
+            if name == "undo":
+                if len(args) > 1:
+                    return CommandOutcome("error", "Usage: /undo [batch]")
+                return self.undo(args[0] if args else None)
         except ReportNotFound as exc:
             return CommandOutcome("error", exc.user_message)
         except AgentError as exc:
             return CommandOutcome("error", exc.user_message)
         return CommandOutcome("error", f"Unknown command '/{name}'. Type /help.")
+
+
+def build_tools(settings: Settings, clock: Callable[[], datetime]) -> ToolRegistry:
+    """The tool registry: `delete_reports` runs only with a confirmation grant (spec 33)."""
+    registry = ToolRegistry()
+    registry.register(DeleteReportsTool(settings, clock))
+    return registry
 
 
 def _export_format(args: list[str]) -> str | None:

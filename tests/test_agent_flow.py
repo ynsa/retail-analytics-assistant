@@ -71,7 +71,7 @@ def state_of(session):
             route_reply("report", report_request={"action": "list"}),
             "You have no saved reports.",
         ),
-        (route_reply("delete"), "This part is not built yet."),
+        (route_reply("delete"), "Which reports?"),
     ],
 )
 def test_prepared_routes_cost_exactly_one_model_call(make_session, route, expected):

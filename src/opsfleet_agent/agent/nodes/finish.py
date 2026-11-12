@@ -44,6 +44,17 @@ def last_data(state: AgentState, turn: TurnState) -> dict[str, Any] | None:
     }
 
 
+def turn_messages(turn: TurnState, answer: str) -> list[dict[str, str]]:
+    """The messages of the turn. A delete confirmation adds the list and the typed answer."""
+    messages: list[dict[str, str]] = []
+    if turn.get("confirmation_prompt"):
+        messages.append({"role": "assistant", "text": turn["confirmation_prompt"]})
+    if turn.get("confirm_text") and not turn.get("replay_input"):
+        messages.append({"role": "user", "text": turn["confirm_text"]})
+    messages.append({"role": "assistant", "text": answer})
+    return messages
+
+
 def update_pinned(pinned: dict[str, Any] | None, turn: TurnState) -> dict[str, Any]:
     out = dict(pinned or {})
     fmt = (turn.get("route") or {}).get("format_request")
@@ -70,7 +81,7 @@ def finish(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any]:
     turn = turn_of(state)
     answer = turn.get("final_text") or turn.get("answer") or INTERNAL_MESSAGE
     update: dict[str, Any] = {
-        "messages": [{"role": "assistant", "text": answer}],
+        "messages": turn_messages(turn, answer),
         "pinned": update_pinned(state.get("pinned"), turn),
         "turn": {**turn, "final_text": answer},
     }

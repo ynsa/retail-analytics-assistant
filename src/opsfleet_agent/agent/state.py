@@ -107,7 +107,7 @@ class TurnState(TypedDict, total=False):
     scanner_hits: int
     prompt_leak: bool
     final_text: str
-    # reports (spec 32)
+    # reports (spec 32) and the delete flow (spec 33)
     single_step: bool  # a report query: the data loop runs one step only
     report: dict[
         str, Any
@@ -126,8 +126,9 @@ class AgentState(TypedDict, total=False):
     pinned: dict[
         str, Any
     ]  # spec 34 owns it. Spec 31 writes format, filters and definitions.
-    pending_confirmation: dict[str, Any] | None  # spec 33
+    pending_confirmation: dict[str, Any] | None  # spec 33, B2.3
     summary: str  # spec 34
+    turn_no: int  # the number of the current turn (spec 33, B2.3 `created_turn`)
     last_data: dict[
         str, Any
     ]  # spec 32 "save the last answer": the last turn with results
@@ -146,6 +147,7 @@ class Services:
     masker: ResultMasker = field(default_factory=ResultMasker)
     scanner: OutputScanner = field(default_factory=OutputScanner)
     clock: Callable[[], datetime] = field(default=utc_now)  # a fake clock in the tests
+    tools: Any | None = None  # agent.tools.ToolRegistry (spec 33), set by the session
 
 
 @dataclass
