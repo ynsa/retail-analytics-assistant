@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 from typing import Any
 
 from langgraph.runtime import Runtime
@@ -17,11 +18,12 @@ from opsfleet_agent.agent.nodes.common import (
     turn_of,
 )
 from opsfleet_agent.agent.nodes.loop_control import with_step
-from opsfleet_agent.agent.periods import Calendar
+from opsfleet_agent.agent.periods import Calendar, Period
 from opsfleet_agent.agent.personal_data import (
     asks_id_with_demographics,
     asks_personal_data,
 )
+from opsfleet_agent.agent.question_periods import named_periods
 from opsfleet_agent.agent.state import AgentState, TurnContext, TurnState
 from opsfleet_agent.guard.rules import PAIRING_MESSAGE
 from opsfleet_agent.memory.context_builder import ModelRequest, builder_of
@@ -46,15 +48,31 @@ class SqlPlan(BaseModel):
     cannot_answer: str | None = None
 
 
+def _calendar_line(name: str, period: Period) -> str:
+    return (
+        f"{name}: {period.start.isoformat()}..{period.end.isoformat()} ({period.text()}); "
+        f"SQL: created_at >= TIMESTAMP('{period.start.isoformat()}') AND "
+        f"created_at < TIMESTAMP('{period.end_exclusive.isoformat()}')"
+    )
+
+
 def calendar_text(calendar: Calendar) -> str:
     lines = [f"today: {calendar.today.isoformat()}"]
-    for name, period in calendar.named().items():
-        lines.append(
-            f"{name}: {period.start.isoformat()}..{period.end.isoformat()} ({period.text()}); "
-            f"SQL: created_at >= TIMESTAMP('{period.start.isoformat()}') AND "
-            f"created_at < TIMESTAMP('{period.end_exclusive.isoformat()}')"
-        )
+    lines.append("Relative periods (use them only for these words in the question):")
+    lines += [_calendar_line(name, p) for name, p in calendar.named().items()]
     return "\n".join(lines)
+
+
+def named_periods_block(question: str | None, today: date) -> str:
+    """The periods that the question names with numbers, with their exact dates (spec 31, B7: the
+    Docker check of 2026-11-12 got 2025 for "2024", because the model copied `last_year`). Empty
+    when the question names no such period. It is near the question, not in the calendar, so the
+    stable start of the prompt stays the same for each question."""
+    named = [p for p in named_periods(question, today) if not p.bound]
+    if not named:
+        return ""
+    lines = [_calendar_line(p.label, p.period) for p in named]
+    return "<named_periods>\n" + "\n".join(lines) + "\n</named_periods>"
 
 
 def tables_in(sql: str, schema: Schema) -> list[str]:
@@ -105,12 +123,15 @@ def build_request(
         step = "This is one query of a report. Write only this query."
     else:
         step = f"This is query step {turn.get('step_index', 0) + 1} of at most {max_steps}."
+    middle = [step]
+    if named := named_periods_block(turn.get("question"), calendar.today):
+        middle.append(named)
     return builder_of(services).build(
         "write_sql",
         system=system,
         state=state,
         stable=stable,
-        middle=[step],
+        middle=middle,
         results=list(turn.get("results") or []),
         data_rows=STEP_BLOCK_ROWS,
         retry=retry_block(turn, services.schema, manager),

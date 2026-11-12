@@ -553,3 +553,23 @@ After round 1 (2026-11-12, polish pass):
 
 - XB-06: the scope phrase in the prompt was not enough. Code now adds a scope note to the footer of a manager's answer when a query that ran reads the `users` table: "User and customer figures cover only the customers who bought <brands>". The step record keeps the tables of the SQL that ran (`tables`). The CEO gets no note. Tests: `tests/test_footer.py`, `tests/test_agent_flow.py`.
 - Schema answers added the sentence about the missing customer fields (names, emails, street addresses) also to questions that are not about customers ("How do you calculate revenue?"). Code now decides: the sentence is for a question about customers or people, about personal data, or about all the data ("What data do you have?"). For other questions, rule 2 of `schema_answer.md` says not to write it, the overview has no such sentence, and code removes such a sentence from the answer. Tests: `tests/test_answer_fixes.py`, `tests/test_agent_flow.py`.
+
+#### Docker check: a named year became last year (2026-11-12)
+
+**Problem.** The Docker live check asked "How many orders were placed in 2024?" as `ceo` twice (traces `2e618057` and `6b5267df`).
+
+- Both queries filtered `2025-01-01` to `2026-01-01`, not 2024.
+- The first query had the revenue filter (20,671 orders). The second query had no status filter (27,629 orders).
+- Both footers said "Period: 1 Jan – 31 Dec 2024 · … · Orders = orders with at least one item that was not cancelled or returned." The footer came from `active_filters.period` and `definitions_used` of the model, not from the SQL. So the answer stated a period and a definition that the query did not use.
+
+**Cause of the wrong year.** The `write_sql` output of both runs had `definitions_used: ["orders", "last_year"]` and `active_filters.period: "2024-01-01..2024-12-31"`. The prompt had no rule for a named year. The only full year with a ready SQL condition in the `<calendar>` block was `last_year: 2025-01-01..2025-12-31`. The model read "2024" as "last year" and copied that line. (`last_year` is not a glossary key.) An offline render of the prompt for this question shows the same calendar.
+
+**Prompt changes.**
+
+1. A new block `<named_periods>` before the question: code reads each year, quarter, half year and month with its year from the question (`agent/question_periods.py`) and writes its dates and its SQL condition, for example `2024: 2024-01-01..2024-12-31 (1 Jan – 31 Dec 2024); SQL: created_at >= TIMESTAMP('2024-01-01') AND created_at < TIMESTAMP('2025-01-01')`. A year after "before", "after", "since" or "until" is a limit, not the period, so the block leaves it out. The block is not in `<calendar>`, so the stable start of the prompt does not change for each question.
+2. The calendar says that its periods are relative periods, only for these words in the question.
+3. `write_sql.md` rule 5: a year, a quarter or a month that the question names is that calendar period ("in 2024" is 2024-01-01..2024-12-31). Never use `last_year` for a named year.
+4. `write_sql.md` rule 4: revenue, orders, items sold, average order value and gross margin use the revenue filter `oi.status NOT IN ('Cancelled', 'Returned')`.
+5. The output fields: `definitions_used` holds only keys of the `<definitions>` block, and `active_filters.period` must be the period that the SQL filters. Code checks both (see the next note).
+
+Tests: `tests/test_question_periods.py`.
