@@ -4,6 +4,11 @@ Example:
 `Period: 1–31 Oct 2026 · Brands: Calvin Klein, Carhartt · Revenue = sale price of items that were
 not cancelled or returned.` and, when the model used a default, `Assumed: last month = …`.
 
+For a manager, when a query that ran reads the `users` table, the footer says that user and
+customer figures cover only the customers who bought the manager's brands (spec 50, round 1, XB-06:
+"661 new users" without this note). Code adds the note, because the model did not follow the
+scope phrase of the prompt.
+
 An assumption shows only when a default really applied. When the question names a period, an
 assumption about the period is not a default, so the footer leaves it out (smoke run TM-01: "the
 revenue in 2025" gave "Assumed: period = last_year").
@@ -83,6 +88,19 @@ def footer_parts(
     return period_text, brands, sentences, assumptions[:MAX_ASSUMPTIONS]
 
 
+USERS_TABLE = "users"
+
+
+def users_scope_note(turn: TurnState, user: UserContext, lib: PromptLibrary) -> str:
+    """The scope note of a manager's answer that used the `users` table, or ""."""
+    if not is_manager(user):
+        return ""
+    ran = [s for s in turn.get("steps") or [] if "row_count" in s]
+    if not any(USERS_TABLE in (s.get("tables") or []) for s in ran):
+        return ""
+    return lib.reply("footer.users_scope", brands=", ".join(user.brands))
+
+
 def is_period_assumption(text: str) -> bool:
     """`period = last_year`, `last month = 1–31 Oct 2026`, `dates = 2025-01-01..2025-12-31`."""
     return bool(_PERIOD_WORDS.search(text))
@@ -93,6 +111,8 @@ def build_footer(
 ) -> str:
     period_text, brands, sentences, assumptions = footer_parts(turn, user, lib, today)
     parts = [f"Period: {period_text}", f"Brands: {', '.join(brands)}"]
+    if note := users_scope_note(turn, user, lib):
+        parts.append(note.rstrip(". "))
     parts += [s.rstrip(". ") for s in sentences]
     lines = [f"_{' · '.join(parts)}._"]
     if assumptions:

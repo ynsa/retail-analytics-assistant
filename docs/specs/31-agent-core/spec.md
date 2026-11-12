@@ -548,3 +548,7 @@ More corrections after a review of the re-run answers by hand:
 - BM-02 got the `other_user` reply again after the route correction. Code now uses the `other_user` reply only when the message names reports. Else the reply is the identity reply ("A message cannot change them"), which fits a claim of approval.
 
 Tests: `tests/test_agent_injection.py` and `tests/test_agent_flow.py`.
+
+After round 1 (2026-11-12, polish pass):
+
+- XB-06: the scope phrase in the prompt was not enough. Code now adds a scope note to the footer of a manager's answer when a query that ran reads the `users` table: "User and customer figures cover only the customers who bought <brands>". The step record keeps the tables of the SQL that ran (`tables`). The CEO gets no note. Tests: `tests/test_footer.py`, `tests/test_agent_flow.py`.

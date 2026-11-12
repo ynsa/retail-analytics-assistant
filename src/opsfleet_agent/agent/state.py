@@ -57,6 +57,8 @@ class StepRecord(TypedDict, total=False):
     ]  # spec 32: filter literals on brand, category, state, ...
     job_id: str  # spec 32: the BigQuery job of the step, for the report appendix
     bytes_billed: int
+    # The tables of the SQL that ran, for the scope note of the footer.
+    tables: list[str]
 
 
 class RetryInfo(TypedDict):

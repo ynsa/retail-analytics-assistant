@@ -80,6 +80,8 @@ figure_removed: "[figure removed: not traceable]"
 footer:
   all_brands: all brands
   no_period: all data up to {{ today }}
+  # A manager's query read `users`: the figures cover only the customers of the brands (XB-06).
+  users_scope: User and customer figures cover only the customers who bought {{ brands }}
 
 scope_phrase:
   manager: >-

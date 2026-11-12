@@ -478,6 +478,26 @@ def test_manager_query_runs_scoped_with_the_brand_parameter(make_session, config
     assert guard_spans[0]["attributes"]["rewritten"] is True
 
 
+def test_manager_answer_from_the_users_table_has_the_scope_note(make_session):
+    """Spec 50, round 1, XB-06: the footer says that user figures cover only the customers who
+    bought the manager's brands. The tables of the SQL that ran are in the step record."""
+    users = "`bigquery-public-data.thelook_ecommerce.users`"
+    sql = (
+        f"SELECT COUNT(DISTINCT u.id) AS new_users FROM {users} u "
+        "WHERE u.created_at >= TIMESTAMP('2025-01-01') AND u.created_at < TIMESTAMP('2026-01-01')"
+    )
+    frame = frame_result(pd.DataFrame({"new_users": [661]}))
+    llm = FakeLLM([route_reply(), sql_reply(sql), "Your brands had 661 new users."])
+    session, _, bq = make_session("maya", llm=llm, bq=FakeBQ([frame]))
+    result = session.ask("How many new users signed up in 2025?")
+    assert "scope_brands" in bq.queries[0]
+    assert result.steps[0]["tables"] == ["users"]
+    assert (
+        "User and customer figures cover only the customers who bought Calvin Klein, Carhartt"
+        in result.answer
+    )
+
+
 def test_ceo_query_runs_without_parameters(make_session):
     llm = FakeLLM([route_reply(), sql_reply(ORDERS_SQL), "41,000 orders."])
     session, _, bq = make_session("ceo", llm=llm, bq=FakeBQ([orders(41000)]))

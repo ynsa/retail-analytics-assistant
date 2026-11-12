@@ -40,3 +40,28 @@ def test_footer_uses_the_brand_filter_of_the_guard_and_all_brands_for_the_ceo():
     turn = {"plans": [{"active_filters": {}}], "steps": []}
     footer = build_footer(turn, CEO, lib, date(2026, 11, 11))
     assert footer == "_Period: all data up to 11 Nov 2026 · Brands: all brands._"
+
+
+def test_manager_answer_from_the_users_table_says_the_scope_of_the_figures():
+    """Spec 50, round 1, XB-06: "661 new users" must say that only the customers of the
+    manager's brands count. Code adds the note, not the prompt."""
+    lib = PromptLibrary()
+    ran = {"tables": ["order_items", "products", "users"], "row_count": 1}
+    turn = {"plans": [{"active_filters": {}}], "steps": [ran]}
+    footer = build_footer(turn, MANAGER, lib, date(2026, 11, 11))
+    assert footer == (
+        "_Period: all data up to 11 Nov 2026 · Brands: Calvin Klein, Levi's · User and customer "
+        "figures cover only the customers who bought Calvin Klein, Levi's._"
+    )
+    # The CEO sees all customers: no note.
+    assert "customers who bought" not in build_footer(
+        turn, CEO, lib, date(2026, 11, 11)
+    )
+    # No note for a query without `users`, or for a `users` query that did not run.
+    other = {"tables": ["order_items", "products"], "row_count": 3}
+    failed = {"tables": ["users"]}
+    for steps in ([other], [failed]):
+        turn = {"plans": [{"active_filters": {}}], "steps": steps}
+        assert "customers who bought" not in build_footer(
+            turn, MANAGER, lib, date(2026, 11, 11)
+        )
