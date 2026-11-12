@@ -172,3 +172,4 @@ All BigQuery figures are far below the free 1 TB each month. The Gemini calls st
 - **Deviation: a review by hand.** The re-runs have no judge, so the J- criteria did not run. We read each re-run answer, found 5 weak answers that passed the code checks, and corrected 4 of them in code before the end of the round.
 - **Cost.** 111 Gemini calls (budget 150) and about 336 MB of BigQuery (budget 2 GB). The log of the rounds is `docs/evaluation/iterations.md`.
 - **Open for round 2.** The 7 cases with outside errors, the 11 cases that the old snapshot rule skipped, BM-02 and XB-06, the judge calibration, and the call count of discarded runs in the report. See section 6 of the analysis.
+- **After round 1 (2026-11-12).** Three open points are done in code, with offline tests: the footer scope note for XB-06 (`fccd176`), the call count of discarded runs (`451ae10`), and the customer-field sentence of schema answers (`f9b129a`). See the end of section 6 of the analysis.

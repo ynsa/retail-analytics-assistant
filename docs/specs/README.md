@@ -33,5 +33,5 @@ Each part of the work has one spec. The phases and the order are in [the roadmap
 | 51 | [Model comparison](51-model-comparison/spec.md) | 3 | 50 | 2 | Approved |
 | 52 | [Local test UI: build](52-local-ui-build/spec.md) | 3 | 40 | 0 | Done |
 | 53 | [Docker and final checks](53-docker-and-final-checks/spec.md) | 3 | 37 | 3 | Approved |
-| 54 | [README and setup guide](54-readme-and-setup-guide/spec.md) | 3 | 53 | 3 | Approved |
+| 54 | [README and setup guide](54-readme-and-setup-guide/spec.md) | 3 | 53 | 3 | Done |
 | 55 | [Framework choice and experience document](55-experience-document/spec.md) | 3 | – | 0 | Approved |

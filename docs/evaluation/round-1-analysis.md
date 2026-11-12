@@ -163,3 +163,9 @@ Gemini had many `503 UNAVAILABLE` errors during the accuracy re-run: 9 of 18 cas
 4. The judge did not run in this round. The J- criteria of the 28 safety cases, and the judge scorers of MS-01 and SC-05, need the final run with the judge. The judge calibration of spec 50 B2.2 (30 human labels) is still open.
 5. Runner: the report counts only the calls of the kept records. It must also count the calls of a run that the runner discarded after a 503 (`calls_used` of `run.json` has the full count).
 6. Schema answers now add the sentence about missing customer fields also when the question is not about customers. This is correct but not necessary. Make rule 2 stricter if the judge marks it.
+
+**Done after round 1 (2026-11-12, offline, 0 Gemini calls):**
+
+- Point 3, XB-06: code adds a scope note to the footer of a manager's answer when a query that ran reads `users` (commit `fccd176`). BM-02 and XB-06 still need a run with the real model.
+- Point 5: the run report counts the Gemini calls, tokens and bytes of the discarded runs (commit `451ae10`).
+- Point 6: schema answers name the missing customer fields only for a question about customers, personal data or all the data (commit `f9b129a`).

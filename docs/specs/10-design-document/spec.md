@@ -1,6 +1,6 @@
 # Spec 10: Design document (HLD) and technical explanation
 
-- **Status:** Done for Phase 2 (2026-11-11): `docs/design/hld.md`. Phase 3 adds the measured figures (specs 50, 51) and the unit prices.
+- **Status:** Done (2026-11-12): `docs/design/hld.md` version 1.1, with the unit prices and the measured figures of round 1 (spec 50). The model comparison of spec 51 is open.
 - **Phase and stream:** Phase 2, stream A. A final update in Phase 3, after specs 50 and 51.
 - **Depends on:** 00, 01. It uses the results of 11 (diagrams), 51 (model choice), 54 (setup guide) and 55 (experience document).
 - **Requirements covered:** Req 1–8 in the design. Deliverable 1 (architecture diagram with explanations) and deliverable 2 (detailed technical explanation).
@@ -445,3 +445,17 @@ These checks run by hand or with a small script before the review. They make no 
 - **Sizing assumptions.** The calls for each question, the tokens for each call and the bytes for each query are our assumptions. Spec 50 measures them on the prototype. The HLD uses the measured values when they exist.
 - **The `persona_editor` role** is only in the design (gap analysis B1). The prototype does not have it.
 - **Row-level access policies or authorized views.** The HLD must choose one for production and give the reason. Both apply the scope in the data layer.
+
+### B7. Phase 3 update (2026-11-12)
+
+- **Prices.** Section 9 has the list prices of the official pricing pages on 2026-11-12. The monthly estimate uses the volumes of section 7. It is about $465 with `gemini-3.5-flash-lite`, and about $1,475 with `gemini-3.8-flash` at its price after 2026-12-31.
+- **Measured figures.** The new section 7.4 has the figures of the evaluation runs and the live checks. It gives the latency without the waits of the runner, and the calls, tokens and bytes for each turn type. It also gives the cost for each question and the quality before and after round 1. Sections 4.6, 5.2, 7.1 and 7.2 refer to it.
+- **Contradictions corrected.** A check compared the HLD with the code and with the notes of specs 30–37, 40, 52 and 53. These statements changed:
+  - the fallback model (`gemini-3.1-flash-lite`),
+  - the daily quota and the reset at midnight Pacific time,
+  - the second run after an outside error (spec 23, B7b),
+  - the delete flow (the model gives only the scope) and the report flow (the plan has the SQL),
+  - the OTLP setting without an exporter,
+  - the scanner on HTML files, and the leak check with 10 protected prompts,
+  - the messages with a trace ID.
+- **Open.** The model comparison (spec 51) and the final runs of spec 50.

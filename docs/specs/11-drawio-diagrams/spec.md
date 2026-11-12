@@ -208,7 +208,7 @@ Source: [production-gcp.drawio](docs/design/diagrams/production-gcp.drawio)
 
 ### B6. Risks and open points
 
-- **Gaps in `architecture.md` section 0.4 (closed).** The first Mermaid diagram did not show three parts: the Cloud Storage bucket for report files, the embedding call from the ingest job to Vertex AI, and the alerts. Section 0.4 now has them. The production picture shows them as flow 12, the "embeddings" arrow of flow 8 and the "Alerts" box.
+- **Gaps in `architecture.md` section 0.4 (closed).** The first Mermaid diagram did not show three parts. They are the Cloud Storage bucket for report files, the embedding call from the ingest job to Vertex AI, and the alerts. Section 0.4 now has them. The production picture shows them as flow 12, the "embeddings" arrow of flow 8 and the "Alerts" box.
 - **Icon set age.** The draw.io `gcp2` icons can be older than the current Google Cloud icons. The task asks for the `gcp2` library, so we accept this.
 - **Missing icon.** If a future service has no icon in `gcp2`, use a generic box with the service name. Write the reason in the legend.
 - **Manual drift.** A change to a Mermaid diagram in `architecture.md` needs a change to the `.drawio` file and a new export. The check in B4 (step 3) finds the drift.

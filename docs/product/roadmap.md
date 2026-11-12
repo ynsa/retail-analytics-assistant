@@ -1,10 +1,29 @@
 # Roadmap: Retail Analytics Chat Assistant
 
-- **Version:** 1.0
-- **Status:** Proposed
+- **Version:** 1.1
+- **Status:** In progress (Phase 3). The status of the work is in the section "Status" below.
 - **Inputs:** `docs/product/product-definition.md`, `docs/product/architecture.md`, `docs/analysis/gap-analysis.md`, and the user's notes of 2026-11-11.
 
 This roadmap divides the work into parts. Each part gets its own spec in `docs/specs/<NN>-<name>/spec.md` before the work starts. A spec states the goal, the scope, the limits, the tests, and the "done when" check.
+
+---
+
+## Status (2026-11-12)
+
+**Done:**
+
+- Phase 1 and Phase 2: specs 00, 01, 10, 11, 20–23, 30–37 and 40.
+- Phase 3: the local UI (spec 52) and the Docker image with its automatic checks (spec 53, without the live demo). Also the README and setup guide (spec 54), and the graph diagrams of the framework document (spec 55, part 2).
+- Round 1 of the evaluation (spec 50): baseline runs, failure analysis, corrections in code, and re-runs of the failed cases. All re-run cases pass the code checks. See `docs/evaluation/iterations.md`.
+- The HLD (spec 10) has the unit prices and the measured figures of round 1.
+
+**Left:**
+
+1. Round 2 of the evaluation: the 7 accuracy cases with outside errors and the 11 cases without a score. Also BM-02 and XB-06 with the real model, and the judge calibration (30 labels).
+2. The final runs of spec 50: the full accuracy set and the full safety set on one commit, with the judge.
+3. The model comparison of spec 51 (`gemini-3.5-flash-lite` against `gemini-3.8-flash`), and the choice of the production model in the HLD.
+4. The live demo of spec 53 in Docker, and the checks of spec 54 that need a real key or another person.
+5. The author's experience text (spec 55, part 3 of `docs/framework-choice.md`).
 
 ---
 
