@@ -68,7 +68,7 @@ The reviewer sees the system in two pictures. The first picture shows the produc
 | ⚑ | Image format | PNG at scale 2, white background, with the diagram copy in the file | SVG | draw.io SVG files use `foreignObject` for HTML labels. Some viewers (IDE previews, some Markdown tools) do not show that text. PNG shows the same in all viewers. |
 | | Location | `docs/design/diagrams/` | `docs/diagrams/` | The HLD is in `docs/design/` (spec 10). Short relative links. |
 | | Source format | Uncompressed XML in the `.drawio` file | Compressed XML (the draw.io default in some versions) | A reviewer can read a git diff of uncompressed XML. |
-| | Icons | The "GCP Icons" palettes and the "Google Cloud Platform" product cards in the draw.io `gcp2` library | Icons downloaded from the Google Cloud website | The task asks for the draw.io library. The icons are the same official images, inside draw.io. |
+| | Icons | The "GCP Icons / …" palettes and the "GCP / …" palettes in the draw.io `gcp2` library | Icons downloaded from the Google Cloud website | The task asks for the draw.io library. The icons are the same official images, inside draw.io. |
 
 **Check of the tools on this Mac (2026-11-11):**
 
@@ -81,7 +81,7 @@ The reviewer sees the system in two pictures. The first picture shows the produc
 
 **Check of the icon library (2026-11-11).** We read `Sidebar-GCP2.js` in the draw.io source on GitHub (`jgraph/drawio`, branch `dev`).
 
-- The search library `gcp2` has the "GCP Icons / …" palettes and the "Google Cloud Platform / …" palettes.
+- The search library `gcp2` has the "GCP Icons / …" palettes and the "GCP / …" palettes. (Corrected on 2026-11-12. The draw.io app 32.6.10 shows "GCP / …", not "Google Cloud Platform / …".)
 - The "GCP Icons" entries are images. Their style is `shape=image;image=data:image/svg+xml,…`. They are not short stencil names. Only a few shapes have a stencil name, for example `mxgraph.gcp2.zones` for the boundary boxes.
 - Each service in the production picture has an icon. The table in B2 lists the palette for each one.
 
@@ -91,15 +91,15 @@ The reviewer sees the system in two pictures. The first picture shows the produc
 
 | Box (same name as in `architecture.md` 0.4) | Icon | Palette in draw.io |
 |---|---|---|
-| Managers and CEO, Persona editor, Analysts | User icon | GCP Icons / general icons (`gcp2`) |
+| Managers and CEO, Persona editor, Analysts | User icon | The stencil `mxgraph.gcp2.users` |
 | Web chat, Google Chat or Slack | Generic box | none (not a Google Cloud service) |
-| Identity-Aware Proxy | Identity-Aware Proxy product card | Google Cloud Platform / Security |
+| Identity-Aware Proxy | Identity-Aware Proxy | GCP / Security |
 | Cloud Run: FastAPI agent API + LangGraph | Cloud Run | GCP Icons / Compute |
 | Admin page: persona and tone | Cloud Run | GCP Icons / Compute |
 | Vertex AI Gemini | Vertex AI | GCP Icons / AI and Machine Learning |
-| BigQuery warehouse | BigQuery | GCP Icons / Data Analytics |
-| BigQuery vector search | BigQuery | GCP Icons / Data Analytics |
-| BigQuery log sink | BigQuery | GCP Icons / Data Analytics |
+| BigQuery warehouse | BigQuery | GCP Icons / Analytics |
+| BigQuery vector search | BigQuery | GCP Icons / Analytics |
+| BigQuery log sink | BigQuery | GCP Icons / Analytics |
 | Cloud SQL PostgreSQL | Cloud SQL | GCP Icons / Databases |
 | Cloud Storage: persona and prompt config | Cloud Storage | GCP Icons / Storage |
 | Cloud Storage: Golden Bucket trios | Cloud Storage | GCP Icons / Storage |
@@ -107,7 +107,8 @@ The reviewer sees the system in two pictures. The first picture shows the produc
 | Cloud Run job: purge deleted reports | Cloud Run | GCP Icons / Compute |
 | Cloud Scheduler | Cloud Scheduler | GCP Icons / Integration Services |
 | Secret Manager | Secret Manager | GCP Icons / Security |
-| Cloud Logging, Trace and Monitoring | One icon for each of the three | GCP Icons / Operations |
+| Cloud Storage: report files | Cloud Storage | GCP Icons / Storage |
+| Cloud Logging, Trace and Monitoring | One icon for each of the three | GCP Icons / Operations (Logging, Monitoring), GCP / Operations (Trace) |
 
 Boundaries: a "Google Cloud" box, a "Project" box and a "Region: US" box. Use the zone shapes (`mxgraph.gcp2.zones`) of the `gcp2` library.
 
@@ -126,6 +127,7 @@ Boundaries: a "Google Cloud" box, a "Project" box and a "Region: US" box. Use th
 | 9 | Cloud Scheduler → ingest job and purge job |
 | 10 | Secret Manager → agent API |
 | 11 | Agent API → Cloud Logging, Trace and Monitoring → BigQuery log sink |
+| 12 | Agent API → Cloud Storage report files (signed URLs) |
 
 **Prototype picture (`prototype.drawio`).** The same nodes as `architecture.md` section 0.1:
 
@@ -138,7 +140,7 @@ Additions that show the run environment. They add no component:
 
 - A dashed boundary "Docker container (optional)" around the CLI, the FastAPI app and the core.
 - Three inputs from the host: `.env` (secrets), the gcloud ADC folder (read only), and the `data/` folder (one volume). These match spec 53.
-- The local web UI has a dashed border and the label "nice to have".
+- The local web UI has a dashed border and the label "for manual tests" (before 2026-11-12: "nice to have").
 - BigQuery uses the `gcp2` BigQuery icon. Gemini uses a generic box, because the AI Studio API is not a Google Cloud console service.
 
 **Style rules for both pictures:**
@@ -206,13 +208,15 @@ Source: [production-gcp.drawio](docs/design/diagrams/production-gcp.drawio)
 
 ### B6. Risks and open points
 
-- **Gaps in `architecture.md` section 0.4.** The Mermaid diagram does not show three parts that the text of `architecture.md` describes:
-  - the Cloud Storage bucket for report files (section 2),
-  - the embedding call from the ingest job to Vertex AI (section 2),
-  - the alerts in Cloud Monitoring (section 7).
-
-  The pictures must match the Mermaid diagram. So the owner must first decide whether to add these parts to section 0.4. Then both diagrams change together.
+- **Gaps in `architecture.md` section 0.4 (closed).** The first Mermaid diagram did not show three parts: the Cloud Storage bucket for report files, the embedding call from the ingest job to Vertex AI, and the alerts. Section 0.4 now has them. The production picture shows them as flow 12, the "embeddings" arrow of flow 8 and the "Alerts" box.
 - **Icon set age.** The draw.io `gcp2` icons can be older than the current Google Cloud icons. The task asks for the `gcp2` library, so we accept this.
 - **Missing icon.** If a future service has no icon in `gcp2`, use a generic box with the service name. Write the reason in the legend.
 - **Manual drift.** A change to a Mermaid diagram in `architecture.md` needs a change to the `.drawio` file and a new export. The check in B4 (step 3) finds the drift.
 - **Export without the app.** If the owner does not approve the install, the export is manual. Then the export is not repeatable with one command.
+
+### B7. Notes (2026-11-12)
+
+- **Check against `architecture.md`.** The box labels of `production-gcp.drawio` match the nodes of section 0.4, and the box labels of `prototype.drawio` match the nodes of section 0.1 (B4, test 3). The production picture has 12 numbered flows. The flow table of the HLD (section 1.1) has the same 12 rows.
+- **Palette names.** The draw.io app 32.6.10 names the palettes "GCP Icons / …" and "GCP / …". BigQuery is in "GCP Icons / Analytics", not "Data Analytics". The Identity-Aware Proxy icon and the Cloud Trace icon are only in the older "GCP / …" palettes. B1 and B2 now use these names.
+- **Boundaries.** The production picture uses the Google Cloud logo of the "GCP / Zones" palette (`mxgraph.gcp2.google_cloud_platform`). The project and the region are plain boxes in the colors of the zone shapes. The legend calls them "gcp2 zones".
+- **Prototype label.** Spec 52 built the local web UI, so its label changed from "nice to have" to "for manual tests". The box keeps the dashed border: the CLI is the main interface. `scripts/export-diagrams.sh` exported both images again. Only `prototype.png` changed.

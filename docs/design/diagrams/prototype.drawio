@@ -16,7 +16,7 @@
         <mxCell id="user-icon-users" value="" style="sketch=0;dashed=0;connectable=0;html=1;fillColor=#757575;strokeColor=none;shape=mxgraph.gcp2.users;part=1;" vertex="1" parent="user">
           <mxGeometry x="40" y="2" width="50" height="31.5" as="geometry" />
         </mxCell>
-        <mxCell id="ui" value="&lt;b&gt;Local web UI&lt;/b&gt;&lt;br&gt;HTML + JavaScript&lt;br&gt;&lt;i&gt;nice to have&lt;/i&gt;" style="rounded=1;absoluteArcSize=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#F1F3F4;strokeColor=#5F6368;strokeWidth=1;shadow=0;align=center;verticalAlign=middle;fontSize=12;fontColor=#202124;dashed=1;dashPattern=6 4;" vertex="1" parent="1">
+        <mxCell id="ui" value="&lt;b&gt;Local web UI&lt;/b&gt;&lt;br&gt;HTML + JavaScript&lt;br&gt;&lt;i&gt;nice to have&lt;/i&gt;lt;i&lt;i&gt;nice to have&lt;/i&gt;gt;for manual tests&lt;i&gt;nice to have&lt;/i&gt;lt;/i&lt;i&gt;nice to have&lt;/i&gt;gt;" style="rounded=1;absoluteArcSize=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#F1F3F4;strokeColor=#5F6368;strokeWidth=1;shadow=0;align=center;verticalAlign=middle;fontSize=12;fontColor=#202124;dashed=1;dashPattern=6 4;" vertex="1" parent="1">
           <mxGeometry x="20" y="420" width="150" height="72" as="geometry" />
         </mxCell>
         <mxCell id="cli" value="&lt;b&gt;CLI&lt;/b&gt;&lt;br&gt;Typer + Rich" style="rounded=1;absoluteArcSize=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#F1F3F4;strokeColor=#5F6368;strokeWidth=1;shadow=0;align=center;verticalAlign=middle;fontSize=12;fontColor=#202124;" vertex="1" parent="1">
@@ -127,7 +127,7 @@
         <mxCell id="legend-5" value="" style="rounded=1;absoluteArcSize=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#5F6368;dashed=1;dashPattern=8 4;strokeWidth=1.5;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fontSize=14;fontStyle=1;fontColor=#202124;" vertex="1" parent="1">
           <mxGeometry x="696" y="1298" width="48" height="26" as="geometry" />
         </mxCell>
-        <mxCell id="legend-5-t" value="Optional: Docker boundary, or a nice-to-have part" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontColor=#202124;whiteSpace=wrap;" vertex="1" parent="1">
+        <mxCell id="legend-5-t" value="Optional: Docker boundary, or a part for manual tests" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontColor=#202124;whiteSpace=wrap;" vertex="1" parent="1">
           <mxGeometry x="762" y="1296" width="550" height="30" as="geometry" />
         </mxCell>
         <mxCell id="legend-6" value="" style="rounded=1;absoluteArcSize=1;arcSize=12;whiteSpace=wrap;html=1;fillColor=#FEF7E0;strokeColor=#F9AB00;strokeWidth=1.5;align=left;verticalAlign=top;spacingLeft=10;spacingTop=4;fontSize=14;fontStyle=1;fontColor=#202124;" vertex="1" parent="1">
