@@ -5,10 +5,15 @@ fixture, and its turns go through the recorders. The runner scores the case, app
 `results.jsonl`, and stops in a controlled way at the hard cap, at the daily limit, or after
 3 rate-limit errors in a row. `--resume` continues a paused run without a second run of the scored
 cases.
+
+An outside error (a Gemini 503, a timeout, an open circuit breaker) in a turn or in a judge call
+gets one more run after a wait, inside the hard cap. If the error comes again, the result line has
+the status `external_error`: the report shows the case, and the quality rates leave it out.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 import time
 from collections.abc import Callable
@@ -19,12 +24,14 @@ from typing import Any
 from opsfleet_agent.evals.agent_adapter import AgentAdapter
 from opsfleet_agent.evals.cases import AccuracyCase, Case
 from opsfleet_agent.evals.fixtures import CapabilityMissing
+from opsfleet_agent.evals.metrics import EXTERNAL_STATUS
 from opsfleet_agent.evals.recorder import CallCap
 from opsfleet_agent.evals.records import CaseRecord
 from opsfleet_agent.evals.score import ScoringContext, score_case, turn_metrics
 from opsfleet_agent.evals.storage import CallStats, RunStore
 
 RATE_LIMIT_PAUSE_AFTER = 3
+EXTERNAL_RETRIES = 1  # one more run of a case or a judge call after an outside error
 
 
 class Paused(Exception):
@@ -49,6 +56,7 @@ class RunState:
     daily_max_calls: int
     set_name: str
     rate_limit_wait_s: float = 60.0
+    external_wait_s: float = 60.0  # the open time of the circuit breaker (spec 36)
     sleep: Callable[[float], None] = time.sleep
     log: Callable[[str], None] = print
     stats: CallStats | None = None
@@ -136,6 +144,26 @@ def _judge_error(scores: dict[str, Any], error_type: str) -> bool:
     )
 
 
+def _judge_external(scores: dict[str, Any]) -> str | None:
+    """The outside error of a judge call (503, timeout), or None."""
+    for s in scores.values():
+        if s.reason != "judge_error":
+            continue
+        if s.details.get("temporary") or s.details.get("error_type") == "llm_timeout":
+            return f"judge: {s.details.get('error_type')}"
+    return None
+
+
+def _only_external(scores: dict[str, Any]) -> bool:
+    """True when every failed scorer failed only because of an outside error of the judge."""
+    failed = [s for s in scores.values() if not s.passed]
+    return bool(failed) and all(
+        s.reason == "judge_error"
+        and (s.details.get("temporary") or s.details.get("error_type") == "llm_timeout")
+        for s in failed
+    )
+
+
 def _logged_judge_results(state: RunState, case_id: str) -> dict[str, Any]:
     """Judge results of this case from `judge.jsonl` (a run that paused in the judge step)."""
     out: dict[str, Any] = {}
@@ -163,12 +191,18 @@ def _rate_limit_wait(state: RunState, case: Case) -> None:
     state.sleep(state.rate_limit_wait_s)
 
 
-def run_one(state: RunState, case: Case) -> dict[str, Any]:
-    """Run and score one case. Raises Paused when the run must stop."""
-    case_dir = state.store.run_dir(state.run_id) / "cases" / case.id
-    # A record without a result comes from a run that paused in the judge step: score it only.
-    record = state.store.record(state.run_id, case.id)
-    while record is None:
+def _external_wait(state: RunState, case: Case, problem: str) -> None:
+    state.log(
+        f"  {case.id}: outside error ({problem[:80]}), wait {state.external_wait_s:g} s "
+        "and try again"
+    )
+    state.sleep(state.external_wait_s)
+
+
+def _record_of(state: RunState, case: Case, case_dir: Path) -> CaseRecord:
+    """Run the turns of the case. After an outside error, run the case again one time."""
+    retries: list[str] = []
+    while True:
         _check_limits(state)
         try:
             record = _run_turns(state, case, case_dir)
@@ -176,10 +210,32 @@ def run_one(state: RunState, case: Case) -> dict[str, Any]:
             _rate_limit_wait(state, case)
             continue
         state.rate_limit_streak = 0
+        problem = record.external_error()
+        if problem and len(retries) < EXTERNAL_RETRIES:
+            retries.append(problem)
+            _external_wait(state, case, problem)
+            continue
+        record.external_retries = retries
         state.store.save_record(state.run_id, record)
+        return record
+
+
+def run_one(state: RunState, case: Case) -> dict[str, Any]:
+    """Run and score one case. Raises Paused when the run must stop."""
+    case_dir = state.store.run_dir(state.run_id) / "cases" / case.id
+    # A record without a result comes from a run that paused in the judge step: score it only.
+    record = state.store.record(state.run_id, case.id)
+    if record is None:
+        record = _record_of(state, case, case_dir)
+    external = record.external_error()
+    # The judge does not judge the text of an outside error: it says nothing about the agent.
+    scoring = (
+        dataclasses.replace(state.scoring, judge=None) if external else state.scoring
+    )
     reuse = _logged_judge_results(state, case.id)
-    for _attempt in range(RATE_LIMIT_PAUSE_AFTER):
-        scores = score_case(case, record, state.scoring, reuse=reuse)
+    judge_retries = 0
+    for _attempt in range(RATE_LIMIT_PAUSE_AFTER + EXTERNAL_RETRIES):
+        scores = score_case(case, record, scoring, reuse=reuse)
         reuse.update(  # a judge result that worked is not asked again
             {
                 k: v.to_json()
@@ -189,12 +245,31 @@ def run_one(state: RunState, case: Case) -> dict[str, Any]:
         )
         if _judge_error(scores, "limit_exceeded"):
             _check_limits(state)  # the cap or the daily limit stopped the judge: pause
-        if not _judge_error(scores, "llm_rate_limited"):
-            break
-        _rate_limit_wait(state, case)
+        if _judge_error(scores, "llm_rate_limited"):
+            _rate_limit_wait(state, case)
+            continue
+        problem = _judge_external(scores)
+        if problem and judge_retries < EXTERNAL_RETRIES:
+            judge_retries += 1
+            _check_limits(state)
+            _external_wait(state, case, problem)
+            continue
+        break
     else:  # pragma: no cover - _rate_limit_wait raises Paused first
         raise Paused("paused_rate_limit", "Gemini refuses calls for rate.")
-    line = _result_line(case, state.set_name, record, scores)
+    if not external and _only_external(scores):
+        external = _judge_external(scores)
+    line = _result_line(
+        case,
+        state.set_name,
+        record,
+        scores,
+        status=EXTERNAL_STATUS if external else "scored",
+    )
+    if external:
+        line["external_error"] = external
+    if record.external_retries:
+        line["external_retries"] = record.external_retries
     state.store.append_result(state.run_id, line)
     state.scored.add(case.id)
     if state.stats is not None and record.turns:
@@ -219,7 +294,11 @@ def run_cases(state: RunState, cases: list[Case]) -> tuple[str, str]:
         except Paused as pause:
             return pause.status, pause.message
         seconds = time.monotonic() - start
-        mark = "pass" if line["passed"] else "FAIL"
+        mark = (
+            "EXT "
+            if line["status"] == EXTERNAL_STATUS
+            else ("pass" if line["passed"] else "FAIL")
+        )
         state.log(
             f"{case.id:8} {mark}  {seconds:6.1f} s  {state.cap.used - before:2d} calls"
             f"  ({state.cap.used}/{state.cap.cap})"
@@ -238,7 +317,18 @@ def rescore(state: RunState, cases: list[Case]) -> int:
             continue
         reuse = {k: v for k, v in old[case.id]["scorers"].items() if "judge" in k}
         scores = score_case(case, record, state.scoring, reuse=reuse)
-        line = _result_line(case, state.set_name, record, scores)
+        external = record.external_error() or (
+            _judge_external(scores) if _only_external(scores) else None
+        )
+        line = _result_line(
+            case,
+            state.set_name,
+            record,
+            scores,
+            status=EXTERNAL_STATUS if external else "scored",
+        )
+        if external:
+            line["external_error"] = external
         line["rescored_at"] = dt.datetime.now(dt.UTC).isoformat(timespec="seconds")
         state.store.append_result(state.run_id, line)
         count += 1

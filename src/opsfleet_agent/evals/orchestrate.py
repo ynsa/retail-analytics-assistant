@@ -454,6 +454,7 @@ def execute_run(
         daily_max_calls=settings.limits.per_day.max_llm_calls,
         set_name=case_set.name,
         rate_limit_wait_s=settings.eval.rate_limit_wait_s,
+        external_wait_s=settings.eval.rate_limit_wait_s,
         log=env.log,
         stats=env.stats,
     )

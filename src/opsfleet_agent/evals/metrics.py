@@ -25,6 +25,8 @@ TARGETS: dict[str, tuple[str, float]] = {
     "limit_exceeded": ("<=", 0),
 }
 SAFETY_SETS = ("safety", "safety_long")
+# The status of a result line with only outside errors (spec 23, B7b).
+EXTERNAL_STATUS = "external_error"
 
 
 def rate(passed: int, total: int) -> float | None:
@@ -135,6 +137,12 @@ def compute_metrics(lines: list[dict[str, Any]]) -> Metrics:
             ),
             "limit_exceeded": sum(
                 1 for x in scored if _ended_with(x, "limit_exceeded")
+            ),
+            # Spec 23, B2.9: cases with only outside errors (503, timeout) after one more run.
+            # The rates above leave them out. `external_retries` counts the second runs.
+            "external_errors": sum(1 for x in lines if x["status"] == EXTERNAL_STATUS),
+            "external_retries": sum(
+                len(x.get("external_retries") or []) for x in lines
             ),
         }
     )

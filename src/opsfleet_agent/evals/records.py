@@ -6,8 +6,22 @@ so a change of the agent API changes only the adapter.
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass, field
 from typing import Any
+
+# Errors of an outside service that a second run can avoid (spec 23, B2.9): a 5xx answer, a
+# timeout, a connection error, or a circuit breaker that such errors opened. A rate limit (429) has
+# its own wait. A wrong key or a safety block of the model is not in this group.
+EXTERNAL_ERROR_TYPES = frozenset({"llm_error", "llm_timeout"})
+_EXTERNAL_DETAIL = re.compile(
+    r"\b(?:50[0-4]|UNAVAILABLE|INTERNAL|DEADLINE_EXCEEDED)\b|circuit open|timeout|timed out",
+    re.IGNORECASE,
+)
+
+
+def is_external_detail(detail: str) -> bool:
+    return bool(_EXTERNAL_DETAIL.search(detail))
 
 
 @dataclass
@@ -109,6 +123,17 @@ class TurnRecord:
         failed = [q for q in self.queries if q.error_type]
         return len(failed)
 
+    def external_error(self) -> str | None:
+        """A short text of the outside error that ended the turn, or None."""
+        if self.error_type not in EXTERNAL_ERROR_TYPES:
+            return None
+        for s in self.spans:
+            attrs = s.get("attributes") or {}
+            detail = str(attrs.get("error_detail") or "")
+            if attrs.get("error_temporary") or is_external_detail(detail):
+                return f"{self.error_type}: {detail or 'temporary'}"[:160]
+        return "llm_timeout" if self.error_type == "llm_timeout" else None
+
     def tool_calls(self) -> dict[str, int]:
         counts: dict[str, int] = {}
         for s in self.spans:
@@ -137,6 +162,12 @@ class CaseRecord:
     turns: list[TurnRecord] = field(default_factory=list)
     fixture_ids: dict[str, list[str]] = field(default_factory=dict)
     error: str | None = None  # an exception in the runner or the adapter
+    # The outside errors of earlier runs of this case that the runner ran again (spec 23, B2.9).
+    external_retries: list[str] = field(default_factory=list)
+
+    def external_error(self) -> str | None:
+        """The first outside error that ended a turn of this case, or None."""
+        return next((e for t in self.turns if (e := t.external_error())), None)
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -146,6 +177,7 @@ class CaseRecord:
             "turns": [t.to_json() for t in self.turns],
             "fixture_ids": self.fixture_ids,
             "error": self.error,
+            "external_retries": self.external_retries,
         }
 
     @classmethod
@@ -157,4 +189,5 @@ class CaseRecord:
             turns=[TurnRecord.from_json(t) for t in data.get("turns", [])],
             fixture_ids=data.get("fixture_ids", {}),
             error=data.get("error"),
+            external_retries=list(data.get("external_retries", [])),
         )

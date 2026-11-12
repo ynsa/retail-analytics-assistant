@@ -150,6 +150,10 @@ def span(name: str, kind: str, **attributes: Any) -> Generator[Span]:
             raise
         except AgentError as exc:
             sp.set_attribute("error_type", exc.error_type.value)
+            if getattr(
+                exc, "temporary", False
+            ):  # a retry can help (spec 36 ServiceFailure)
+                sp.set_attribute("error_temporary", True)
             if exc.detail:  # for debugging; the exporter masks it (spec 35)
                 sp.set_attribute("error_detail", exc.detail[:300])
             sp.set_status(Status(StatusCode.ERROR, exc.error_type.value))

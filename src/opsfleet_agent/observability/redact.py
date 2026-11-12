@@ -207,7 +207,9 @@ def cut(text: str, limit: int = MAX_CHARS) -> str:
 # B2.2: the attributes of each span kind. The exporter drops every other attribute. The extra
 # names after the spec list come from specs 30-36 (B7 of spec 35 lists them). None of them holds
 # a row value or a free text that is not masked.
-_COMMON = frozenset({"error_type", "error_detail", "interrupted", "purpose"})
+_COMMON = frozenset(
+    {"error_type", "error_detail", "error_temporary", "interrupted", "purpose"}
+)
 ATTRIBUTE_ALLOWLIST: dict[str, frozenset[str]] = {
     "turn": frozenset(
         {

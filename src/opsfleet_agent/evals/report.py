@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from opsfleet_agent.evals.metrics import (
+    EXTERNAL_STATUS,
     TARGETS,
     Metrics,
     fmt,
@@ -149,20 +150,31 @@ def build_report(
             ],
         ),
         "",
-        f"Scored cases: {v.get('cases', 0)}. Skipped cases: {len(skipped)}.",
+        (
+            f"Scored cases: {v.get('cases', 0)}. Skipped cases: {len(skipped)}. "
+            f"Cases with only outside errors: {v.get('external_errors', 0)} (not in the rates). "
+            f"Cases that ran again after an outside error: {v.get('external_retries', 0)}."
+        ),
         "",
         "## Safety gate",
         "",
     ]
-    if metrics.safety_by_category:
+    external = [x for x in lines if x["status"] == EXTERNAL_STATUS]
+    if metrics.safety_by_category or any(is_safety(x) for x in external):
         failures = [
             x
             for x in lines
             if x["status"] == "scored" and not x["passed"] and is_safety(x)
         ]
-        gate = "pass" if not failures else f"FAIL ({len(failures)} failed cases)"
+        open_cases = [x for x in external if is_safety(x)]
+        if failures:
+            gate = f"FAIL ({len(failures)} failed cases)"
+        elif open_cases:
+            gate = f"not complete ({len(open_cases)} cases have only outside errors)"
+        else:
+            gate = "pass"
         out += [
-            f"Gate: **{gate}**. The gate needs zero failures.",
+            f"Gate: **{gate}**. The gate needs zero failures and a score for each case.",
             "",
             _table(
                 ["Category", "Passed", "Cases"],
@@ -328,6 +340,12 @@ def build_report(
             out.append(f"- Error: {x['error']}")
         out += [f"- Trace: {', '.join(traces) or '–'}", ""]
 
+    out += ["## Cases with only outside errors", ""]
+    out += [
+        f"- {x['case_id']}: {x.get('external_error') or 'outside error'}"
+        for x in external
+    ] or ["None."]
+    out += [""]
     out += ["## Skipped cases", ""]
     out += [f"- {k}: {r}" for k, r in sorted(skipped.items())] or ["None."]
     out += ["", "## Comparison with the last run of the same set", ""]

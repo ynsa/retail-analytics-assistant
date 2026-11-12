@@ -101,6 +101,9 @@ class JudgeResult:
     criteria: list[dict[str, Any]]
     error: str | None = None
     error_type: str | None = None
+    temporary: bool = (
+        False  # an outside error that a second call can avoid (503, timeout)
+    )
     calls: int = 0
     tokens_in: int = 0
     tokens_out: int = 0
@@ -108,9 +111,13 @@ class JudgeResult:
 
     def score(self) -> ScoreResult:
         if self.error:
-            return ScoreResult.fail(
-                "judge_error", error=self.error, error_type=self.error_type
-            )
+            details: dict[str, Any] = {
+                "error": self.error,
+                "error_type": self.error_type,
+            }
+            if self.temporary:
+                details["temporary"] = True
+            return ScoreResult.fail("judge_error", **details)
         details = {"criteria": self.criteria, "rubric": self.rubric}
         return ScoreResult(
             self.passed, None if self.passed else "judge_failed", details
@@ -186,6 +193,7 @@ class Judge:
                 # a limit stops the call before it reaches Gemini: it is not a call
                 result.calls += 0 if isinstance(exc, LimitExceeded) else 1
                 result.error, result.error_type = exc.user_message, exc.error_type.value
+                result.temporary = bool(getattr(exc, "temporary", False))
                 if (
                     exc.error_type is ErrorType.LLM_ERROR
                     and "format" in exc.user_message

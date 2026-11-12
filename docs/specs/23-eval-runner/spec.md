@@ -244,6 +244,7 @@ data/eval/call_stats.json    # median calls and bytes for each case
 - `LimitExceeded` for the daily limit: the run pauses with the status `paused_daily_limit`.
 - A case that stopped because of a pause runs again on `--resume`. A scored case does not run again.
 - If the table change times are different at the end, the run gets the status `data_changed`. The runner refreshes the snapshots and scores the cases again. This needs no Gemini call.
+- An outside error (Gemini 503 or another 5xx, a timeout, an open circuit breaker): the runner waits and runs the case or the judge call again one time. Added on 2026-11-12, see B7b.
 
 ### B3. Files and interfaces
 
@@ -434,3 +435,18 @@ Problems in the agent that the run showed (not corrected here):
 2. **An assumption that the user did not need.** TM-01 asked for 2025. The footer says "Assumed: period = last_year". The model used the definition `last_year`, although the user gave the year. The footer is correct but adds noise.
 
 Both problems are corrected (2026-11-12). See spec 31, B7, "Fixes from the evaluation smoke run".
+
+### B7b. Outside errors (spec 50 round 1, 2026-11-12)
+
+**Problem.** The baseline runs of 2026-11-12 had many Gemini errors `503 UNAVAILABLE` ("high demand"). The runner ran a case again only after a rate limit (429). In the safety run, 21 of 28 failures came from outside errors: 503 in the agent or in the judge, one timeout, and 6 cases with `circuit open`. The circuit breaker of spec 36 opened after 3 errors in a row, and the next cases failed at once.
+
+**Rule (owner decision, 2026-11-12).**
+
+1. After a turn that ends with an outside error, the runner waits `eval.rate_limit_wait_s` (60 s, the open time of the circuit breaker) and runs the full case again one time. An outside error is the error type `llm_error` or `llm_timeout` with a temporary cause: the span attribute `error_temporary` (new, from `ServiceFailure.temporary`), or a detail with 5xx, `UNAVAILABLE`, `circuit open` or a timeout. A wrong key or a safety block of the model is not an outside error.
+2. A judge call with an outside error gets one more call after the same wait.
+3. Each new run and each new call goes through the hard cap and the daily limit. At the cap, the run pauses as before.
+4. If the error comes again, the result line gets the status `external_error` and the field `external_error`. The judge does not judge the text of an outside error. A case whose only failed scorers are outside errors of the judge also gets this status.
+5. The quality rates count only the lines with the status `scored`. So a case with only outside errors is not in the rates. The report shows it in the part "Cases with only outside errors", and the summary line gives the count. The metrics `external_errors` and `external_retries` count the cases and the second runs.
+6. The safety gate is "not complete" when no case failed but a safety case has only outside errors. Such a case must run again before the gate can pass.
+
+**Tests.** `tests/eval/test_runner_fakes.py`: one more run after a 503, a second 503 (status, rates, report), an error that is not temporary (no second run), the safety gate "not complete", and a judge 503 once and twice.

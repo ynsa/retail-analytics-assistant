@@ -305,3 +305,123 @@ def test_compare_two_runs(e: Env):
         "## Comparison with the last run of the same set" in report
         and "TM-01" in report
     )
+
+
+# --- Outside errors (spec 23, B2.9; spec 50 round 1) ---------------------------------------------
+def _outside_error(text: str, temporary: bool = True) -> TurnRecord:
+    attrs = {"error_type": "llm_error", "error_detail": "ServerError: 503 UNAVAILABLE."}
+    if not temporary:
+        attrs = {"error_type": "llm_error", "error_detail": "API key not valid"}
+    return TurnRecord(
+        text=text,
+        answer="The AI service is not available now.",
+        error_type="llm_error",
+        spans=[{"name": "llm.route", "kind": "llm", "attributes": attrs}],
+    )
+
+
+def test_outside_error_runs_the_case_again_one_time(e: Env):
+    seen: dict[str, int] = {}
+
+    def flaky(case_id: str, text: str, n: int) -> TurnRecord:
+        seen[case_id] = seen.get(case_id, 0) + 1
+        if case_id == "TM-01" and seen[case_id] == 1:
+            return _outside_error(text)
+        return perfect_turn(case_id, text)
+
+    e.adapter_kw = {"script": flaky}
+    out = e.run(set_name="accuracy", case_ids=SMALL)
+    assert out.status == "done" and e.sleeps == [60.0]
+    tm = next(x for x in e.lines(out.run_id) if x["case_id"] == "TM-01")
+    assert tm["status"] == "scored" and tm["passed"]
+    assert tm["external_retries"] == ["llm_error: ServerError: 503 UNAVAILABLE."]
+    assert e.env.runs.record(out.run_id, "TM-01").external_retries
+    assert e.adapters[0].started.count("TM-01") == 2
+
+
+def test_second_outside_error_is_shown_but_left_out_of_the_rates(e: Env):
+    def down(case_id: str, text: str, n: int) -> TurnRecord:
+        return (
+            _outside_error(text) if case_id == "TM-01" else perfect_turn(case_id, text)
+        )
+
+    e.adapter_kw = {"script": down}
+    out = e.run(set_name="accuracy", case_ids=SMALL)
+    assert e.sleeps == [60.0]  # one more run only
+    tm = next(x for x in e.lines(out.run_id) if x["case_id"] == "TM-01")
+    assert tm["status"] == "external_error" and "503" in tm["external_error"]
+    from opsfleet_agent.evals.metrics import compute_metrics
+
+    values = compute_metrics(e.lines(out.run_id)).values
+    assert values["cases"] == 1 and values["case_pass_rate"] == 1.0
+    assert values["external_errors"] == 1 and values["external_retries"] == 1
+    report = out.report_path.read_text()
+    assert (
+        "## Cases with only outside errors" in report and "- TM-01: llm_error" in report
+    )
+    assert "Cases with only outside errors: 1 (not in the rates)" in report
+
+
+def test_error_that_is_not_temporary_is_a_failure_without_a_second_run(e: Env):
+    def bad_key(case_id: str, text: str, n: int) -> TurnRecord:
+        return _outside_error(text, temporary=False)
+
+    e.adapter_kw = {"script": bad_key}
+    out = e.run(set_name="accuracy", case_ids=["TM-01"])
+    line = e.lines(out.run_id)[0]
+    assert e.sleeps == [] and line["status"] == "scored" and not line["passed"]
+
+
+def test_safety_gate_is_not_complete_with_an_outside_error(e: Env):
+    e.adapter_kw = {
+        "script": lambda case_id, text, n: _outside_error(text),
+        "calls_per_turn": 1,
+    }
+    out = e.run(set_name="safety", case_ids=["OT-01"])
+    line = e.lines(out.run_id)[0]
+    assert line["status"] == "external_error"
+    assert (
+        e.judge_llm.calls == 0
+    )  # the judge does not judge the text of an outside error
+    assert "Gate: **not complete (1 cases have only outside errors)**" in (
+        out.report_path.read_text()
+    )
+
+
+class _FlakyJudge(FakeJudgeLLM):
+    def __init__(self, failures: int) -> None:
+        super().__init__()
+        self.failures = failures
+
+    def generate(self, budget: Any, **kw: Any):
+        if self.failures:
+            from opsfleet_agent.errors import ErrorType
+            from opsfleet_agent.resilience.policies import ServiceFailure
+
+            self.failures -= 1
+            budget.charge_llm()
+            raise ServiceFailure(
+                ErrorType.LLM_ERROR, "The AI service is not available now.", "503",
+                temporary=True,
+            )  # fmt: skip
+        return super().generate(budget, **kw)
+
+
+def test_judge_outside_error_gets_one_more_call(e: Env):
+    e.judge_llm = _FlakyJudge(failures=1)
+    e.adapter_kw = {"calls_per_turn": 1}
+    out = e.run(set_name="safety", case_ids=["OT-01"])
+    line = e.lines(out.run_id)[0]
+    assert line["status"] == "scored" and line["passed"]
+    assert e.sleeps == [60.0] and e.judge_llm.calls == 1
+
+
+def test_judge_outside_error_twice_leaves_a_passing_case_out_of_the_rates(e: Env):
+    e.judge_llm = _FlakyJudge(failures=5)
+    e.adapter_kw = {"calls_per_turn": 1}
+    out = e.run(set_name="safety", case_ids=["OT-01"])
+    line = e.lines(out.run_id)[0]
+    assert line["status"] == "external_error" and line["external_error"].startswith(
+        "judge"
+    )
+    assert line["scorers"]["T1:H-NOQ"]["pass"]  # the code checks still show
