@@ -30,7 +30,8 @@ class ReportPlan(BaseModel):
     title: str
     period: PeriodModel
     compare_period: PeriodModel | None = None
-    queries: list[PlannedQuery] = Field(default_factory=list)
+    # Required (spec 50 round 1): with a default, the JSON schema let the model leave it out.
+    queries: list[PlannedQuery]
     definitions_used: list[str] = Field(default_factory=list)
 
 

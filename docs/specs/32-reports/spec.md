@@ -373,3 +373,15 @@ The live check of this spec ran in one session with spec 33 (2026-11-12, as `may
 
 - "Create a report for Q1 2026 with action items for Q2, as an HTML file": 3 Gemini calls, 4 queries, 83.9 MB billed, 18 s. The HTML file has the 6 sections in order and 2 charts (revenue by month, top 10 categories). The chart values equal the query values. No figure was removed, and the model used only figures that the SQL computed.
 - A first try stopped at `plan_report` with the Gemini error `504 DEADLINE_EXCEEDED` (2 calls). Nothing was saved.
+
+#### Round 1 of spec 50: plans without queries (2026-11-12)
+
+In the accuracy baseline, 3 of 5 report cases (RP-01, RP-02, RP-03) ended with the reply `reports.no_plan`. The plan had a title and a period, but no `queries` field. `ReportPlan.queries` had a default (an empty list), so the JSON schema did not require it, and the model could leave it out. RP-04 and RP-05 got a plan with the same prompt.
+
+Changes:
+
+- `ReportPlan.queries` is required in the schema.
+- When the plan has no query, or the output does not match the schema, `plan_report` asks one more time with a `<retry>` note (`reports.plan_retry`). Only after the second empty plan does the turn end with `reports.no_plan`. The span attribute `plan_attempts` shows the number of calls. The extra call counts in the turn budget.
+- Rule 4 of `plan_report.md`: "Write 2 to N queries".
+
+Tests: `tests/test_reports_flow.py` (one more call, two empty plans, the schema).

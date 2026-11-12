@@ -376,3 +376,38 @@ def test_email_in_model_text_is_removed_from_body_and_files(make_session, config
         config.settings.reports_dir() / "maya" / f"{result.report_id}.html"
     ).read_text()
     assert "jane.doe" not in html and "[removed]" in html
+
+
+# --- Spec 50 round 1: a plan without queries (RP-01, RP-02, RP-03) -------------------------------
+def _plan_without_queries() -> dict:
+    plan = plan_reply()
+    del plan["queries"]
+    return plan
+
+
+def test_plan_without_queries_gets_one_more_call(make_session):
+    llm = FakeLLM(
+        [report_route(), _plan_without_queries(), plan_reply(), draft_reply()]
+    )
+    session, llm, bq = two_query_session(make_session, llm)
+    result = session.ask("Create a report for Q1 2026 with insights and action items")
+    assert result.error_type is None and result.report_id
+    purposes = [c["purpose"] for c in llm.calls]
+    assert purposes == ["route", "plan_report", "plan_report", "write_report"]
+    assert "<retry>The plan had no queries." in llm.calls[2]["prompt"]
+    assert "<retry>" not in llm.calls[1]["prompt"] and len(bq.queries) == 2
+
+
+def test_empty_plan_twice_ends_with_the_no_plan_reply(make_session):
+    empty = plan_reply(queries=[])
+    llm = FakeLLM([report_route(), empty, empty])
+    session, llm, bq = two_query_session(make_session, llm)
+    result = session.ask("Create a report for Q1 2026")
+    assert result.answer.startswith("I could not plan queries for this report.")
+    assert len(llm.calls) == 3 and bq.queries == []
+
+
+def test_report_plan_schema_requires_the_queries():
+    from opsfleet_agent.reports.models import ReportPlan
+
+    assert "queries" in ReportPlan.model_json_schema()["required"]

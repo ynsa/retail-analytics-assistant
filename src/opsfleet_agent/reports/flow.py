@@ -21,6 +21,7 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 from opentelemetry import trace
+from pydantic import ValidationError
 
 from opsfleet_agent import capabilities
 from opsfleet_agent.agent.formatting import ResultData, data_block
@@ -35,6 +36,7 @@ from opsfleet_agent.agent.nodes.common import (
     user_format,
 )
 from opsfleet_agent.agent.nodes.loop_control import with_step
+from opsfleet_agent.agent.nodes.route import is_format_error
 from opsfleet_agent.agent.nodes.write_sql import calendar_text
 from opsfleet_agent.agent.periods import (
     Calendar,
@@ -75,6 +77,7 @@ from opsfleet_agent.schema import model_schema_text
 
 LIBRARY_ACTIONS = ("list", "open", "export")
 RESERVED_WRITE_CALLS = 2  # write_report and the rewrite request of the figure check
+PLAN_ATTEMPTS = 2  # a plan without queries gets one more call (spec 50 round 1)
 TITLE_MAX_CHARS = 120
 # Turn keys of one data-loop run. The flow clears them before the next query.
 LOOP_KEYS = (
@@ -321,24 +324,42 @@ def plan_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, A
         title_scope=brands_text(user.brands) if is_manager(user) else "all brands",
     )
     request = plan_request(state, ctx, calendar, system)
-    result = services.llm.generate(
-        ctx.budget,
-        system=request.system,
-        prompt=request.prompt,
-        schema=ReportPlan,
-        purpose="plan_report",
-        prompt_version=prompts.version("safety", "plan_report", "definitions"),
-    )
-    plan: ReportPlan = result.parsed
+    prompt = request.prompt
+    plan: ReportPlan | None = None
+    planned: list[Any] = []
     sp = trace.get_current_span()
-    planned = [q for q in plan.queries if q.sql and q.sql.strip()]
+    # Spec 50 round 1: the model sometimes leaves out the queries. Ask one more time.
+    for attempt in range(1, PLAN_ATTEMPTS + 1):
+        sp.set_attribute("plan_attempts", attempt)
+        try:
+            result = services.llm.generate(
+                ctx.budget,
+                system=request.system,
+                prompt=prompt,
+                schema=ReportPlan,
+                purpose="plan_report",
+                prompt_version=prompts.version("safety", "plan_report", "definitions"),
+            )
+        except (AgentError, ValidationError) as exc:
+            if not is_format_error(exc):
+                raise
+            plan = None
+        else:
+            plan = result.parsed
+        planned = [q for q in (plan.queries if plan else []) if q.sql and q.sql.strip()]
+        if planned:
+            break
+        retry = prompts.reply(
+            "reports.plan_retry", max_queries=settings.max_planned_queries
+        )
+        prompt = f"{request.prompt}\n\n{retry}"
     sp.set_attribute("planned_queries", len(planned))
     if len(planned) > settings.max_planned_queries:
         sp.add_event(
             "plan_cut", {"kept": settings.max_planned_queries, "planned": len(planned)}
         )
         planned = planned[: settings.max_planned_queries]
-    if not planned:
+    if plan is None or not planned:
         return end_turn({**turn, "report": report}, prompts.reply("reports.no_plan"))
     period, moved = clip_period(_period(plan.period.model_dump()), today)
     compare, _ = clip_period(

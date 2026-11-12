@@ -130,6 +130,9 @@ reports:
   no_result: >-
     I could not get a result for any part of the report after {{ attempts }} attempts for each
     query, so nothing was saved. A shorter period or fewer topics can help.
+  plan_retry: >-
+    <retry>The plan had no queries. Write the full plan again with 2 to {{ max_queries }} queries.
+    Each query has an id, a purpose and the sql.</retry>
   no_plan: I could not plan queries for this report. Please name the period and the topics, for example "a report for Q1 2026 on revenue and returns".
   no_last_data: >-
     There is no earlier answer with data to save. Ask a question about the data first, or ask

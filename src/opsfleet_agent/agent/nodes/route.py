@@ -100,7 +100,7 @@ class RouteDecision(BaseModel):
 FALLBACK = RouteDecision(intent="analysis")
 
 
-def _is_format_error(exc: Exception) -> bool:
+def is_format_error(exc: Exception) -> bool:
     if isinstance(exc, ValidationError):
         return True
     return isinstance(exc, AgentError) and exc.detail == SCHEMA_MISMATCH
@@ -148,7 +148,7 @@ def route(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any]:
                 prompt_version=lib.version("safety", "route"),
             )
         except (AgentError, ValidationError) as exc:
-            if _is_format_error(exc):
+            if is_format_error(exc):
                 continue
             raise
         decision = result.parsed

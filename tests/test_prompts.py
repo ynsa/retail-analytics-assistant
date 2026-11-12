@@ -132,6 +132,8 @@ def test_every_prepared_reply_renders(lib):
         # spec 34
         "facts": "department = Women",
         "field": "department",
+        # spec 50 round 1
+        "max_queries": 6,
     }
 
     def walk(node, path=""):
