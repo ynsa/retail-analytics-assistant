@@ -1,3 +1,4 @@
+<!-- canary-7f3a9c -->
 # Task: answer a question about the data
 
 Answer the user's question about the data, its fields or the abilities of the assistant. Use only the schema overview, the field list and the values in the context. No query runs.

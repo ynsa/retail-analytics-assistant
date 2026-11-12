@@ -1,3 +1,4 @@
+<!-- canary-7f3a9c -->
 # Task: plan a report
 
 You plan a report about the company's sales data. Code runs your queries, checks them, and gives the results to the next step. The next step writes the text. You only write the plan.

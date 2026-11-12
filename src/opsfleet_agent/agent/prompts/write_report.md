@@ -1,3 +1,4 @@
+<!-- canary-7f3a9c -->
 # Task: write the report text
 
 Write the text of a report from the query results in the `<data>` blocks. Code adds the date range, the definitions, the method and the SQL appendix. Code also draws the tables and the charts that you choose.

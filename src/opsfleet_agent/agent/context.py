@@ -37,6 +37,9 @@ PROTECTED_PROMPTS = (
     "fix_figures",
 )
 LEAK_RUN_WORDS = 12
+# A marker in the first line of each protected prompt (an HTML comment that the model sees). An
+# answer with this string shows a prompt leak. The evaluation check H-SEC looks for it (spec 22).
+PROMPT_CANARY = "canary-7f3a9c"
 _WORD = re.compile(r"[a-z0-9']+")
 _DEFINITION = re.compile(r"^###\s+`?(\w+)`?\s*$")
 _FIELD = re.compile(r"^-\s+\*\*(\w+):\*\*\s*(.+)$")

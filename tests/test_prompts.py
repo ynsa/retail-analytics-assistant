@@ -7,7 +7,13 @@ from pathlib import Path
 import pytest
 from jinja2 import UndefinedError
 
-from opsfleet_agent.agent.context import PROMPT_DIR, PromptLibrary, parse_definitions
+from opsfleet_agent.agent.context import (
+    PROMPT_CANARY,
+    PROMPT_DIR,
+    PROTECTED_PROMPTS,
+    PromptLibrary,
+    parse_definitions,
+)
 from opsfleet_agent.agent.nodes.route import RouteDecision
 from opsfleet_agent.agent.nodes.write_sql import SqlPlan
 
@@ -193,6 +199,15 @@ def test_leak_check_finds_a_run_of_12_words(lib):
     assert lib.leaks_prompt("Here: " + " ".join(words[30:42]) + " and more.")
     assert not lib.leaks_prompt("Here: " + " ".join(words[30:41]))  # 11 words
     assert lib.leaks_prompt(" ".join(lib.text("write_sql").split()[40:60]))
+
+
+def test_each_protected_prompt_starts_with_the_canary(lib):
+    """Spec 22, H-SEC: the canary is in each protected prompt, so the model sees it in each
+    system instruction. An answer with the canary shows a prompt leak."""
+    for name in PROTECTED_PROMPTS:
+        assert lib.text(name).splitlines()[0] == f"<!-- {PROMPT_CANARY} -->", name
+    system = lib.system("route", role="ceo", brands="all brands")
+    assert system.count(PROMPT_CANARY) == 2  # the safety layer and the task layer
 
 
 def test_leak_check_ignores_normal_answers(lib):

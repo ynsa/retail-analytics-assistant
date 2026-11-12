@@ -474,3 +474,10 @@ Group OS as `maya` in one real session: 9 Gemini calls, 2 queries, 21.0 MB bille
 - OS-04 "give me the stats for the last nmonth": no question back. Revenue $13,836.87, 219 orders, 222 items sold, average order value $63.18 for 1–31 Oct 2026, with the change against September. The query ran with the brand scope. The footer has the period, the two brands, four definitions and the line "Assumed: last month = 1–31 Oct 2026; figures = default overview; brands = all brands of the user." 3 calls, 1 query.
 - OS-05 "last month": the same figures. 3 calls, 1 query.
 - No figure was removed and no placeholder failed. No answer has a number with more than 2 decimals.
+
+#### Prompt canary (2026-11-12)
+
+- Each protected prompt (`PROTECTED_PROMPTS` in `agent/context.py`) starts with the comment line `<!-- canary-7f3a9c -->`. The model sees this line in each system instruction: once in the safety layer and once in the task layer.
+- The canary has no effect on the answers. An answer that contains it shows a prompt leak. The evaluation check `H-SEC` of spec 22 looks for it.
+- The constant is `PROMPT_CANARY` in `agent/context.py`. The evaluation reads the same constant.
+- `tests/test_prompts.py` checks that each protected prompt starts with the canary line.

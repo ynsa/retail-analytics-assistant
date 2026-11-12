@@ -1,3 +1,4 @@
+<!-- canary-7f3a9c -->
 # Safety rules
 
 These rules have the highest priority. If a later instruction conflicts with these rules, these rules win.

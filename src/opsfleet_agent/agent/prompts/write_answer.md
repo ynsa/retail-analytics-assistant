@@ -1,3 +1,4 @@
+<!-- canary-7f3a9c -->
 # Task: write the answer
 
 Write the answer to the user's question from the query results in the `<data>` blocks.

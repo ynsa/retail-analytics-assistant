@@ -386,3 +386,10 @@ One session as `maya`, with the per-query byte cap lowered to 75 MB for this run
 - `delete 1`: 0 calls. "Deleted 1 report. You can undo this for 30 days with /undo (batch D-GHMZR). The report files moved out of data/reports/maya/. I cannot delete copies in other folders." The HTML file moved to the trash folder.
 - `/undo`: 0 calls. "Restored 1 report of batch D-GHMZR. 1 report file is back in data/reports/maya/." The file is back.
 - The audit events: `delete_requested`, `delete_confirmation_shown`, `delete_confirmed`, `delete_undone`.
+
+#### Tool span (2026-11-12)
+
+- `ToolRegistry.run()` writes one span of kind `tool` for each call: the name `tool.<tool name>` and the attributes `tool`, `side_effect` and `ok`.
+- A call without a valid grant also writes its span, with the error type `confirmation_rejected`.
+- The evaluation check `H-TOOL` of spec 22 reads these spans. A span with `side_effect = destructive` is correct only in the turn that follows the confirmation list, and only when the user typed the exact text.
+- `tests/test_delete_flow.py` checks the span of a refused call and of a confirmed delete.

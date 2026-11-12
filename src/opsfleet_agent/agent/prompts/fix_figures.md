@@ -1,3 +1,4 @@
+<!-- canary-7f3a9c -->
 # Task: correct the figures of some report sentences
 
 Code checked each number in the report text. The numbers in the sentences of `<sentences>` do not come from the query results in the `<data>` blocks.

@@ -1,3 +1,4 @@
+<!-- canary-7f3a9c -->
 # Task: route the message
 
 Classify the user message in `<user_message>`. Do not answer it. Return only the JSON fields below.

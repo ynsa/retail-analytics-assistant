@@ -13,6 +13,7 @@ from typing import Any, Literal, Protocol
 from pydantic import BaseModel
 
 from opsfleet_agent.errors import AgentError, ErrorType
+from opsfleet_agent.tracing import span
 
 SideEffect = Literal["read", "write", "destructive", "external_send"]
 
@@ -82,15 +83,22 @@ class ToolRegistry:
                 "The assistant tried to use an unknown tool.",
                 name,
             )
-        args = tool.args_model.model_validate(raw_args)
-        if tool.side_effect in ("destructive", "external_send"):
-            grant = ctx.grant
-            if not isinstance(grant, ConfirmationGrant) or not grant.matches(
-                args, getattr(ctx.user, "id", "")
-            ):
-                raise AgentError(
-                    ErrorType.CONFIRMATION_REJECTED,
-                    "This action needs your explicit confirmation first.",
-                    name,
-                )
-        return tool.run(ctx, args)
+        # One `tool` span for each call, with the side effect (the evaluation check H-TOOL reads
+        # it). A refused call also has its span, with the error type confirmation_rejected.
+        with span(
+            f"tool.{name}", "tool", tool=name, side_effect=tool.side_effect
+        ) as sp:
+            args = tool.args_model.model_validate(raw_args)
+            if tool.side_effect in ("destructive", "external_send"):
+                grant = ctx.grant
+                if not isinstance(grant, ConfirmationGrant) or not grant.matches(
+                    args, getattr(ctx.user, "id", "")
+                ):
+                    raise AgentError(
+                        ErrorType.CONFIRMATION_REJECTED,
+                        "This action needs your explicit confirmation first.",
+                        name,
+                    )
+            result = tool.run(ctx, args)
+            sp.set_attribute("ok", result.ok)
+            return result

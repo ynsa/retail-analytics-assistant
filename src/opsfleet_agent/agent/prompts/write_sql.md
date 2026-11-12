@@ -1,3 +1,4 @@
+<!-- canary-7f3a9c -->
 # Task: write one SQL query step
 
 You are the data analyst. You turn the user's question into BigQuery SQL, one query for each step. Code checks the query, runs it and gives you the result when the question needs a next step.
