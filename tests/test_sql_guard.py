@@ -709,3 +709,46 @@ def test_guard_bug_never_passes(guards, monkeypatch):
 @pytest.mark.parametrize("role", ["M", "C"])
 def test_spec_01_read_only_queries_still_pass(guards, role, sql):
     assert run(guards, role, sql).passed
+
+
+# --- Spec 50 round 1: a brand name with an apostrophe (PP-06, TM-05, CB-08) ----------------------
+@pytest.mark.parametrize("literal", ["'Levi's'", "'Levi''s'"])
+def test_apostrophe_in_single_quotes_gets_feedback_that_names_it(guards, literal):
+    sql = (
+        f"SELECT SUM(oi.sale_price) AS revenue FROM {T('order_items')} oi "
+        f"JOIN {T('products')} p ON p.id = oi.product_id WHERE p.brand = {literal}"
+    )
+    result = run(guards, "M", sql)
+    assert result.outcome is PARSE and result.reason_code == "syntax"
+    assert "apostrophe" in result.model_feedback
+    assert '"Levi\'s"' in result.model_feedback
+
+
+def test_double_quoted_brand_with_an_apostrophe_passes(guards):
+    sql = (
+        f"SELECT SUM(oi.sale_price) AS revenue FROM {T('order_items')} oi "
+        f'JOIN {T("products")} p ON p.id = oi.product_id WHERE p.brand = "Levi\'s"'
+    )
+    assert run(guards, "M", sql).outcome is PASS
+
+
+def test_other_syntax_errors_get_no_apostrophe_hint(guards):
+    result = run(guards, "C", f"SELECT FROM WHERE {T('orders')}")
+    assert result.outcome is PARSE and "apostrophe" not in (result.model_feedback or "")
+
+
+def test_churn_pattern_of_the_glossary_passes_the_guard(guards):
+    """Spec 50 round 1 (TM-10, MS-03): the SQL pattern of `monthly_churn_rate` must pass the
+    guard for both roles when the model fills in the dates."""
+    from opsfleet_agent.agent.context import PromptLibrary
+
+    text = PromptLibrary().text("definitions")
+    pattern = text.split("```sql", 1)[1].split("```", 1)[0]
+    sql = (
+        pattern.replace("<end>", "2026-07-01")
+        .replace("<first month>", "2026-01-01")
+        .replace("<last month>", "2026-06-01")
+    )
+    for role in ("M", "C"):
+        result = run(guards, role, sql)
+        assert result.outcome is PASS, (role, result.reason_code, result.model_feedback)

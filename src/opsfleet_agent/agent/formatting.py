@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+import re
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any, TypedDict
@@ -221,3 +222,16 @@ def data_block(result: ResultData, max_rows: int | None = None) -> str:
         f"Purpose: {_cell(result['purpose'])}\n"
         f"{result_markdown(result, max_rows)}\n</data>"
     )
+
+
+# A `<data …>…</data>` block, or a lone `<data …>` or `</data>` tag, that the model copied into
+# its text (spec 50 round 1, TM-10). The data markup is for the model only.
+_DATA_BLOCK = re.compile(r"<data\b[^>]*(?<!/)>.*?</data>", re.DOTALL | re.IGNORECASE)
+_DATA_TAG = re.compile(r"</?data\b[^>]*/?>", re.IGNORECASE)
+_BLANK_LINES = re.compile(r"\n{3,}")
+
+
+def strip_data_markup(text: str) -> str:
+    """Remove copied data blocks and data tags from a model text."""
+    cleaned = _DATA_TAG.sub("", _DATA_BLOCK.sub("", text))
+    return _BLANK_LINES.sub("\n\n", cleaned).strip()

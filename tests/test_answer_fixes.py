@@ -103,7 +103,7 @@ def test_prompts_ask_for_totals_from_sql_or_a_placeholder(make_session):
         c["system"] for c in llm.calls if c["purpose"] == "write_answer"
     )
     assert "also return the total of all groups" in sql_system
-    assert "SUM(SUM(oi.sale_price)) OVER () AS total_revenue" in sql_system
+    assert "SUM(SUM(oi.sale_price)) OVER () AS all_groups_total_revenue" in sql_system
     assert "{{calc:sum(r1.revenue)}}" in answer_system
     assert "no totals, sums, averages" in answer_system
 
@@ -172,3 +172,58 @@ def test_period_assumption_stays_when_the_period_is_a_default(make_session):
 )
 def test_states_period(question, expected):
     assert states_period(question) is expected
+
+
+# --- Spec 50 round 1: SQL prompt rules, glossary and data markup -------------------------------
+
+
+def test_sql_prompts_have_the_round_1_rules(make_session):
+    _, llm, _ = ask(
+        make_session,
+        BRAND_SQL,
+        "Calvin Klein had $2,000.50.",
+        brands(),
+        "What was the revenue of each of my brands last month?",
+    )
+    call = next(c for c in llm.calls if c["purpose"] == "write_sql")
+    system, prompt = call["system"], call["prompt"]
+    assert (
+        'Write a text with an apostrophe in double quotes, for example `p.brand = "Levi\'s"`'
+        in system
+    )
+    assert (
+        '"Calvin Klein Jeans" is a brand, not "Calvin Klein" with the category'
+        in system
+    )
+    assert "When the user names all brands of the scope" in system
+    assert "A count of customers uses the purchase filter" in system
+    assert "Filter and group by the same date column." in system
+    assert "also read the period before the first one" in system
+    assert "### repeat_customer" in prompt  # the glossary in the context
+    assert "LEAD(d) OVER (PARTITION BY user_id ORDER BY d)" in prompt
+    answer_system = next(
+        c["system"] for c in llm.calls if c["purpose"] == "write_answer"
+    )
+    assert "`all_groups_total_`" in answer_system
+
+
+def test_copied_data_block_is_removed_from_the_answer(make_session):
+    """TM-10: the answer showed the internal `<data>` block."""
+    result, _, _ = ask(
+        make_session,
+        BRAND_SQL,
+        'Calvin Klein had $2,000.50.\n\n<data source="query" ref="r1" rows="2">\n'
+        "| brand | revenue |\n| Carhartt | $1,400.25 |\n</data>\n\nThe data shows growth.",
+        brands(),
+        "What was the revenue of each of my brands last month?",
+    )
+    assert "<data" not in result.answer and "</data>" not in result.answer
+    assert "Calvin Klein had $2,000.50." in result.answer
+    assert "The data shows growth." in result.answer
+
+
+def test_strip_data_markup_keeps_normal_text():
+    from opsfleet_agent.agent.formatting import strip_data_markup
+
+    assert strip_data_markup("A <data ref='r1'/> B </data> C") == "A  B  C"
+    assert strip_data_markup("No markup, 12.5%.") == "No markup, 12.5%."

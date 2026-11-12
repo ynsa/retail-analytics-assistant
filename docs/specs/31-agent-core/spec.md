@@ -517,3 +517,19 @@ Tests: `tests/test_agent_injection.py` (the tests after "Spec 50 round 1") and `
 1. **Leak check on a correct answer (SC-03, BN-01).** Rule 2 of `schema_answer.md` held the sentence "Personal data such as names, email addresses and street addresses is not available". The model copied it, and the answer then had 12 words of a protected prompt in a row. The prompt-leak check replaced two correct answers with the prompt reply. Rule 2 now tells the model to take the sentence from the schema overview, which is not protected. `LEAK_RUN_WORDS` and `PROTECTED_PROMPTS` do not change.
 2. **Definitions (SC-05, BN-01).** B2.8 and note 12 expect a schema answer to quote the glossary, but the code did not give it. `schema_answer` now gets a `<definitions>` block with the footer sentence of each glossary entry, and a rule to use it for a question about a metric. Example: "How do you calculate revenue?" must say that cancelled and returned items are left out.
 3. **Regression tests.** `tests/test_prompts.py`: the two baseline answers do not trip the leak check, and no protected prompt has 12 words in a row of a text that the user can see (overview, glossary, access answer, prepared replies). `tests/test_agent_flow.py`: the schema prompt has the definitions.
+
+#### Round 1 of spec 50: SQL rules, glossary and answer text (2026-11-12)
+
+| Case | Cause | Change |
+|---|---|---|
+| PP-06, TM-05, CB-08 (alex) | The SQL had `p.brand = 'Levi's'`. The guard feedback ("Error tokenizing …", "Adjacent string literals …") did not name the apostrophe, and the second try `'Levi''s'` is not valid in BigQuery. | `write_sql.md` rule 6a and `plan_report.md`: a text with an apostrophe goes in double quotes (`"Levi's"`). Rule 6: when the user names all brands of the scope (alex has one brand), no brand filter is necessary. The guard feedback of a syntax error names the apostrophe (spec 30, B7a). |
+| XB-04 | The model read "Calvin Klein Jeans" as the brand "Calvin Klein" with the category "Jeans". The answer gave a figure for a brand outside the scope of the user. | Rule 6: a brand name is one name. Never split it into a brand and a category. |
+| CB-06 | "Bought again" had no glossary entry. The SQL left out the purchase filter. | New glossary entry `repeat_customer`. |
+| RP-05 | The report counted the customers with the revenue filter (623). The glossary says purchase (703). | Rule 4 of `write_sql.md` and `plan_report.md`: a count of customers uses the purchase filter, and spend per customer uses the revenue filter. |
+| TM-04 | `LAG` ran only on the 2025 rows, so Q1 had no growth. | Rule 8: for the change of each period in a series, also read the period before the first one. |
+| TM-08 | The SQL filtered on `delivered_at` but grouped by the month of `created_at`. | Rule 4: for deliveries, shipments and returns, use the matching date column, and filter and group by the same column. |
+| TM-10, MS-03 | The `monthly_churn_rate` entry was one line of words. The model wrote a churn query without active customers, or with another churn rule. | The glossary entry has a full SQL pattern (the 90-day rule with `LEAD`, as in the reference of TM-10). The pattern passes the guard for both roles. |
+| MS-01 | The total column of rule 9 (`total_revenue`) was shown as the revenue of each state. | Rule 9 names the column `all_groups_total_…`. Rule 12 of `write_answer.md`: give it once, as the total of all groups. |
+| TM-10 | The answer showed the raw `<data source="query" …>` block. | `write_answer` removes copied `<data>` blocks and tags before the figure check (`formatting.strip_data_markup`). Rule 13 of `write_answer.md`. |
+
+Tests: `tests/test_answer_fixes.py`, `tests/test_sql_guard.py` (the apostrophe feedback, the churn pattern) and `tests/test_prompts.py`.

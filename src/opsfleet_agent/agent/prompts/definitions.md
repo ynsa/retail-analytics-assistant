@@ -35,6 +35,11 @@
 - **Footer:** Gross margin = sale price minus product cost, for items that were not cancelled or returned.
 - **SQL:** `SUM(oi.sale_price - p.cost)` with the revenue filter
 
+### repeat_customer
+- **Meaning:** A customer with purchases in 2 or more distinct orders in the period ("bought again"). For a manager, only the orders with the user's brands count.
+- **Footer:** Repeat customer = purchases in 2 or more orders in the period.
+- **SQL:** `COUNT(DISTINCT oi.order_id) >= 2` for each `oi.user_id`, over purchases (`oi.status != 'Cancelled'`) in the period. The repeat rate is the repeat customers / the customers with a purchase.
+
 ### churned_customer
 - **Meaning:** A customer with at least one purchase and no purchase in the last 90 days.
 - **Footer:** Churned customer = no purchase in the last 90 days.
@@ -43,7 +48,44 @@
 ### monthly_churn_rate
 - **Meaning:** Customers who reached 90 days without a purchase in that month, divided by the active customers at the start of the month.
 - **Footer:** Monthly churn rate = customers who reached 90 days without a purchase in the month / active customers at the start of the month.
-- **SQL:** count of customers whose last purchase + 90 days falls in the month, divided by customers with a purchase in the 90 days before the month start
+- **SQL:** customers whose churn day (the day 90 days after a purchase with no next purchase in these 90 days) falls in the month, divided by the customers with a purchase in the 90 days before the month start. Use this pattern. Change only the dates: the end of the data (`<end>`, the day after the last month), the first month and the last month.
+
+```sql
+WITH purchases AS (
+  SELECT DISTINCT oi.user_id, DATE(oi.created_at) AS d
+  FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+  WHERE oi.status != 'Cancelled' AND oi.created_at < TIMESTAMP('<end>')
+),
+gaps AS (
+  SELECT user_id, d, LEAD(d) OVER (PARTITION BY user_id ORDER BY d) AS next_d
+  FROM purchases
+),
+churn AS (
+  SELECT user_id, DATE_ADD(d, INTERVAL 90 DAY) AS churn_d
+  FROM gaps
+  WHERE next_d IS NULL OR next_d > DATE_ADD(d, INTERVAL 90 DAY)
+),
+months AS (
+  SELECT m FROM UNNEST(GENERATE_DATE_ARRAY(DATE '<first month>', DATE '<last month>', INTERVAL 1 MONTH)) AS m
+),
+active AS (
+  SELECT months.m, COUNT(DISTINCT purchases.user_id) AS active_customers
+  FROM months CROSS JOIN purchases
+  WHERE purchases.d >= DATE_SUB(months.m, INTERVAL 90 DAY) AND purchases.d < months.m
+  GROUP BY months.m
+),
+churned AS (
+  SELECT DATE_TRUNC(churn_d, MONTH) AS m, COUNT(DISTINCT user_id) AS churned_customers
+  FROM churn
+  WHERE churn_d >= DATE '<first month>' AND churn_d < DATE '<end>'
+  GROUP BY m
+)
+SELECT FORMAT_DATE('%Y-%m', active.m) AS month, churned.churned_customers,
+  active.active_customers,
+  SAFE_DIVIDE(churned.churned_customers, active.active_customers) * 100 AS churn_rate_pct
+FROM active LEFT JOIN churned ON churned.m = active.m
+ORDER BY month
+```
 
 ### underspending
 - **Meaning:** Average spend per customer below the company average or below the compared group.

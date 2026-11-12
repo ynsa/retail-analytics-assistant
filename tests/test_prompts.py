@@ -23,6 +23,7 @@ GLOSSARY_KEYS = {
     "today",
     "purchase",
     "customer_of_brand",
+    "repeat_customer",
     "gross_margin",
     "churned_customer",
     "monthly_churn_rate",

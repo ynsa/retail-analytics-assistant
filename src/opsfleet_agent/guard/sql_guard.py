@@ -100,6 +100,12 @@ _PII_IN_PATH = re.compile(
 )
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 _UNKNOWN_COLUMN = re.compile(r"Column '([^']+)' could not be resolved")
+# A letter, one or two single quotes, a letter: `'Levi's'` or `'Levi''s'` (spec 50 round 1).
+_APOSTROPHE = re.compile(r"[A-Za-z]''?[A-Za-z]")
+APOSTROPHE_HINT = (
+    "A text value has an apostrophe inside single quotes, for example 'Levi's'. Write such a "
+    "text in double quotes: \"Levi's\". BigQuery does not accept two single quotes ('')."
+)
 
 
 class GuardOutcome(StrEnum):
@@ -293,7 +299,7 @@ class SqlGuard:
                 s for s in sqlglot.parse(sql, read="bigquery") if s is not None
             ]
         except (ParseError, TokenError) as exc:
-            raise _parse_error(Reason.SYNTAX, _syntax_feedback(exc)) from exc
+            raise _parse_error(Reason.SYNTAX, _syntax_feedback(exc, sql)) from exc
         if not statements:
             raise _parse_error(Reason.SYNTAX, "The SQL text is empty.")
         for statement in statements:  # step 3 (and step 5: the root of each statement)
@@ -534,14 +540,17 @@ def _clean(exc: Exception) -> str:
     )
 
 
-def _syntax_feedback(exc: Exception) -> str:
+def _syntax_feedback(exc: Exception, sql: str = "") -> str:
     errors = getattr(exc, "errors", None) or []
     if errors:
         first = errors[0]
         text = f"{first.get('description', 'syntax error')} (line {first.get('line')}, column {first.get('col')})"
     else:
         text = _clean(exc)
-    return f"The SQL has a syntax error: {_ANSI.sub('', text)[:300]}"
+    feedback = f"The SQL has a syntax error: {_ANSI.sub('', text)[:300]}"
+    if _APOSTROPHE.search(sql):  # the error tokens do not show the real cause
+        feedback += f" {APOSTROPHE_HINT}"
+    return feedback
 
 
 __all__ = ["POLICY_REASONS", "FilterLiteral", "GuardOutcome", "GuardResult", "SqlGuard"]

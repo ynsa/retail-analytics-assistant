@@ -2,7 +2,8 @@
 
 After the model call, code:
 
-1. replaces each calculation placeholder with the computed value,
+1. removes copied `<data>` blocks, then replaces each calculation placeholder with the computed
+   value,
 2. runs the figure check: a number that no result explains is replaced,
 3. adds the footer: period, brands, definitions and assumptions.
 
@@ -23,6 +24,7 @@ from opsfleet_agent.agent.calc import (
     result_numbers,
 )
 from opsfleet_agent.agent.footer import build_footer
+from opsfleet_agent.agent.formatting import strip_data_markup
 from opsfleet_agent.agent.nodes.common import (
     INTERNAL_MESSAGE,
     brands_text,
@@ -95,6 +97,7 @@ def finalize(
         sp.add_event("calc_error", {"reason": reason[:120]})
 
     results = turn.get("results") or []
+    text = strip_data_markup(text)  # the data markup is for the model only
     calc = resolve_placeholders(text, results, on_error=calc_error)
     check = check_figures(
         calc.text,

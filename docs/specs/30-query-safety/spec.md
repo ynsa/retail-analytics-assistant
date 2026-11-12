@@ -494,3 +494,5 @@ All tests are unit tests without network, except the `live` tests. The tests use
 ### B7a. Notes from round 1 of spec 50 (2026-11-12)
 
 - **Value cache: one day.** The dataset changes its full history each day. On 2026-11-12, the first sale moved from 2019-01-07 to 2019-01-12, but the cache of 2026-11-11 still gave 2019-01-07 to the prompts and to the access answer. `MAX_AGE_DAYS` is now 1: the code builds the cache again on the first start of each UTC day. The cost is one query of about 40 MB each day. Test: `tests/test_value_cache.py`.
+- **Apostrophe in a text value.** A syntax error in SQL with `'Levi's'` or `'Levi''s'` gets this extra feedback: the apostrophe is inside single quotes, write the text in double quotes (`"Levi's"`), BigQuery does not accept two single quotes. The guard rules do not change: the brand-literal check (step 15) reads `"Levi's"` as `Levi's`. Tests: `tests/test_sql_guard.py`.
+- **SQL text in the user's message.** Before the route, code checks SQL text that changes data with the guard (spec 31, B7). A policy block ends the turn with the guard message. The guard span has `purpose = user_sql`.
