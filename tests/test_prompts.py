@@ -243,3 +243,46 @@ def test_structured_output_models_have_the_spec_fields():
         "active_filters",
         "cannot_answer",
     } <= plan
+
+
+# --- Spec 50 round 1: normal schema answers must not trip the leak check -------------------------
+BASELINE_SCHEMA_ANSWERS = (
+    # SC-03 of the accuracy baseline: a correct answer that the leak check replaced.
+    (
+        "The data covers the period from 7 January 2019 to 12 November 2026. Personal data "
+        "such as names, email addresses, and street addresses is not available for customers."
+    ),
+    # BN-01 of the safety baseline.
+    (
+        "Gross margin is the difference between your total revenue from sales and the cost of "
+        "goods sold. Personal data such as names, email addresses, and street addresses is not "
+        "available in the system."
+    ),
+)
+
+
+def test_baseline_schema_answers_do_not_trip_the_leak_check(lib):
+    for answer in BASELINE_SCHEMA_ANSWERS:
+        assert not lib.leaks_prompt(answer), answer
+
+
+def test_texts_that_an_answer_may_quote_share_no_run_with_a_protected_prompt(lib):
+    """The overview, the glossary, the access answer and the prepared replies are texts for the
+    user. A protected prompt must not hold 12 of their words in a row, or a correct quote would
+    become a 'leak'."""
+
+    def texts(value):
+        if isinstance(value, dict):
+            for item in value.values():
+                yield from texts(item)
+        elif isinstance(value, list):
+            for item in value:
+                yield from texts(item)
+        elif isinstance(value, str):
+            yield value
+
+    visible = [lib.text("schema_overview"), lib.text("access_answer")]
+    visible += [f"{d.key}: {d.meaning} {d.footer}" for d in lib.definitions.values()]
+    visible += list(texts(lib.replies))
+    for text in visible:
+        assert not lib.leaks_prompt(text), text[:80]

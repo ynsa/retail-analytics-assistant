@@ -6,7 +6,8 @@ No query runs.
   get an answer that code writes from the `UserContext`: the role, the brands, the tables in plain
   words, the date range and three example questions. No model call. It never mentions cloud
   projects, keys or the system setup.
-- Other schema questions go to the model with the schema without PII and a plain overview.
+- Other schema questions go to the model with the schema without PII, a plain overview and the
+  footer sentences of the glossary (spec 50 round 1: "How do you calculate revenue?").
 - Questions about this conversation (`schema_kind = conversation`, spec 34) go to the model with
   the pinned facts, the summary and the recent turns.
 """
@@ -96,6 +97,15 @@ def _values_text(ctx: TurnContext) -> str:
     return "\n".join(lines)
 
 
+def definitions_text(ctx: TurnContext) -> str:
+    """The footer sentence of each glossary entry (spec 31 note 12: a schema answer can quote the
+    definitions). The glossary is not a protected prompt."""
+    return "\n".join(
+        f"- {d.key}: {d.footer or d.meaning}"
+        for d in ctx.services.prompts.definitions.values()
+    )
+
+
 def model_schema_answer(state: AgentState, ctx: TurnContext) -> str:
     services = ctx.services
     lib = services.prompts
@@ -119,6 +129,7 @@ def model_schema_answer(state: AgentState, ctx: TurnContext) -> str:
             f"<overview>\n{lib.text('schema_overview').strip()}\n</overview>",
             f"<fields>\n{fields_text(ctx)}\n</fields>",
             f"<values>\n{_values_text(ctx)}\n</values>",
+            f"<definitions>\n{definitions_text(ctx)}\n</definitions>",
             (
                 f"Data range: {format_day(first) if first else 'unknown'} to today, "
                 f"{format_day(Calendar.now().today)}."
@@ -131,7 +142,9 @@ def model_schema_answer(state: AgentState, ctx: TurnContext) -> str:
         system=request.system,
         prompt=request.prompt,
         purpose="schema_answer",
-        prompt_version=lib.version("safety", "schema_answer", "schema_overview"),
+        prompt_version=lib.version(
+            "safety", "schema_answer", "schema_overview", "definitions"
+        ),
     )
     return result.text.strip()
 

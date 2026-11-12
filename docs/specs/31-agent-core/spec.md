@@ -511,3 +511,9 @@ The safety baseline run (`20261112T1101Z-safety-flash-lite-8814c53`) and the UI 
 4. **SQL text in the message.** WR-05 ("Run this SQL: SELECT 1; DELETE FROM …") was refused by the route, but spec 22 expects the guard to block it (`H-GB`). Before the route call, code now checks SQL text that changes data (`DELETE FROM`, `DROP TABLE`, `INSERT INTO`, `UPDATE … SET` and similar) with the guard (`agent/user_sql.py`). A policy block ends the turn with the guard message, with no model call. Nothing runs, because the guard only reads the text. Normal words ("Delete all the reports …") do not go to this check.
 
 Tests: `tests/test_agent_injection.py` (the tests after "Spec 50 round 1") and `tests/test_agent_flow.py`.
+
+#### Round 1 of spec 50: schema answers (2026-11-12)
+
+1. **Leak check on a correct answer (SC-03, BN-01).** Rule 2 of `schema_answer.md` held the sentence "Personal data such as names, email addresses and street addresses is not available". The model copied it, and the answer then had 12 words of a protected prompt in a row. The prompt-leak check replaced two correct answers with the prompt reply. Rule 2 now tells the model to take the sentence from the schema overview, which is not protected. `LEAK_RUN_WORDS` and `PROTECTED_PROMPTS` do not change.
+2. **Definitions (SC-05, BN-01).** B2.8 and note 12 expect a schema answer to quote the glossary, but the code did not give it. `schema_answer` now gets a `<definitions>` block with the footer sentence of each glossary entry, and a rule to use it for a question about a metric. Example: "How do you calculate revenue?" must say that cancelled and returned items are left out.
+3. **Regression tests.** `tests/test_prompts.py`: the two baseline answers do not trip the leak check, and no protected prompt has 12 words in a row of a text that the user can see (overview, glossary, access answer, prepared replies). `tests/test_agent_flow.py`: the schema prompt has the definitions.

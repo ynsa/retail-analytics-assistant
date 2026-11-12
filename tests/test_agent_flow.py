@@ -118,6 +118,13 @@ def test_schema_data_question_uses_one_model_call_and_no_query(make_session):
     assert "bigquery-public-data" not in prompt and "email" not in fields
     assert "orders: order_id, user_id, status" in fields
     assert "Customer statistics cover only the customers" in llm.calls[1]["system"]
+    # Spec 50 round 1 (SC-05): the schema answer gets the footer sentences of the glossary.
+    definitions = prompt.split("<definitions>")[1].split("</definitions>")[0]
+    assert (
+        "- revenue: Revenue = sale price of items that were not cancelled or returned."
+        in definitions
+    )
+    assert "- gross_margin: Gross margin = sale price minus product cost" in definitions
 
 
 def test_format_only_message_is_pinned_for_the_next_answers(make_session):
