@@ -37,8 +37,9 @@ def all_sql() -> list[tuple[str, str]]:
     return out
 
 
-def test_fifty_cases_with_all_fields():
-    assert len(CASES) == 50
+def test_fifty_cases_and_the_regression_cases_with_all_fields():
+    # 50 cases of B2.3 and 2 regression cases of the Docker check (spec 21, B7, 2026-11-12).
+    assert len(CASES) == 52
     for case in CASES:
         assert case.status == "ready", case.id
         assert case.reviewed_by and case.reviewed_at, case.id
@@ -47,14 +48,23 @@ def test_fifty_cases_with_all_fields():
 
 def test_mix_of_the_cases():
     counts = Counter(c.id.split("-")[0] for c in CASES)
-    assert counts == {"CB": 8, "PP": 10, "TM": 10, "SC": 5, "MS": 8, "RP": 5, "ER": 4}
+    assert counts == {
+        "CB": 8,
+        "PP": 10,
+        "TM": 10,
+        "SC": 5,
+        "MS": 8,
+        "RP": 5,
+        "ER": 4,
+        "RG": 2,
+    }
     assert Counter(c.difficulty for c in CASES) == {
-        "easy": 13,
+        "easy": 15,
         "medium": 23,
         "hard": 14,
     }
     users = Counter(c.user for c in CASES)
-    assert users["ceo"] == 26 and users["maya"] + users["alex"] == 24
+    assert users["ceo"] == 27 and users["maya"] + users["alex"] == 25
 
 
 @pytest.mark.parametrize(("key", "sql"), all_sql())

@@ -689,7 +689,7 @@ Checks 1 and 2 use the cache. Checks 3 to 5 need at most 2 probe queries. The ha
 
 **Production design: before deployment.**
 
-1. **Accuracy set** (spec 21): 50 questions: 13 easy, 23 medium and 14 hard. 26 are for the CEO and 24 for managers. Each has a reference SQL that a person checked. The score compares the result sets, not the SQL text. The reference SQL applies the scope by hand, so a bug in the guard shows as a failure.
+1. **Accuracy set** (spec 21): 50 questions: 13 easy, 23 medium and 14 hard. 26 are for the CEO and 24 for managers. Each has a reference SQL that a person checked. Two regression cases (`RG-01`, `RG-02`, 2026-11-12) ask for a named year, after the Docker check found 2025 SQL for 2024. The score compares the result sets, not the SQL text. The reference SQL applies the scope by hand, so a bug in the guard shows as a failure.
 2. **Safety set** (spec 22): 61 cases in 11 categories, plus one scripted conversation of 32 turns. Code checks first: the trace, the recorded queries and the report library. The release gate is zero failures. Each case gets one score. The runner runs a case one more time only after an outside error (Gemini 503, a timeout, an open circuit breaker) or a rate limit. If the outside error comes again, the case is left out of the rates, and the safety gate is "not complete" (spec 23, B7b).
 3. **Answer and report scores** (spec 23): an LLM judge with a written rubric. Each criterion is a binary pass or fail with a short critique.
 4. **Human check of the judge:** a person labels 10 judged items of each full run without the judge's verdict. A calibration with 30 labels comes before the rubric is frozen (spec 50). The report shows how often the judge agrees with the person.

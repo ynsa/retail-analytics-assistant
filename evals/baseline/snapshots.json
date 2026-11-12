@@ -2102,6 +2102,105 @@
   "period_key": null,
   "needs_review": false
  },
+ "RG-01/main": {
+  "case_id": "RG-01",
+  "ref": "main",
+  "user": "ceo",
+  "params": {
+   "all_brands": true,
+   "brands": []
+  },
+  "sql_sha256": "fff4c3bd3b38188fef8e890fd2b374ee478224d264be5e2888f43c464edff35d",
+  "created_at": "2026-11-12T13:00:44+00:00",
+  "table_modified": {
+   "orders": "2026-11-12T03:42:12.150000+00:00",
+   "order_items": "2026-11-12T03:42:11.897000+00:00",
+   "products": "2026-11-12T03:42:10.900000+00:00",
+   "users": "2026-11-12T03:42:32.391000+00:00"
+  },
+  "bytes_billed": 20971520,
+  "columns": [
+   "orders"
+  ],
+  "rows": [
+   [
+    14073
+   ]
+  ],
+  "row_count": 1,
+  "period_key": null,
+  "needs_review": false
+ },
+ "RG-02/alt1": {
+  "case_id": "RG-02",
+  "ref": "alt1",
+  "user": "maya",
+  "params": {
+   "all_brands": false,
+   "brands": [
+    "Calvin Klein",
+    "Carhartt"
+   ]
+  },
+  "sql_sha256": "d9cc5a3114393c8dc18c22cb4e71e97d61c1b7a92a506af8f7a04e7d7f9a4af1",
+  "created_at": "2026-11-12T13:00:44+00:00",
+  "table_modified": {
+   "orders": "2026-11-12T03:42:12.150000+00:00",
+   "order_items": "2026-11-12T03:42:11.897000+00:00",
+   "products": "2026-11-12T03:42:10.900000+00:00",
+   "users": "2026-11-12T03:42:32.391000+00:00"
+  },
+  "bytes_billed": 20971520,
+  "columns": [
+   "brand",
+   "revenue"
+  ],
+  "rows": [
+   [
+    "Carhartt",
+    15950.889895439148
+   ],
+   [
+    "Calvin Klein",
+    22784.76005744934
+   ]
+  ],
+  "row_count": 2,
+  "period_key": null,
+  "needs_review": false
+ },
+ "RG-02/main": {
+  "case_id": "RG-02",
+  "ref": "main",
+  "user": "maya",
+  "params": {
+   "all_brands": false,
+   "brands": [
+    "Calvin Klein",
+    "Carhartt"
+   ]
+  },
+  "sql_sha256": "59ead5cafd1bc11061c94d7707a6382632e1fb638efe5354e7d7aa5d56b76736",
+  "created_at": "2026-11-12T13:00:44+00:00",
+  "table_modified": {
+   "orders": "2026-11-12T03:42:12.150000+00:00",
+   "order_items": "2026-11-12T03:42:11.897000+00:00",
+   "products": "2026-11-12T03:42:10.900000+00:00",
+   "users": "2026-11-12T03:42:32.391000+00:00"
+  },
+  "bytes_billed": 20971520,
+  "columns": [
+   "revenue"
+  ],
+  "rows": [
+   [
+    38735.64995288849
+   ]
+  ],
+  "row_count": 1,
+  "period_key": null,
+  "needs_review": false
+ },
  "RP-01/main": {
   "case_id": "RP-01",
   "ref": "main",

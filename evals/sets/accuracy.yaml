@@ -1,4 +1,5 @@
-# Accuracy set (spec 21): 50 questions with a reference SQL and a scoring rule.
+# Accuracy set (spec 21): 50 questions and 2 regression cases, each with a reference SQL and a
+# scoring rule.
 #
 # Rules for every reference SQL (spec 21, B2.5):
 # - full table names, only the necessary columns, no PII column;
@@ -15,7 +16,7 @@
 
 set: accuracy
 kind: accuracy
-description: 50 questions on customers, products, time, schema, multi-step, reports and empty results.
+description: 50 questions on customers, products, time, schema, multi-step, reports and empty results, and 2 regression cases.
 
 cases:
   # ---------------------------------------------------------------- Customer behavior (CB)
@@ -1607,3 +1608,77 @@ cases:
     notes: A true zero. Canada is not a country in the data.
     reviewed_by: claude-draft
     reviewed_at: "2026-11-11"
+
+  # --- Regression cases (spec 21, B7, 2026-11-12) ---------------------------------------------
+  # The Docker check found answers for 2024 with 2025 SQL and without the status filter.
+
+  - id: RG-01
+    user: ceo
+    turns: ["How many orders were placed in 2024?"]
+    capability: regression
+    difficulty: easy
+    query_types: [aggregation]
+    period: {from: "2024-01-01", to: "2025-01-01"}
+    reference_sql: |
+      SELECT COUNT(DISTINCT oi.order_id) AS orders
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2024-01-01' AND oi.created_at < TIMESTAMP '2025-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+    expected:
+      mode: value
+      columns:
+        orders: {role: value, kind: count}
+    facts:
+      - {column: orders}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    notes: >-
+      Docker check of 2026-11-12: the agent used 2025 (and once no status filter), and the footer
+      still said 2024. Orders = the glossary definition (at least one item not cancelled or
+      returned).
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-12"
+
+  - id: RG-02
+    user: maya
+    turns: ["What was the revenue of my brands in 2024?"]
+    capability: regression
+    difficulty: easy
+    query_types: [aggregation, join]
+    period: {from: "2024-01-01", to: "2025-01-01"}
+    reference_sql: |
+      SELECT SUM(oi.sale_price) AS revenue
+      FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+      JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+      WHERE oi.status NOT IN ('Cancelled', 'Returned')
+        AND oi.created_at >= TIMESTAMP '2024-01-01' AND oi.created_at < TIMESTAMP '2025-01-01'
+        AND (@all_brands OR p.brand IN UNNEST(@brands))
+    expected:
+      mode: value
+      columns:
+        revenue: {role: value, kind: money}
+    alt_references:
+      - sql: |
+          SELECT p.brand, SUM(oi.sale_price) AS revenue
+          FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+          JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+          WHERE oi.status NOT IN ('Cancelled', 'Returned')
+            AND oi.created_at >= TIMESTAMP '2024-01-01' AND oi.created_at < TIMESTAMP '2025-01-01'
+            AND (@all_brands OR p.brand IN UNNEST(@brands))
+          GROUP BY p.brand
+        expected:
+          mode: rows
+          columns:
+            brand: {role: key}
+            revenue: {role: value, kind: money}
+    facts:
+      - {column: revenue}
+    scoring: [execution_match, answer_facts]
+    expected_calls: 3
+    notes: >-
+      The named year for a manager. The answer can give the total of the two brands, or one row
+      for each brand (alternative reference).
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-12"

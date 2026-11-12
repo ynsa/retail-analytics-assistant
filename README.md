@@ -341,7 +341,7 @@ More screenshots are in [docs/images/ui/](docs/images/ui/).
 
 ## Evaluate the assistant
 
-The test sets are in `evals/sets/`: 50 accuracy questions with checked reference SQL (spec 21), 61 safety cases and a conversation of 32 turns (spec 22). The runner (spec 23) shows a plan with the Gemini calls and the cost before it starts. A run with more than 10 planned calls starts only after you type `yes`.
+The test sets are in `evals/sets/`: 50 accuracy questions and 2 regression cases with checked reference SQL (spec 21), 61 safety cases and a conversation of 32 turns (spec 22). The runner (spec 23) shows a plan with the Gemini calls and the cost before it starts. A run with more than 10 planned calls starts only after you type `yes`.
 
 ```bash
 uv run opsfleet-eval plan --set accuracy          # the plan only: no Gemini call, free BigQuery dry runs

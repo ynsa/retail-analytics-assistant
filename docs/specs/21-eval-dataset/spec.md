@@ -510,3 +510,15 @@ Tests: `tests/eval/test_snapshot.py`.
 | SC-04 | The forbidden word `street` matched the correct disclaimer "Personal data, such as customer names or street addresses, is not available". Spec 31 tells the agent to write this disclaimer. The word `email` has the same problem, because the schema overview names "email addresses". | The owner approved the removal of `street`. We also removed `email`, for the same reason. The case has no forbidden words now. |
 | RP-05 | The agent counted the customers with the revenue filter (623). The reference counts the customers with a purchase (703), as the glossary entry `customer_of_brand` says. | The owner confirmed 703. The reference does not change. The agent prompts now say that a customer count uses the purchase filter (spec 31, B7). |
 | CB-06 | "Bought again": the reference counts the customers with purchases in 2 or more distinct orders of the user's brands in the year. The glossary had no entry for it, and the agent left out the purchase filter. | The reference does not change. The glossary has a new entry `repeat_customer` with the same rule (spec 31, B7). |
+
+**Regression cases of the Docker check (2026-11-12).** The Docker live check asked "How many orders were placed in 2024?" twice. Both queries used 2025, and one had no status filter, but the footer said 2024 (spec 31, B7). Two new cases keep this error visible. The set now has 52 cases: the 50 cases of B2.3 and the group `RG` (capability `regression`, both `easy`).
+
+| Case | User | Question | Reference | Snapshot of 2026-11-12 |
+|---|---|---|---|---|
+| RG-01 | `ceo` | "How many orders were placed in 2024?" | `COUNT(DISTINCT oi.order_id)` with the revenue filter (the glossary entry `orders`), 2024-01-01 to 2025-01-01 | 14,073 orders |
+| RG-02 | `maya` | "What was the revenue of my brands in 2024?" | `SUM(oi.sale_price)` with the revenue filter, the two brands together. An alternative reference has one row for each brand. | $38,735.65 (Calvin Klein $22,784.76, Carhartt $15,950.89) |
+
+- Scoring: `execution_match` (mode `value`) and `answer_facts`. A 2025 query or a query without the status filter gives another number, so both scorers fail.
+- `drafted_by: claude`, `reviewed_by: claude-draft`. The owner confirms the cases.
+- `uv run opsfleet-eval snapshot --set accuracy --case RG-01,RG-02` made the snapshots: 3 queries, `maximum_bytes_billed` 100 MB each, 62.9 MB billed in total, 0 Gemini calls. Only these three snapshots went into `evals/baseline/snapshots.json`; the other baseline entries did not change.
+- `tests/eval/test_accuracy_set.py` counts 52 cases and the group `RG`.
