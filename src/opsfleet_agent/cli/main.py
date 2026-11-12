@@ -7,6 +7,8 @@ Specs 32 and 33 add the minimum: the report commands (`/reports`, `/open`, `/exp
 from __future__ import annotations
 
 import shlex
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import typer
@@ -30,6 +32,8 @@ DEV_NOTE = (
     "Report commands: /reports, /open <id>, /export <id> --format html|md, /undo."
 )
 COMMANDS = ("reports", "open", "export", "undo")
+CTRL_C_WINDOW_S = 2.0  # spec 36, B2.6 #4: a second Ctrl-C within 2 s ends the CLI
+STOPPED = "Stopped."
 
 
 def run_command(session, line: str) -> None:
@@ -83,7 +87,10 @@ def show_result(result) -> None:
         return
     if result.delete_outcome == "deleted":
         console.print(f"[green]{result.answer}[/green]")
-    elif result.error_type == "confirmation_rejected":
+    elif (
+        result.error_type == "confirmation_rejected"
+        or getattr(result, "status", "ok") == "cancelled"
+    ):
         console.print(f"[yellow]{result.answer}[/yellow]")
     else:
         console.print(Markdown(result.answer))
@@ -111,6 +118,85 @@ def _root() -> None:
     """Retail analytics chat assistant (prototype)."""
 
 
+def check_secrets(config) -> str | None:
+    """Spec 36, B2.6 #6: a missing `.env` value stops the start and names the variable."""
+    for name, value in (
+        ("GOOGLE_API_KEY", config.secrets.google_api_key),
+        ("GOOGLE_CLOUD_PROJECT", config.secrets.google_cloud_project),
+    ):
+        if not value:
+            return f"{name} is not set. Add it to the .env file (see .env.example)."
+    return None
+
+
+def start_error(exc: BaseException) -> str:
+    """A clear message for a failed start, for example BigQuery down without a schema cache."""
+    from opsfleet_agent.resilience.errors_map import map_bq_error
+
+    mapped = map_bq_error(exc)
+    return f"The assistant could not start. {mapped.user_message}"
+
+
+def guarded_send(session, text: str) -> None:
+    """Spec 36, B2.6 #3: no exception of one turn ends the CLI."""
+    from opsfleet_agent.resilience.safe_node import internal_message, log_exception
+
+    try:
+        send(session, text)
+    except KeyboardInterrupt:
+        cancel = getattr(getattr(session, "services", None), "bq", None)
+        if cancel is not None and hasattr(cancel, "cancel_running"):
+            cancel.cancel_running()
+        console.print(f"[yellow]{STOPPED}[/yellow]")
+    except Exception:  # noqa: BLE001 - the chat continues after any bug (spec 36)
+        log_exception("cli", None)
+        console.print(f"[yellow]{internal_message(None)}[/yellow]")
+
+
+def chat_loop(
+    session,
+    user_id: str,
+    read: Callable[[str], str] | None = None,
+    clock: Callable[[], float] = time.monotonic,
+) -> None:
+    """Read and answer until /exit, Ctrl-D, or two Ctrl-C within 2 s at the prompt.
+
+    A Ctrl-C at the `confirm>` prompt cancels the waiting delete (spec 33). A Ctrl-C during an
+    answer stops the answer and the running query (spec 36, B2.6 #4). The chat continues.
+    """
+    read = read or (lambda prompt: console.input(f"[bold cyan]{prompt}[/bold cyan]"))
+    last_ctrl_c: float | None = None
+    while True:
+        prompt = "confirm> " if session.pending is not None else f"{user_id}> "
+        try:
+            question = read(prompt).strip()
+        except EOFError:
+            console.print()
+            break
+        except KeyboardInterrupt:
+            console.print()
+            now = clock()
+            if session.pending is not None:
+                session.cancel_pending("abandoned")
+                console.print("[yellow]Delete cancelled. Nothing was deleted.[/yellow]")
+                last_ctrl_c = now
+                continue
+            if last_ctrl_c is not None and now - last_ctrl_c <= CTRL_C_WINDOW_S:
+                break
+            last_ctrl_c = now
+            console.print("[dim]Press Ctrl-C again to end, or type /exit.[/dim]")
+            continue
+        last_ctrl_c = None
+        if not question:
+            continue
+        if question in ("/exit", "/quit"):
+            break
+        if question.startswith("/"):
+            run_command(session, question)
+            continue
+        guarded_send(session, question)
+
+
 @app.command()
 def chat(
     user: str = typer.Option(..., "--user", help="User ID from config/users.yaml"),
@@ -127,6 +213,10 @@ def chat(
     except ConfigError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=2) from exc
+    missing = check_secrets(config)
+    if missing:
+        console.print(f"[red]{missing}[/red]")
+        raise typer.Exit(code=2)
 
     from opsfleet_agent.session import (
         AssistantSession,
@@ -138,9 +228,7 @@ def chat(
         try:
             services = build_services(config, refresh_cache=refresh_cache)
         except Exception as exc:
-            console.print(
-                f"[red]The assistant could not start: {type(exc).__name__}: {exc}[/red]"
-            )
+            console.print(f"[red]{start_error(exc)}[/red]")
             raise typer.Exit(code=1) from exc
     try:
         warnings = check_user_brands(config, services.values, user_ctx.id)
@@ -154,21 +242,7 @@ def chat(
     console.print(f"[bold]Hello, {user_ctx.name}.[/bold] {user_ctx.describe()}")
     console.print(f"[yellow]{DEV_NOTE}[/yellow]")
     console.print("Ask a question about the sales data. Type /exit to end.\n")
-    while True:
-        prompt = "confirm> " if session.pending is not None else f"{user_ctx.id}> "
-        try:
-            question = console.input(f"[bold cyan]{prompt}[/bold cyan]").strip()
-        except (EOFError, KeyboardInterrupt):
-            console.print()
-            break
-        if not question:
-            continue
-        if question in ("/exit", "/quit"):
-            break
-        if question.startswith("/"):
-            run_command(session, question)
-            continue
-        send(session, question)
+    chat_loop(session, user_ctx.id)
     if session.close() is not None:
         console.print("[yellow]Delete cancelled. Nothing was deleted.[/yellow]")
     console.print("Goodbye.")

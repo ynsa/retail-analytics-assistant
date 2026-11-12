@@ -167,3 +167,30 @@ delete:
   undone_files: "{{ count }} report {{ 'file is' if count == 1 else 'files are' }} back in {{ folder }}."
   nothing_to_undo: Nothing to undo.
   undo_too_old: This delete is older than 30 days. The reports cannot be restored.
+
+# Failures of outside services and of the assistant (spec 36, B2.5). Code adds "Trace: <8
+# characters>." to each failure message. The chat continues after each one.
+errors:
+  llm_timeout: The AI service did not answer in time. Please try again.
+  llm_busy: The AI service is busy. Please wait a minute and try again.
+  llm_daily: The daily Gemini free-tier limit is reached. Please try again tomorrow.
+  llm_key: The Gemini API key is not valid. Check GOOGLE_API_KEY in the .env file.
+  llm_billing: >-
+    The Gemini key belongs to a project with billing and no credit. Use a key from a project
+    without billing (see the setup guide).
+  llm_refused: The AI service refused to answer this message. Please rephrase the question.
+  llm_down: >-
+    The AI service is not available now. Your saved reports still work: /reports, /open,
+    /export, /undo. Please try again in a minute.
+  bq_down: >-
+    BigQuery is not available now. You can still use /reports, /open and /export. Please try
+    again in a minute.
+  bq_permission: >-
+    BigQuery refused access. Run `gcloud auth application-default login` and check
+    GOOGLE_CLOUD_PROJECT.
+  bq_timeout: >-
+    The query took longer than {{ seconds }} s. Please ask for a shorter period or fewer details.
+  internal: Something went wrong on my side. The chat continues.
+  stopped: Stopped.
+  not_saved: This turn is not saved.
+  trace: "Trace: {{ trace }}."

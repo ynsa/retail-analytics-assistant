@@ -30,6 +30,7 @@ from opsfleet_agent.agent.nodes.common import (
     is_manager,
     node,
     pinned_text,
+    require_bigquery,
     scope_text,
     turn_of,
     user_format,
@@ -276,6 +277,7 @@ def plan_contents(state: AgentState, ctx: TurnContext, calendar: Calendar) -> st
 @node("plan_report")
 def plan_report(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any]:
     ctx = runtime.context
+    require_bigquery(ctx)
     services = ctx.services
     prompts = services.prompts
     settings = services.settings.reports

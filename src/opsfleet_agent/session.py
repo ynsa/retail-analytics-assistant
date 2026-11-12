@@ -23,7 +23,7 @@ from opsfleet_agent.agent.state import Services, TurnContext
 from opsfleet_agent.agent.tools import ToolRegistry
 from opsfleet_agent.bq import BigQueryService
 from opsfleet_agent.config import AppConfig, Settings
-from opsfleet_agent.errors import AgentError, ConfigError, ReportNotFound
+from opsfleet_agent.errors import AgentError, ConfigError, ErrorType, ReportNotFound
 from opsfleet_agent.guard.empty_result import EmptyResultChecker
 from opsfleet_agent.guard.masker import ResultMasker
 from opsfleet_agent.guard.sql_guard import SqlGuard
@@ -40,6 +40,13 @@ from opsfleet_agent.reports.deletion import DeleteReportsTool, undo_batch
 from opsfleet_agent.reports.files import display_path
 from opsfleet_agent.reports.flow import build_report_flow, list_text
 from opsfleet_agent.reports.library import ReportLibrary
+from opsfleet_agent.resilience import messages
+from opsfleet_agent.resilience.checkpoint import GuardedSaver
+from opsfleet_agent.resilience.safe_node import (
+    init_logging,
+    internal_message,
+    log_exception,
+)
 from opsfleet_agent.schema import Schema, load_schema
 from opsfleet_agent.store.db import connect
 from opsfleet_agent.tracing import current_trace_id, init_tracing, span
@@ -76,6 +83,10 @@ class TurnResult:
         None  # deleted, wrong_number, not_exact, other_text, ...
     )
     batch_id: str | None = None  # the delete batch of a delete or an undo
+    # spec 36: "ok", "error" or "cancelled" (Ctrl-C). `saved` is False when the checkpoint write
+    # failed: the answer then ends with "This turn is not saved."
+    status: str = "ok"
+    saved: bool = True
 
 
 @dataclass(frozen=True)
@@ -126,7 +137,12 @@ def build_services(
         settings.data_path("schema_cache.json"),
         refresh_schema,
     )
-    bq = BigQueryService(runner.client, settings.bigquery, settings.limits.per_query)
+    bq = BigQueryService(
+        runner.client,
+        settings.bigquery,
+        settings.limits.per_query,
+        resilience=settings.resilience,
+    )
     conn = connect(settings.data_path("app.db"))
     try:
         budget = TurnBudget(settings.limits, DailyLedger(conn, settings.limits))
@@ -141,7 +157,12 @@ def build_services(
         conn.close()
     return Services(
         settings=settings,
-        llm=GeminiClient(settings.models, config.secrets.google_api_key),
+        llm=GeminiClient(
+            settings.models,
+            config.secrets.google_api_key,
+            resilience=settings.resilience,
+            reset_timezone=settings.limits.per_day.reset_timezone,
+        ),
         bq=bq,
         schema=Schema.from_cache(raw_schema, settings.bigquery.dataset),
         values=values,
@@ -186,13 +207,20 @@ class AssistantSession:
         self.services = services
         settings = config.settings
         init_tracing(settings.data_path("traces"))
-        self.conn = conn or connect(settings.data_path("app.db"))
+        init_logging(settings.data_path("logs"))
+        self.conn = conn or connect(
+            settings.data_path("app.db"),
+            busy_timeout_s=settings.resilience.sqlite_busy_timeout_s,
+        )
         self.ledger = DailyLedger(self.conn, settings.limits)
         if checkpointer is None:
             cp_conn = sqlite3.connect(
                 settings.data_path("checkpoints.db"), check_same_thread=False
             )
             checkpointer = SqliteSaver(cp_conn)
+        # Spec 36, B2.6 #5: a failed checkpoint write does not stop the turn.
+        self.saver = GuardedSaver(checkpointer)
+        checkpointer = self.saver
         if services.tools is None:
             services.tools = build_tools(settings, services.clock)
         self.graph = build_graph(
@@ -220,7 +248,10 @@ class AssistantSession:
     # --- turns --------------------------------------------------------------------------------
     @property
     def _config(self) -> dict[str, Any]:
-        return {"configurable": {"thread_id": self.conversation_id}}
+        return {
+            "configurable": {"thread_id": self.conversation_id},
+            "recursion_limit": self.config.settings.resilience.graph_recursion_limit,
+        }
 
     @property
     def pending(self) -> ConfirmationView | None:
@@ -281,6 +312,7 @@ class AssistantSession:
             empty_checker=self.empty_checker,
             store=self.conn,
         )
+        self.saver.write_failed = False
         with span(
             "turn",
             "turn",
@@ -289,7 +321,28 @@ class AssistantSession:
             resume=resume,
         ) as sp:
             trace_id = current_trace_id()
-            state = self.graph.invoke(graph_input, self._config, context=context)
+            try:
+                state = self.graph.invoke(graph_input, self._config, context=context)
+            except KeyboardInterrupt:
+                # Spec 36, B2.6 #4: Ctrl-C stops the turn and the running query.
+                cancel = getattr(self.services.bq, "cancel_running", None)
+                if callable(cancel):
+                    cancel()
+                sp.set_attribute("status", "cancelled")
+                return self._stopped(
+                    budget, trace_id, "cancelled", messages.text("stopped")
+                )
+            except Exception:  # noqa: BLE001 - the chat continues after any bug (spec 36)
+                log_exception("turn", trace_id)
+                sp.set_attribute("error_type", ErrorType.INTERNAL_ERROR.value)
+                sp.set_attribute("status", "error")
+                return self._stopped(
+                    budget,
+                    trace_id,
+                    "error",
+                    internal_message(trace_id),
+                    ErrorType.INTERNAL_ERROR.value,
+                )
             turn = state.get("turn") or {}
             totals = budget.totals()
             for key, value in totals.items():
@@ -298,12 +351,19 @@ class AssistantSession:
                 sp.set_attribute("error_type", turn["error_type"])
             if turn.get("intent"):
                 sp.set_attribute("intent", turn["intent"])
+            saved = not self.saver.write_failed
+            if not saved:
+                sp.set_attribute("checkpoint_failed", True)
         confirmation = self.pending if state.get("__interrupt__") else None
         report = turn.get("report") or {}
         delete = turn.get("delete") or {}
+        answer = confirmation.text if confirmation else _answer_of(state, turn)
+        if not saved:
+            answer = f"{answer}\n\n_{messages.text('not_saved')}_"
+        error_type = None if confirmation else turn.get("error_type")
         return TurnResult(
-            answer=confirmation.text if confirmation else state["messages"][-1]["text"],
-            error_type=None if confirmation else turn.get("error_type"),
+            answer=answer,
+            error_type=error_type,
             trace_id=trace_id,
             totals=totals,
             intent=turn.get("intent"),
@@ -324,6 +384,25 @@ class AssistantSession:
             if confirmation
             else delete.get("reason") or delete.get("outcome"),
             batch_id=None if confirmation else delete.get("batch_id"),
+            status="error" if error_type else "ok",
+            saved=saved,
+        )
+
+    def _stopped(
+        self,
+        budget: TurnBudget,
+        trace_id: str | None,
+        status: str,
+        text: str,
+        error_type: str | None = None,
+    ) -> TurnResult:
+        """The result of a turn that did not end in the graph: Ctrl-C or an unexpected error."""
+        return TurnResult(
+            answer=text,
+            error_type=error_type,
+            trace_id=trace_id,
+            totals=budget.totals(),
+            status=status,
         )
 
     # --- commands (no model call, no query) ---------------------------------------------------
@@ -394,6 +473,15 @@ class AssistantSession:
         except AgentError as exc:
             return CommandOutcome("error", exc.user_message)
         return CommandOutcome("error", f"Unknown command '/{name}'. Type /help.")
+
+
+def _answer_of(state: dict[str, Any], turn: dict[str, Any]) -> str:
+    """The answer of the turn: the last assistant message. When `finish` failed, the turn has no
+    new message, and the answer is the internal message that the node wrapper set."""
+    last = (state.get("messages") or [{}])[-1]
+    if last.get("role") == "assistant" and turn.get("error_type") != "internal_error":
+        return str(last.get("text") or "")
+    return str(turn.get("answer") or last.get("text") or "")
 
 
 def build_tools(settings: Settings, clock: Callable[[], datetime]) -> ToolRegistry:

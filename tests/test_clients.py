@@ -118,7 +118,8 @@ class FakeJob:
         self._error = error
         self.cancelled = False
 
-    def result(self, timeout=None, max_results=None):
+    def result(self, timeout=None, max_results=None, job_retry="default"):
+        self.result_args = {"timeout": timeout, "job_retry": job_retry}
         if self._error is not None:
             raise self._error
         return SimpleNamespace(to_dataframe=lambda: self._frame.head(max_results))
@@ -133,9 +134,19 @@ class FakeBQClient:
         self.dry_estimate = dry_estimate
         self.dry_error = dry_error
         self.configs = []
+        self.calls = []
 
-    def query(self, sql, job_config=None, location=None, job_retry="default"):
+    def query(
+        self,
+        sql,
+        job_config=None,
+        location=None,
+        retry="default",
+        timeout=None,
+        job_retry="default",
+    ):
         self.configs.append((job_config, job_retry))
+        self.calls.append({"retry": retry, "timeout": timeout, "job_retry": job_retry})
         if job_config.dry_run:
             if self.dry_error is not None:
                 raise self.dry_error

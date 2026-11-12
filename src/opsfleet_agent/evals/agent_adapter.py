@@ -257,9 +257,14 @@ class SessionAdapter:
         from opsfleet_agent.session import build_services
 
         settings = config.settings
-        # max_retries 0: the SDK retries are invisible to the cap and the throttle. A 429 ends
-        # the turn with llm_rate_limited, and the runner waits and runs the case again.
-        models = {"max_retries": 0, **({"default": model} if model else {})}
+        # max_retries 0: retries are invisible to the cap and the throttle. A 429 ends the turn
+        # with llm_rate_limited, and the runner waits and runs the case again. No fallback model
+        # (spec 36): the run measures one model, and each request goes through the cap.
+        models = {
+            "max_retries": 0,
+            "fallback": None,
+            **({"default": model} if model else {}),
+        }
         settings = settings.model_copy(
             update={"models": settings.models.model_copy(update=models)}
         )

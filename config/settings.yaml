@@ -4,7 +4,12 @@
 models:
   default: gemini-3.5-flash-lite   # development model (spec 51 chooses the final one)
   timeout_s: 30                    # for each Gemini call, capped by the time left in the turn
-  max_retries: 2                   # only on HTTP 429 and 5xx
+  max_retries: 2                   # only on a timeout, HTTP 429 (short wait) and 5xx (spec 36)
+  # Spec 36: one attempt with this model when the main model fails (timeout, 429, 5xx, or its
+  # circuit breaker is open). A different free-tier model has its own free-tier limits. The free
+  # tier of gemini-3.8-flash allows only about 20 calls a day, so it is not the fallback.
+  # null turns the fallback off. Spec 51 makes the final choice.
+  fallback: gemini-3.1-flash-lite
 
 bigquery:
   dataset: bigquery-public-data.thelook_ecommerce
@@ -30,6 +35,18 @@ limits:
     max_llm_calls: 480
     max_bq_bytes_billed: 20000000000   # 20 GB
     reset_timezone: America/Los_Angeles  # Google resets the free-tier quota at midnight Pacific time
+
+resilience:                        # spec 36
+  bq_dry_run_timeout_s: 10
+  bq_retries: 1                    # only for temporary errors (backendError, 500, 503, ...)
+  retry_waits_s: [1, 2]            # plus a random part of up to 50%
+  retry_jitter: 0.5
+  retry_after_max_s: 10            # a longer Retry-After stops the retries
+  min_time_left_s: 5               # no attempt starts with less time left in the turn
+  breaker_threshold: 3             # failures in a row open the circuit breaker
+  breaker_open_s: 60
+  graph_recursion_limit: 60
+  sqlite_busy_timeout_s: 5
 
 paths:
   data_dir: data

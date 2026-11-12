@@ -6,6 +6,7 @@ Later specs add tables by appending migrations to `MIGRATIONS`. A migration neve
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Callable
 from pathlib import Path
 
 MIGRATIONS: list[str] = [
@@ -107,15 +108,27 @@ MIGRATIONS: list[str] = [
 ]
 
 
-def connect(path: Path) -> sqlite3.Connection:
-    """Open the database and apply the migrations that are not applied yet."""
+def connect(path: Path, busy_timeout_s: float = 5.0) -> sqlite3.Connection:
+    """Open the database and apply the migrations that are not applied yet. SQLite waits up to
+    `busy_timeout_s` for a lock (spec 36, B2.2)."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, check_same_thread=False)
+    conn = sqlite3.connect(path, timeout=busy_timeout_s, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     migrate(conn)
     return conn
+
+
+def retry_locked[T](call: Callable[[], T], retries: int = 1) -> T:
+    """Spec 36, B2.2: one retry when SQLite says "database is locked" after its busy timeout."""
+    for attempt in range(retries + 1):
+        try:
+            return call()
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower() or attempt >= retries:
+                raise
+    raise AssertionError("unreachable")  # pragma: no cover
 
 
 def migrate(conn: sqlite3.Connection) -> None:

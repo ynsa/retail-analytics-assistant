@@ -541,7 +541,11 @@ def test_gemini_timeout_gives_one_sentence(make_session):
     )
     result = session.ask("How many orders?")
     assert result.error_type == "llm_timeout"
-    assert result.answer == "The language model did not answer in time."
+    # Spec 36, B2.5: the message of the error type, and the first 8 characters of the trace ID.
+    assert result.answer == (
+        "The AI service did not answer in time. Please try again. "
+        f"Trace: {result.trace_id[:8]}."
+    )
 
 
 def test_bigquery_permission_error_is_not_retried(make_session):

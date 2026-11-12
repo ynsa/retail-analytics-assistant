@@ -24,6 +24,25 @@ class ModelSettings(_Strict):
     default: str
     timeout_s: float = Field(gt=0)
     max_retries: int = Field(ge=0, le=5)
+    # Spec 36: one attempt with this model when the main model fails. None turns it off.
+    fallback: str | None = None
+
+
+class ResilienceSettings(_Strict):
+    """Retries, timeouts and circuit breakers (spec 36, B3). The Gemini timeout and retry count
+    are `models.timeout_s` and `models.max_retries`. The query timeout is
+    `limits.per_query.timeout_s`."""
+
+    bq_dry_run_timeout_s: float = Field(default=10, gt=0)
+    bq_retries: int = Field(default=1, ge=0, le=3)
+    retry_waits_s: list[float] = Field(default_factory=lambda: [1.0, 2.0])
+    retry_jitter: float = Field(default=0.5, ge=0, le=1)
+    retry_after_max_s: float = Field(default=10, ge=0)
+    min_time_left_s: float = Field(default=5, ge=0)
+    breaker_threshold: int = Field(default=3, gt=0)
+    breaker_open_s: float = Field(default=60, gt=0)
+    graph_recursion_limit: int = Field(default=60, gt=0)
+    sqlite_busy_timeout_s: float = Field(default=5, gt=0)
 
 
 class BigQuerySettings(_Strict):
@@ -141,6 +160,7 @@ class Settings(_Strict):
     paths: Paths
     agent: AgentSettings = Field(default_factory=AgentSettings)
     reports: ReportSettings = Field(default_factory=ReportSettings)
+    resilience: ResilienceSettings = Field(default_factory=ResilienceSettings)
 
     def project_path(self, path: Path) -> Path:
         """A path from the settings: relative paths start at the project root."""

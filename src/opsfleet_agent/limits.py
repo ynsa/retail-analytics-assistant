@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 
 from opsfleet_agent.config import Limits
 from opsfleet_agent.errors import LimitExceeded
+from opsfleet_agent.store.db import retry_locked
 
 TurnKind = Literal["question", "report"]
 RESET_NOTE = (
@@ -113,9 +114,11 @@ class DailyLedger:
         bq_bytes_billed: int = 0,
     ) -> None:
         day = self.day()
-        with self._conn:
-            self._conn.execute(
-                """
+
+        def write() -> None:
+            with self._conn:
+                self._conn.execute(
+                    """
                 INSERT INTO usage_daily (day, llm_calls, tokens_in, tokens_out, bq_queries, bq_bytes_billed)
                 VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(day) DO UPDATE SET
@@ -125,8 +128,17 @@ class DailyLedger:
                     bq_queries = bq_queries + excluded.bq_queries,
                     bq_bytes_billed = bq_bytes_billed + excluded.bq_bytes_billed
                 """,
-                (day, llm_calls, tokens_in, tokens_out, bq_queries, bq_bytes_billed),
-            )
+                    (
+                        day,
+                        llm_calls,
+                        tokens_in,
+                        tokens_out,
+                        bq_queries,
+                        bq_bytes_billed,
+                    ),
+                )
+
+        retry_locked(write)  # spec 36, B2.2: one retry on "database is locked"
 
 
 class TurnBudget:
@@ -153,6 +165,10 @@ class TurnBudget:
             0  # calls that only the last steps of a report may use
         )
         self.llm_calls = 0
+        self.llm_attempts = (
+            0  # spec 36: retries and fallback attempts after the first one
+        )
+        self.fallback_calls = 0  # spec 36: calls that the fallback model answered
         self.bq_queries = 0
         self.tokens_in = 0
         self.tokens_out = 0
@@ -181,16 +197,25 @@ class TurnBudget:
 
     def check_time(self) -> None:
         if self.elapsed() >= self.max_seconds:
-            if self.kind == "report":
-                raise LimitExceeded(
-                    "per_turn.max_seconds_report",
-                    f"The report took longer than {self.max_seconds:g} s. "
-                    "Please ask for a shorter period or fewer topics.",
-                )
+            self._time_exceeded()
+
+    def check_time_left(self, min_seconds: float) -> None:
+        """Spec 36, B2.2: no attempt starts when less than `min_seconds` are left in the turn.
+        The turn then ends with the time message."""
+        if self.remaining_seconds() < min_seconds:
+            self._time_exceeded()
+
+    def _time_exceeded(self) -> None:
+        if self.kind == "report":
             raise LimitExceeded(
-                "per_turn.max_seconds",
-                f"The answer took longer than {self.max_seconds:g} s. Please ask a narrower question.",
+                "per_turn.max_seconds_report",
+                f"The report took longer than {self.max_seconds:g} s. "
+                "Please ask for a shorter period or fewer topics.",
             )
+        raise LimitExceeded(
+            "per_turn.max_seconds",
+            f"The answer took longer than {self.max_seconds:g} s. Please ask a narrower question.",
+        )
 
     # --- Gemini -----------------------------------------------------------------------------
     def charge_llm(self) -> None:
@@ -211,6 +236,14 @@ class TurnBudget:
             )
         self._ledger.check_llm()
         self.llm_calls += 1
+        self._ledger.add(llm_calls=1)
+
+    def charge_attempt(self) -> None:
+        """Spec 36, B2.2: a retry or a fallback attempt of a Gemini call. The free tier counts
+        each request, so the daily ledger counts it. The turn limit counts the logical call once."""
+        self.check_time()
+        self._ledger.check_llm()
+        self.llm_attempts += 1
         self._ledger.add(llm_calls=1)
 
     def record_tokens(self, tokens_in: int, tokens_out: int) -> None:
@@ -242,6 +275,8 @@ class TurnBudget:
     def totals(self) -> dict[str, float | int]:
         return {
             "llm_calls": self.llm_calls,
+            "llm_attempts": self.llm_calls + self.llm_attempts,  # spec 36: each request
+            "fallback_calls": self.fallback_calls,
             "bq_queries": self.bq_queries,
             "tokens_in": self.tokens_in,
             "tokens_out": self.tokens_out,

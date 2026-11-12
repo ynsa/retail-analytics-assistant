@@ -14,6 +14,7 @@ from opsfleet_agent.agent.nodes.common import (
     is_manager,
     node,
     pinned_text,
+    require_bigquery,
     scope_text,
     turn_of,
 )
@@ -112,6 +113,7 @@ def build_contents(state: AgentState, ctx: TurnContext, calendar: Calendar) -> s
 @node("write_sql")
 def write_sql(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any]:
     ctx = runtime.context
+    require_bigquery(ctx)
     lib = ctx.services.prompts
     turn = turn_of(state)
     calendar = Calendar.now()

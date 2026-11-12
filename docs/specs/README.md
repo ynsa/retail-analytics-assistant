@@ -26,7 +26,7 @@ Each part of the work has one spec. The phases and the order are in [the roadmap
 | 33 | [Delete with confirmation](33-delete-confirmation/spec.md) | 2 / C | 32 | 3 | Done |
 | 34 | [Long conversations and memory](34-long-conversations/spec.md) | 2 / C | 31 | 3 | Approved |
 | 35 | [Observability and statistics](35-observability/spec.md) | 2 / C | 00 | 3 | Approved |
-| 36 | [Resilience](36-resilience/spec.md) | 2 / C | 00, 31 | 3 | Approved |
+| 36 | [Resilience](36-resilience/spec.md) | 2 / C | 00, 31 | 3 | Done |
 | 37 | [CLI](37-cli/spec.md) | 2 / C | 31–36 | 2 | Approved |
 | 40 | [Local test UI: screens and behavior](40-local-ui/spec.md) | 2 / A | 31–35 | 2 | Approved |
 | 50 | [Evaluation on the real agent](50-eval-real-agent/spec.md) | 3 | 21–23, 30–37 | 2 | Approved |

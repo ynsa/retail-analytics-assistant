@@ -123,3 +123,116 @@ def test_purge_dry_run_command(monkeypatch, config):
     monkeypatch.setattr(cli, "load_config", lambda: config)
     result = runner.invoke(app, ["purge", "--dry-run"])
     assert result.exit_code == 0 and "Nothing to purge." in result.output
+
+
+# --- spec 36: no crash, Ctrl-C ------------------------------------------------------------------
+
+
+class _LoopSession:
+    def __init__(self, fail_with=None):
+        self.pending = None
+        self.sent = []
+        self.fail_with = fail_with
+        self.cancelled = []
+
+    def send(self, text):
+        self.sent.append(text)
+        if self.fail_with is not None:
+            raise self.fail_with
+        return _Result("There were 12 orders.")
+
+    def cancel_pending(self, reason):
+        self.cancelled.append(reason)
+        self.pending = None
+
+
+def _reader(items):
+    items = list(items)
+
+    def read(prompt):
+        item = items.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+    return read
+
+
+def test_two_ctrl_c_within_2_seconds_end_the_chat(capsys):
+    from opsfleet_agent.cli.main import chat_loop
+
+    session = _LoopSession()
+    times = iter([10.0, 11.0])
+    chat_loop(
+        session,
+        "maya",
+        read=_reader([KeyboardInterrupt(), KeyboardInterrupt(), "never"]),
+        clock=lambda: next(times),
+    )
+    assert "Press Ctrl-C again" in capsys.readouterr().out and session.sent == []
+
+
+def test_one_ctrl_c_keeps_the_chat(capsys):
+    from opsfleet_agent.cli.main import chat_loop
+
+    session = _LoopSession()
+    times = iter([10.0, 20.0])
+    chat_loop(
+        session,
+        "maya",
+        read=_reader([KeyboardInterrupt(), "orders?", KeyboardInterrupt(), "/exit"]),
+        clock=lambda: next(times),
+    )
+    assert session.sent == ["orders?"]
+    assert "There were 12 orders." in capsys.readouterr().out
+
+
+def test_ctrl_c_at_confirm_cancels_the_delete(capsys):
+    from opsfleet_agent.cli.main import chat_loop
+
+    session = _LoopSession()
+    session.pending = object()
+    chat_loop(session, "maya", read=_reader([KeyboardInterrupt(), "/exit"]))
+    assert session.cancelled == ["abandoned"]
+    assert "Delete cancelled. Nothing was deleted." in capsys.readouterr().out
+
+
+def test_an_exception_in_a_turn_does_not_end_the_cli(capsys, tmp_path):
+    from opsfleet_agent.cli.main import chat_loop
+
+    session = _LoopSession(fail_with=RuntimeError("bug"))
+    chat_loop(session, "maya", read=_reader(["orders?", EOFError()]))
+    out = capsys.readouterr().out
+    assert "Something went wrong on my side. The chat continues." in out
+    assert "RuntimeError" not in out  # no stack trace on the screen
+
+
+def test_ctrl_c_outside_the_session_shows_stopped(capsys):
+    from opsfleet_agent.cli.main import chat_loop
+
+    session = _LoopSession(fail_with=KeyboardInterrupt())
+    chat_loop(session, "maya", read=_reader(["orders?", "/exit"]))
+    assert "Stopped." in capsys.readouterr().out
+
+
+def test_missing_env_value_stops_the_start_and_names_it(monkeypatch, config):
+    import opsfleet_agent.cli.main as cli
+    from opsfleet_agent.config import Secrets
+
+    cfg = config.model_copy(
+        update={"secrets": Secrets(google_api_key=None, google_cloud_project="p")}
+    )
+    monkeypatch.setattr(cli, "load_config", lambda: cfg)
+    result = runner.invoke(app, ["chat", "--user", "maya"])
+    assert result.exit_code == 2 and "GOOGLE_API_KEY is not set" in result.output
+
+
+def test_start_error_with_bigquery_down_is_clear():
+    from google.api_core import exceptions as gexc
+
+    from opsfleet_agent.cli.main import start_error
+
+    text = start_error(gexc.ServiceUnavailable("down"))
+    assert text.startswith(
+        "The assistant could not start. BigQuery is not available now."
+    )

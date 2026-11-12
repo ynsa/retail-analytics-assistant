@@ -1,6 +1,6 @@
 # Spec 36: Resilience
 
-- **Status:** Approved (owner review, 2026-11-11)
+- **Status:** Done (2026-11-12)
 - **Phase and stream:** Phase 2, stream C
 - **Depends on:** 00 (clients, budget, error types), 31 (graph), 35 (spans and statistics)
 - **Requirements covered:** Req 5 (resilience to failures of outside services, no crash of the interface, no cost growth)
@@ -271,3 +271,58 @@ All unit tests use fake clients and a fake clock. No real wait happens.
 - The SDK option names for the retries can change between versions. A unit test checks the options on the client object.
 - The detection of a daily quota reads the error details of the Gemini API. If the format changes, the error counts as a normal 429. The breaker then still stops the calls.
 - Breakers live in one process. A second CLI on the same machine has its own breakers. This is fine for the prototype.
+
+### B7. Implementation notes (2026-11-12)
+
+#### Deviations from this spec
+
+| # | Spec text | Implementation | Reason |
+|---|---|---|---|
+| 1 | B1: the retry library is `tenacity` | A small loop in `resilience/policies.py` (`run_with_retries`) | The loop must check the time left before each attempt and before each wait, apply the `Retry-After` rule, count each attempt in the daily ledger, and use a fake sleep in the tests. These are about 40 lines. `tenacity` is not a direct dependency. |
+| 2 | B1 and B3: the fallback model is `gemini-3.8-flash` | `models.fallback: gemini-3.1-flash-lite` | Owner decision (2026-11-11). See "Fallback model" below. |
+| 3 | B3: `resilience.gemini_timeout_s`, `gemini_retries`, `bq_query_timeout_s` | The Gemini timeout and retry count stay `models.timeout_s` and `models.max_retries` (spec 00). The query timeout stays `limits.per_query.timeout_s`. The section `resilience` has the other values, and also `retry_jitter` and `sqlite_busy_timeout_s`. | One value has one place. |
+| 4 | B2.4 and B4 #4: a daily-quota 429 opens the breaker until midnight UTC | Until midnight Pacific time | Google resets the free-tier quota at midnight Pacific time (spec 00, B7). |
+| 5 | B2.4: what counts for the breaker | A temporary failure after all retries counts. An answer of the service that refuses the request (400, a wrong key, a safety block, a wrong JSON format, a SQL error) counts as a success: the service works. A query timeout of BigQuery does not count: a long query is a problem of the query. A turn limit or Ctrl-C during a trial call only frees the trial. | The breaker must stop calls to a service that is down, not to a service that refuses one request. |
+| 6 | B2.2: a 429 with `Retry-After` | The Gemini API sends the wait in the error detail `RetryInfo.retryDelay` ("41s"), not in a header. Code reads both. A 429 without a wait gets the normal waits. | The real error format. |
+| 7 | B2.5: 401 and 403 give the key message | A 400 with `API_KEY_INVALID` also gives the key message. | Gemini answers a wrong key with HTTP 400. |
+| 8 | B3: `safe_node.py` has the `safe_node` decorator | The node wrapper stays `agent/nodes/common.node()` (spec 31). `resilience/safe_node.py` has the message and log helpers that the wrapper and the session use. | Every node already has the wrapper. One wrapper keeps one behavior. |
+| 9 | B2.6 #3: the CLI catches every exception around one turn | The session also does it: `AssistantSession.send()` catches every exception and `GraphRecursionError` and gives the `internal_error` message. The CLI loop catches as a last net. | The evaluation runner and the UI get the same behavior as the CLI. |
+| 10 | B2.6 #4: Ctrl-C | During a turn, the session catches `KeyboardInterrupt`, cancels the running job (`BigQueryService.cancel_running()`) and returns "Stopped." with `TurnResult.status = "cancelled"`. At the `confirm>` prompt, Ctrl-C cancels the waiting delete (spec 33) and the chat continues. At the empty prompt, the first Ctrl-C shows "Press Ctrl-C again to end, or type /exit." | Spec 33 says that Ctrl-C cancels a waiting delete. |
+| 11 | B2.3: the turn row gets `fallback_used` (spec 35) | `TurnResult.totals` has `fallback_calls` and `llm_attempts`. Spec 35 adds the column to the turn row. | Spec 35 owns the metric columns. |
+| 12 | B2.6 #5: a failed checkpoint write | `resilience/checkpoint.py`: `GuardedSaver` wraps the checkpoint saver. A failed write is logged, and the answer ends with "This turn is not saved." (`TurnResult.saved = False`). | LangGraph writes the checkpoint inside the graph run. Without the wrapper, the answer is lost. |
+| 13 | B2.5: "Each failure message ends with the trace" | The failure types get the trace: `llm_timeout`, `llm_rate_limited`, `llm_error`, `bq_permission`, `bq_timeout`, `bq_error`, `tool_error` (not a report that is not found) and `internal_error`. A limit, a guard block, a rejected confirmation and an empty result are answers about the request, so they get no trace. | The spec 00 and spec 30 messages stay as they are. |
+| 14 | A2.11: the internal message | "Something went wrong on my side. The chat continues. Trace: 4f2a9c1e." The stack trace goes to `data/logs/agent.log`. | As A2.11. The old text was "… so I could not answer. Please try again." |
+
+#### Fallback model
+
+- **Choice:** `gemini-3.1-flash-lite` (setting `models.fallback`, `null` turns it off).
+- **Reason:**
+  - The key is on the free tier. The free-tier limits are for each model, so a second model has its own daily and per-minute limits.
+  - The free tier of `gemini-3.8-flash` allows only about 20 requests each day (spec 23, B7). As a fallback, it would fail on a busy day.
+  - `gemini-3.1-flash-lite` is a different model generation than the main model `gemini-3.5-flash-lite`, so a problem of one model version does not stop both. It is a small and fast model, and it supports the same JSON schema output.
+  - `gemini-2.5-flash-lite` was the other candidate. It is older, and Google retires older generations first.
+- **Model list:** `google.genai` `models.list()` on 2026-11-12 (no generation, free). The key can use `gemini-2.5-flash`, `gemini-2.5-flash-lite`, `gemini-2.5-pro`, `gemini-3.1-flash-lite`, `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-3.6-flash`, `gemini-3.7-flash`, `gemini-3.8-flash`, two Gemma 4 models and some preview and image models.
+- **Live check (2026-11-12):** 1 call to `gemini-3.1-flash-lite` through `GeminiClient` ("Reply with the word OK."): the answer "OK", 13 tokens in, 1 token out, 0.83 s. `usage_daily` for 2026-11-12: 16 calls before, 17 after.
+- Spec 51 makes the final choice of the main model and the fallback model.
+
+#### Changes outside this spec
+
+- Spec 00: `TurnBudget.check_time_left()`, `TurnBudget.charge_attempt()` (a retry or a fallback attempt: daily ledger only), and the totals `llm_attempts` and `fallback_calls`. `LlmResponse` has `fallback_used`. `GeminiClient.generate(..., allow_fallback=True)`. `store/db.connect()` sets the SQLite busy timeout, and `retry_locked()` retries a locked write once (the daily ledger uses it).
+- Spec 31: `write_sql` and `plan_report` (spec 32) first check the BigQuery breaker (`require_bigquery()`). When it is open, the turn ends with the BigQuery message after 1 model call (the route).
+- Spec 23: the evaluation adapter and the judge set `models.fallback` to `null` and `models.max_retries` to 0. A run measures one model, and the call cap sees each request.
+- Spec 37: the CLI loop is `cli/main.chat_loop()`. A missing `GOOGLE_API_KEY` or `GOOGLE_CLOUD_PROJECT` stops the start and names the variable. A start error gives a clear message (for example "The assistant could not start. BigQuery is not available now. …").
+- The texts of B2.5 are in the section `errors` of `agent/prompts/replies.yaml`.
+
+#### Interfaces for the CLI (spec 37) and the evaluation runner
+
+- `TurnResult.status`: `ok`, `error` or `cancelled`. `TurnResult.saved`: False when the checkpoint write failed.
+- `TurnResult.totals`: also `llm_attempts` (each request, with retries and the fallback) and `fallback_calls`.
+- `BigQueryService.available()` (False while the breaker is open) and `cancel_running()`.
+- `GeminiClient.breakers.states()` gives the state of each breaker, for `/trace` or `/stats`.
+- Spans: the `llm` span has the events `retry` (attempt, error type, kind, wait) and `fallback`, and the attributes `model` (the model that answered) and `fallback_used`. The `llm` and `sql` spans have the event `circuit_open` with the breaker name.
+
+#### Tests
+
+- 807 unit tests pass (730 before this spec). `tests/test_resilience.py` covers the cases 1–25 of B4 and the message of each error type. `tests/test_cli.py` covers Ctrl-C, an exception in a turn and the start errors.
+- The unit tests make no real wait: the fixture `sleeps` (in `tests/conftest.py`) collects the waits.
+- Not done yet: the manual checks inside Docker (a wrong API key, no network, an expired login). Spec 53 runs them.

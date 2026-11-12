@@ -62,6 +62,16 @@ def _fresh_tracing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(tracing, "_provider", None)
 
 
+@pytest.fixture(autouse=True)
+def sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """No real wait in a unit test (spec 36, B4): the retry waits go to this list."""
+    from opsfleet_agent.resilience import policies
+
+    waits: list[float] = []
+    monkeypatch.setattr(policies, "_sleep", waits.append)
+    return waits
+
+
 @pytest.fixture
 def config(tmp_path: Path) -> AppConfig:
     cfg = load_config()

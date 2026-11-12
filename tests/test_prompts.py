@@ -126,6 +126,9 @@ def test_every_prepared_reply_renders(lib):
         "expected": "delete 3",
         "folder": "data/reports/maya/",
         "files": "data/reports/maya/R-AAAAA.html",
+        # spec 36
+        "seconds": 30,
+        "trace": "4f2a9c1e",
     }
 
     def walk(node, path=""):

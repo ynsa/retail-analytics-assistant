@@ -32,7 +32,15 @@ The delete with confirmation (spec 33) is active:
 - Any other answer cancels. A new question at the confirmation cancels the delete, and the assistant then answers the question.
 - The delete moves the report files to a trash folder. `/undo` (or "Undo the delete") restores the reports and their files for 30 days. `opsfleet-agent purge` deletes older batches for good.
 
-The long-conversation memory, the statistics and the full CLI follow in Phase 2 (specs 34–37).
+Resilience (spec 36) is active:
+
+- A short failure of Gemini or BigQuery gets a fixed number of retries (Gemini 2, BigQuery 1), always inside the time limit of the answer.
+- When the main model still fails, a second free-tier model (`gemini-3.1-flash-lite`, setting `models.fallback`) answers once.
+- After 3 failures in a row, the assistant stops the calls to that service for 60 s and answers at once with a clear message.
+- Each failure message ends with a trace ID, for example "Trace: 4f2a9c1e." The details go to `data/logs/agent.log`. The chat never stops after an error. Ctrl-C stops the current answer and the running query.
+- The daily limits reset at midnight Pacific time, as the Gemini free tier does.
+
+The long-conversation memory, the statistics and the full CLI follow in Phase 2 (specs 34, 35 and 37).
 
 The production design document and the diagrams (specs 10 and 11) are ready for review.
 
