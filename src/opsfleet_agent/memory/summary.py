@@ -124,6 +124,19 @@ def summarize(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any
     messages = list(state.get("messages") or [])
     if not needs_summary(messages, settings):
         return {}
+    try:
+        return _summarize(state, ctx, settings, messages)
+    except Exception:  # noqa: BLE001 - the answer is done; the next turn tries again
+        log_exception("summarize", current_trace_id())
+        return {}
+
+
+def _summarize(
+    state: AgentState,
+    ctx: TurnContext,
+    settings: ContextSettings,
+    messages: list[Message],
+) -> dict[str, Any]:
     with span("node.summarize", "node") as sp:
         folded = set(turn_numbers(messages)[: settings.fold_turns])
         turns = [(n, msgs) for n, msgs in turns_of(messages) if n in folded]

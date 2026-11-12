@@ -364,6 +364,9 @@ class AssistantSession:
         turn_no = self._turn_no() + 1
         return self._run(
             {
+                # `load_context` adds 1. The input also corrects a number that a failed
+                # checkpoint write did not keep, so two turns never share one number.
+                "turn_no": turn_no - 1,
                 "messages": [
                     {
                         "role": "user",
@@ -382,8 +385,15 @@ class AssistantSession:
         )
 
     def _turn_no(self) -> int:
+        """The number of the last turn: from the checkpoint, or from the conversation log when
+        a checkpoint write failed (spec 36, B2.6 #5)."""
         values = self.graph.get_state(self._config).values or {}
-        return int(values.get("turn_no") or 0)
+        row = self.conn.execute(
+            "SELECT MAX(turn_no) AS n FROM conversation_turns WHERE conversation_id = ?",
+            (self.conversation_id,),
+        ).fetchone()
+        logged = int((row["n"] if row else 0) or 0)
+        return max(int(values.get("turn_no") or 0), logged)
 
     def ask(self, question: str) -> TurnResult:
         """The same as `send()` (the name of spec 31, used by the evaluation runner)."""
@@ -476,22 +486,37 @@ class AssistantSession:
         trace_id: str | None,
         on_answer: Callable[[TurnResult], None] | None,
     ) -> dict[str, Any]:
-        """Run the graph. When `finish` ends, `on_answer` gets the answer (spec 34, B2.4)."""
+        """Run the graph. When `finish` ends, `on_answer` gets the answer (spec 34, B2.4).
+
+        The checkpoint of each step is written before the next step (`durability="sync"`), so
+        the note "This turn is not saved." is correct already in `on_answer`. A Ctrl-C or an error
+        after `finish` (in the summary) keeps the answer: the summary runs again at the next turn.
+        """
         state: dict[str, Any] = {}
         finished = answered = False
-        for mode, chunk in self.graph.stream(
-            graph_input,
-            self._config,
-            context=context,
-            stream_mode=["updates", "values"],
-        ):
-            if mode == "updates":
-                finished = finished or "finish" in chunk
-                continue
-            state = chunk
-            if finished and not answered and on_answer is not None:
-                answered = True
-                on_answer(self._result(state, context.budget, context, trace_id))
+        try:
+            for mode, chunk in self.graph.stream(
+                graph_input,
+                self._config,
+                context=context,
+                stream_mode=["updates", "values"],
+                durability="sync",
+            ):
+                if mode == "updates":
+                    finished = finished or "finish" in chunk
+                    continue
+                state = chunk
+                if finished and not answered and on_answer is not None:
+                    answered = True
+                    on_answer(self._result(state, context.budget, context, trace_id))
+        except (Exception, KeyboardInterrupt) as exc:
+            if not finished:
+                raise
+            if isinstance(exc, Exception):
+                log_exception("after the answer", trace_id)
+            cancel = getattr(self.services.bq, "cancel_running", None)
+            if callable(cancel):
+                cancel()
         return state
 
     def _result(

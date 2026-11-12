@@ -934,3 +934,60 @@ def test_context_settings_are_in_the_settings_file(config):
 
 def test_turn_context_type_is_unchanged():
     assert "store" in TurnContext.__dataclass_fields__
+
+
+# --- review findings (2026-11-12) -------------------------------------------------------------------
+
+
+def test_ctrl_c_during_the_summary_keeps_the_answer(new_session, conn):
+    turns = script()[:9]
+    llm = ScriptLLM(summary=KeyboardInterrupt())
+    run = run_script(new_session, turns, llm=llm)
+    ninth = run.results[8]
+    assert ninth.answer == "Four tables." and ninth.status == "ok"
+    row = conn.execute(
+        "SELECT answer_text, status FROM conversation_turns WHERE turn_no = 9"
+    ).fetchone()
+    assert (row["answer_text"], row["status"]) == ("Four tables.", "ok")
+    assert not values_of(run.session).get("summary")  # the next turn tries again
+
+
+def test_a_lost_checkpoint_does_not_reuse_the_turn_number(new_session, conn):
+    session = new_session(
+        llm=ScriptLLM([route_reply("chitchat", chitchat_kind="greeting")] * 2)
+    )
+    session.send("hi")
+    conn.execute(  # as if the checkpoint of a second turn was lost
+        "INSERT INTO conversation_turns (conversation_id, turn_no, started_at, user_text) "
+        "VALUES (?, 2, '2026-11-11T12:00:00+00:00', 'lost')",
+        (session.conversation_id,),
+    )
+    result = session.send("hi again")
+    assert result.turn_no == 3
+    texts = [
+        t.user_text for t in conversations.last_turns(conn, session.conversation_id)
+    ]
+    assert texts == ["hi", "lost", "hi again"]
+
+
+def test_a_failed_migration_changes_nothing(tmp_path, monkeypatch):
+    import sqlite3
+
+    from opsfleet_agent.store import db
+
+    path = tmp_path / "app.db"
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    all_migrations = list(db.MIGRATIONS)
+    monkeypatch.setattr(db, "MIGRATIONS", all_migrations[:3])
+    db.migrate(conn)
+    conn.execute(
+        "CREATE TABLE conversation_turns (x INTEGER)"
+    )  # makes migration 4 fail
+    conn.commit()
+    monkeypatch.setattr(db, "MIGRATIONS", all_migrations)
+    with pytest.raises(sqlite3.OperationalError):
+        db.migrate(conn)
+    columns = [r[1] for r in conn.execute("PRAGMA table_info(conversations)")]
+    assert "last_active_at" not in columns
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == 3

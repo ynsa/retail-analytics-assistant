@@ -326,3 +326,7 @@ All unit tests use fake clients and a fake clock. No real wait happens.
 - 807 unit tests pass (730 before this spec). `tests/test_resilience.py` covers the cases 1–25 of B4 and the message of each error type. `tests/test_cli.py` covers Ctrl-C, an exception in a turn and the start errors.
 - The unit tests make no real wait: the fixture `sleeps` (in `tests/conftest.py`) collects the waits.
 - Not done yet: the manual checks inside Docker (a wrong API key, no network, an expired login). Spec 53 runs them.
+
+#### Note about a daily quota (2026-11-12)
+
+B4 #4 says: no fallback after a daily-quota error. B2.3 says: the fallback runs when the breaker of the main model is open. The code follows both. So the turn with the daily-quota error ends with "The daily Gemini free-tier limit is reached. Please try again tomorrow.", and the next question uses the fallback model, because the daily quota opened the breaker of the main model. The owner can choose one behavior later. The code review of spec 34 (B7) found this point.

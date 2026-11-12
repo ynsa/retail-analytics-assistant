@@ -331,7 +331,7 @@ The evaluation adapter needs no change: it calls `send(text)` and reads the same
 
 #### Tests
 
-- 843 unit tests pass (807 after spec 36). `tests/test_memory.py` covers the cases 1–17 of B4 with a fake Gemini that records each request, the script of B4.1 (32 turns), the context builder, the conversation log, the resume messages, the facts that the user sets, and `on_answer` before the summary.
+- 846 unit tests pass (807 after spec 36). `tests/test_memory.py` covers the cases 1–17 of B4 with a fake Gemini that records each request, the script of B4.1 (32 turns), the context builder, the conversation log, the resume messages, the facts that the user sets, and `on_answer` before the summary.
 - Summary calls of the script: turns 9, 13, 17, 21, 25 and 29. The largest request: under 14,000 estimated tokens. The window at turn 32: turns 25 to 32.
 
 #### Live check (2026-11-12)
@@ -348,3 +348,17 @@ One real conversation as `maya`, then `--resume` of it in a new session (`Assist
 - Conversation `C-8VMQS`. The resume view showed the 3 turns from `conversation_turns`. No summary yet (3 turns).
 - In total: 9 Gemini calls, 2 queries, 41.9 MB billed (20.97 MB each). `usage_daily` for 2026-11-12 (Pacific date): 17 calls, 8 queries, 157,286,400 bytes before; 26 calls, 10 queries, 199,229,440 bytes after.
 - The model also added `p.brand IN ('Calvin Klein', 'Carhartt')` in turns 2 and 3, because it read "my brands" as a brand filter. The result is the same: the guard limits each query to the scope of the user.
+
+#### Code review (2026-11-12)
+
+An independent review of the code of specs 34 and 36 found no serious problem in the retries, the breakers, the reducer, the context builder or the owner checks. It found these points. Each correction has a test in `tests/test_memory.py`:
+
+1. A Ctrl-C or an error in the summary, after the answer was shown, replaced the answer with "Stopped." or the internal message. Now the turn keeps its answer, and the summary runs again at the next turn.
+2. After a failed checkpoint write, the next turn got the same turn number. Now the session takes the highest number of the checkpoint and of `conversation_turns`.
+3. The note "This turn is not saved." could be missing in `on_answer`, because LangGraph writes checkpoints in the background by default. The session now runs the graph with `durability="sync"`.
+4. Migration 4 was not one transaction: a failed statement left the new columns without the new version. Each migration now runs in one transaction, with a rollback on an error.
+
+Open points (low risk, not corrected):
+
+- A Ctrl-C while BigQuery creates the job (before the job object exists) cannot cancel that job. The job then runs to its timeout of 30 s.
+- A conversation that started before this change and has a delete confirmation in its window can get wrong turn numbers after a resume: the old messages have no `turn_no`, and the old typed confirmation looks like a new question.

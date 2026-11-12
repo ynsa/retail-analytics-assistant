@@ -168,6 +168,13 @@ def retry_locked[T](call: Callable[[], T], retries: int = 1) -> T:
 def migrate(conn: sqlite3.Connection) -> None:
     version = conn.execute("PRAGMA user_version").fetchone()[0]
     for number, script in enumerate(MIGRATIONS[version:], start=version + 1):
-        with conn:
-            conn.executescript(script)
-            conn.execute(f"PRAGMA user_version = {number}")
+        # One transaction for each migration: a failed statement leaves no half-applied change
+        # (an ALTER TABLE without the new version number would fail at each later start).
+        try:
+            conn.executescript(
+                f"BEGIN;\n{script}\nPRAGMA user_version = {number};\nCOMMIT;"
+            )
+        except sqlite3.Error:
+            if conn.in_transaction:
+                conn.rollback()
+            raise
