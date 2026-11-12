@@ -339,6 +339,33 @@ def test_outside_error_runs_the_case_again_one_time(e: Env):
     assert e.adapters[0].started.count("TM-01") == 2
 
 
+def test_report_counts_the_calls_of_discarded_runs(e: Env):
+    """Round 1 of spec 50: the report counted only the calls of the kept records."""
+    seen: dict[str, int] = {}
+
+    def flaky(case_id: str, text: str, n: int) -> TurnRecord:
+        seen[case_id] = seen.get(case_id, 0) + 1
+        if case_id == "TM-01" and seen[case_id] == 1:
+            return _outside_error(text)
+        if case_id == "PP-01" and seen[case_id] == 1:
+            return TurnRecord(text=text, answer="busy", error_type="llm_rate_limited")
+        return perfect_turn(case_id, text)
+
+    e.adapter_kw = {"script": flaky}  # 2 calls for each turn
+    out = e.run(set_name="accuracy", case_ids=SMALL)
+    assert out.status == "done"
+    lines = {x["case_id"]: x for x in e.lines(out.run_id)}
+    assert lines["TM-01"]["discarded"]["llm_calls"] == 2
+    assert lines["PP-01"]["discarded"]["llm_calls"] == 2
+    assert e.env.runs.record(out.run_id, "TM-01").discarded["llm_calls"] == 2
+    meta = e.env.runs.meta(out.run_id)
+    assert meta["actual"]["discarded_calls"] == 4
+    assert meta["actual"]["agent_calls"] == 8 == meta["calls_used"]
+    report = out.report_path.read_text()
+    assert "| Gemini calls, agent | " in report and "| 8 |" in report
+    assert "in discarded runs (in the line above) | – | 4 |" in report
+
+
 def test_second_outside_error_is_shown_but_left_out_of_the_rates(e: Env):
     def down(case_id: str, text: str, n: int) -> TurnRecord:
         return (

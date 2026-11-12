@@ -42,7 +42,9 @@ class Paused(Exception):
 
 
 class _RateLimited(Exception):
-    pass
+    def __init__(self, record: CaseRecord) -> None:
+        super().__init__("rate limited")
+        self.record = record  # the discarded run, for the call count
 
 
 @dataclass
@@ -127,7 +129,7 @@ def _run_turns(state: RunState, case: Case, case_dir: Path) -> CaseRecord:
             turn = conversation.send(text)
             record.turns.append(turn)
             if turn.error_type == "llm_rate_limited":
-                raise _RateLimited()
+                raise _RateLimited(record)
             if turn.error_type == "limit_exceeded":
                 _check_limits(
                     state
@@ -200,22 +202,29 @@ def _external_wait(state: RunState, case: Case, problem: str) -> None:
 
 
 def _record_of(state: RunState, case: Case, case_dir: Path) -> CaseRecord:
-    """Run the turns of the case. After an outside error, run the case again one time."""
+    """Run the turns of the case. After an outside error, run the case again one time.
+
+    The record keeps the totals of the discarded runs, so the report counts all Gemini calls.
+    """
     retries: list[str] = []
+    discarded = CaseRecord(case_id=case.id, user=case.user)
     while True:
         _check_limits(state)
         try:
             record = _run_turns(state, case, case_dir)
-        except _RateLimited:
+        except _RateLimited as limited:
+            discarded.add_discarded(limited.record)
             _rate_limit_wait(state, case)
             continue
         state.rate_limit_streak = 0
         problem = record.external_error()
         if problem and len(retries) < EXTERNAL_RETRIES:
             retries.append(problem)
+            discarded.add_discarded(record)
             _external_wait(state, case, problem)
             continue
         record.external_retries = retries
+        record.discarded = discarded.discarded
         state.store.save_record(state.run_id, record)
         return record
 
@@ -270,6 +279,8 @@ def run_one(state: RunState, case: Case) -> dict[str, Any]:
         line["external_error"] = external
     if record.external_retries:
         line["external_retries"] = record.external_retries
+    if record.discarded:
+        line["discarded"] = record.discarded
     state.store.append_result(state.run_id, line)
     state.scored.add(case.id)
     if state.stats is not None and record.turns:

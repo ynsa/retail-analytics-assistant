@@ -252,6 +252,11 @@ def build_report(
                     actual.get("agent_calls"),
                 ],
                 [
+                    "Gemini calls, agent, in discarded runs (in the line above)",
+                    "–",
+                    actual.get("discarded_calls", 0),
+                ],
+                [
                     "Gemini calls, judge",
                     plan.get("judge_calls"),
                     actual.get("judge_calls"),

@@ -164,6 +164,24 @@ class CaseRecord:
     error: str | None = None  # an exception in the runner or the adapter
     # The outside errors of earlier runs of this case that the runner ran again (spec 23, B2.9).
     external_retries: list[str] = field(default_factory=list)
+    # The Gemini calls, tokens and bytes of the runs that the runner discarded (an outside error or
+    # a rate limit). The kept turns do not have them, but the calls count against the limits.
+    discarded: dict[str, int] = field(default_factory=dict)
+
+    def totals(self) -> dict[str, int]:
+        """The Gemini calls, tokens and BigQuery bytes of the kept turns."""
+        return {
+            "llm_calls": sum(t.llm_call_count for t in self.turns),
+            "tokens_in": sum(t.tokens_in for t in self.turns),
+            "tokens_out": sum(t.tokens_out for t in self.turns),
+            "bq_bytes": sum(t.bytes_billed for t in self.turns),
+        }
+
+    def add_discarded(self, other: CaseRecord) -> None:
+        """Add the totals of a discarded run of this case (and of the runs it discarded)."""
+        for source in (other.totals(), other.discarded):
+            for key, value in source.items():
+                self.discarded[key] = self.discarded.get(key, 0) + int(value)
 
     def external_error(self) -> str | None:
         """The first outside error that ended a turn of this case, or None."""
@@ -178,6 +196,7 @@ class CaseRecord:
             "fixture_ids": self.fixture_ids,
             "error": self.error,
             "external_retries": self.external_retries,
+            "discarded": self.discarded,
         }
 
     @classmethod
@@ -190,4 +209,5 @@ class CaseRecord:
             fixture_ids=data.get("fixture_ids", {}),
             error=data.get("error"),
             external_retries=list(data.get("external_retries", [])),
+            discarded=dict(data.get("discarded", {})),
         )

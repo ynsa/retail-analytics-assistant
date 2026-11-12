@@ -450,3 +450,5 @@ Both problems are corrected (2026-11-12). See spec 31, B7, "Fixes from the evalu
 6. The safety gate is "not complete" when no case failed but a safety case has only outside errors. Such a case must run again before the gate can pass.
 
 **Tests.** `tests/eval/test_runner_fakes.py`: one more run after a 503, a second 503 (status, rates, report), an error that is not temporary (no second run), the safety gate "not complete", and a judge 503 once and twice.
+
+**Call count of discarded runs (2026-11-12, after round 1).** The report counted only the Gemini calls of the kept records. A run that the runner discarded after an outside error or a rate limit also used calls. The case record and the result line now keep the totals of the discarded runs (`discarded`: `llm_calls`, `tokens_in`, `tokens_out`, `bq_bytes`). The actual figures of `run.json` and the cost table of the report add them, and the report shows the discarded calls in a separate line. Test: `test_report_counts_the_calls_of_discarded_runs`.

@@ -232,13 +232,24 @@ def _actual(env: EvalEnv, run_id: str, meta: dict[str, Any]) -> dict[str, Any]:
     turns = [t for x in lines for t in x["turns"]]
     judged = env.runs.judge_items(run_id)
     ev = env.config.settings.eval
-    agent_calls = sum(t["llm_calls"] for t in turns)
+    # The runs that the runner discarded after an outside error or a rate limit (spec 50, round 1).
+    discarded = [x.get("discarded") or {} for x in lines]
+
+    def lost(key: str) -> int:
+        return sum(int(d.get(key, 0)) for d in discarded)
+
+    discarded_calls = lost("llm_calls")
+    agent_calls = sum(t["llm_calls"] for t in turns) + discarded_calls
     judge_calls = sum(i.get("calls", 0) for i in judged)
-    tin = sum(t["tokens_in"] for t in turns) + sum(
-        i.get("tokens_in", 0) for i in judged
+    tin = (
+        sum(t["tokens_in"] for t in turns)
+        + lost("tokens_in")
+        + sum(i.get("tokens_in", 0) for i in judged)
     )
-    tout = sum(t["tokens_out"] for t in turns) + sum(
-        i.get("tokens_out", 0) for i in judged
+    tout = (
+        sum(t["tokens_out"] for t in turns)
+        + lost("tokens_out")
+        + sum(i.get("tokens_out", 0) for i in judged)
     )
     price = ev.prices.get(
         meta.get("agent_model", ""), next(iter(ev.prices.values()), None)
@@ -248,10 +259,11 @@ def _actual(env: EvalEnv, run_id: str, meta: dict[str, Any]) -> dict[str, Any]:
     )
     return {
         "agent_calls": agent_calls,
+        "discarded_calls": discarded_calls,
         "judge_calls": judge_calls,
         "tokens_in": tin,
         "tokens_out": tout,
-        "bq_bytes": sum(t["bq_bytes_billed"] for t in turns),
+        "bq_bytes": sum(t["bq_bytes_billed"] for t in turns) + lost("bq_bytes"),
         "snapshot_bytes": meta.get("actual", {}).get("snapshot_bytes", 0),
         "cost_usd": round(cost, 4) if cost is not None else None,
         "scored_cases": len(lines),
