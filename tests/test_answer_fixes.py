@@ -116,7 +116,9 @@ def test_no_period_assumption_when_the_user_named_the_year(make_session):
         [
             route_reply(),
             sql_reply(
-                BRAND_SQL,
+                BRAND_SQL.replace("2026-10-01", "2025-01-01").replace(
+                    "2026-11-01", "2026-01-01"
+                ),
                 period="2025-01-01..2025-12-31",
                 definitions=["revenue", "last_year"],
                 assumptions=["period = last_year", "brands = all brands of the user"],

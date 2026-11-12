@@ -59,6 +59,12 @@ class StepRecord(TypedDict, total=False):
     bytes_billed: int
     # The tables of the SQL that ran, for the scope note of the footer.
     tables: list[str]
+    # The checks before the query runs (spec 31, B7). The footer uses these fields: the period
+    # and the definition keys that the SQL really applies.
+    period: str  # `YYYY-MM-DD..YYYY-MM-DD`, or "" when no period applies
+    period_check: str  # match, mismatch, unverified, no_period, skipped
+    definitions: list[str]
+    definition_check: str  # match, mismatch, unverified, none, skipped
 
 
 class RetryInfo(TypedDict):

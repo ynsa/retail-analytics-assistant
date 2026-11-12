@@ -9,6 +9,10 @@ customer figures cover only the customers who bought the manager's brands (spec 
 "661 new users" without this note). Code adds the note, because the model did not follow the
 scope phrase of the prompt.
 
+The period and the definition sentences come from the steps that ran: the period and the keys that
+the checks before the query confirmed (spec 31, B7, Docker check of 2026-11-12). Without checked
+steps (a report query, an old checkpoint), they come from the `write_sql` output.
+
 An assumption shows only when a default really applied. When the question names a period, an
 assumption about the period is not a default, so the footer leaves it out (smoke run TM-01: "the
 revenue in 2025" gave "Assumed: period = last_year").
@@ -27,7 +31,7 @@ from opsfleet_agent.agent.periods import (
     span_of,
     states_period,
 )
-from opsfleet_agent.agent.state import TurnState
+from opsfleet_agent.agent.state import StepRecord, TurnState
 from opsfleet_agent.identity import UserContext
 
 # Period words: the footer shows the period itself, so these keys need no sentence.
@@ -46,14 +50,29 @@ def _unique(items: list[str]) -> list[str]:
     return list(dict.fromkeys(i for i in items if i))
 
 
+def checked_steps(turn: TurnState) -> list[StepRecord]:
+    """The steps that ran after the period and definition checks (spec 31, B7). Their `period`
+    and `definitions` are what the SQL really applied. A report query skips the checks."""
+    return [
+        s
+        for s in turn.get("steps") or []
+        if "row_count" in s and s.get("period_check") not in (None, "skipped")
+    ]
+
+
 def footer_parts(
     turn: TurnState, user: UserContext, lib: PromptLibrary, today: date
 ) -> tuple[str, list[str], list[str], list[str]]:
     """The period text, the brands, the definition sentences and the assumptions."""
     plans = turn.get("plans") or []
+    checked = checked_steps(turn)
     periods = []
-    for plan in plans:
-        periods += parse_periods((plan.get("active_filters") or {}).get("period"))
+    if checked:
+        for step in checked:
+            periods += parse_periods(step.get("period"))
+    else:
+        for plan in plans:
+            periods += parse_periods((plan.get("active_filters") or {}).get("period"))
     period = span_of(periods)
     period_text = (
         period.text()
@@ -69,7 +88,12 @@ def footer_parts(
             list(user.brands) if is_manager(user) else [lib.reply("footer.all_brands")]
         )
 
-    keys = _unique([k for plan in plans for k in plan.get("definitions_used") or []])
+    if checked:
+        keys = _unique([k for step in checked for k in step.get("definitions") or []])
+    else:
+        keys = _unique(
+            [k for plan in plans for k in plan.get("definitions_used") or []]
+        )
     sentences = [
         lib.definitions[k].footer
         for k in keys

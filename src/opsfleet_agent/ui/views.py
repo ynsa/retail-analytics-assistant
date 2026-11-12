@@ -72,6 +72,7 @@ ERROR_TEXT = {
     "confirmation_rejected": "Delete cancelled",
     "empty_result": "No data",
     "guard_parse_error": "Query not accepted",
+    "sql_mismatch": "Query did not match the question",
 }
 
 

@@ -61,6 +61,9 @@ class Definition:
     meaning: str
     footer: str  # the short sentence for the footer
     sql: str
+    # The statuses that the SQL of this metric must leave out (`- **Excludes:** Cancelled,
+    # Returned`). Code checks it before the query runs (spec 31, B7).
+    excludes: frozenset[str] = frozenset()
 
 
 def _words(text: str) -> list[str]:
@@ -68,7 +71,8 @@ def _words(text: str) -> list[str]:
 
 
 def parse_definitions(text: str) -> dict[str, Definition]:
-    """`### key` headings, each with `- **Meaning:**`, `- **Footer:**` and `- **SQL:**` lines."""
+    """`### key` headings, each with `- **Meaning:**`, `- **Footer:**` and `- **SQL:**` lines, and
+    an optional `- **Excludes:**` line."""
     found: dict[str, Definition] = {}
     key: str | None = None
     fields: dict[str, str] = {}
@@ -80,6 +84,11 @@ def parse_definitions(text: str) -> dict[str, Definition]:
                 meaning=fields.get("meaning", ""),
                 footer=fields.get("footer", ""),
                 sql=fields.get("sql", ""),
+                excludes=frozenset(
+                    v.strip()
+                    for v in fields.get("excludes", "").split(",")
+                    if v.strip()
+                ),
             )
 
     for line in text.splitlines():

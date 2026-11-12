@@ -20,7 +20,7 @@ RETRYABLE: frozenset[ErrorType] = frozenset(
         ErrorType.EMPTY_RESULT,
     }
 )
-MAX_FEEDBACK_CHARS = 800
+MAX_FEEDBACK_CHARS = 1200
 
 
 def current_step(turn: TurnState) -> StepRecord:

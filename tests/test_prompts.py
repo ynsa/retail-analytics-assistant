@@ -135,6 +135,18 @@ def test_every_prepared_reply_renders(lib):
         "field": "department",
         # spec 50 round 1
         "max_queries": 6,
+        # spec 31 B7: the period and definition checks
+        "period": "1 Jan – 31 Dec 2024 (2024-01-01..2024-12-31)",
+        "column": "order_items.created_at",
+        "sql_range": "2025-01-01 to 2026-01-01",
+        "condition": "oi.created_at >= TIMESTAMP('2024-01-01')",
+        "end": "2025-01-01",
+        "named": "2024",
+        "named_period": "1 Jan – 31 Dec 2024 (2024-01-01..2024-12-31)",
+        "key": "orders",
+        "meaning": "Distinct orders.",
+        "statuses": "Cancelled and Returned",
+        "example": "oi.status NOT IN ('Cancelled', 'Returned')",
     }
 
     def walk(node, path=""):

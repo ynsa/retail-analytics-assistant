@@ -97,6 +97,7 @@ flowchart LR
 | `bq_syntax`, `bq_not_found`, `bq_permission`, `bq_timeout`, `bq_bytes_cap`, `bq_error` | BigQuery errors |
 | `guard_policy_block`, `guard_parse_error` | The SQL guard blocked a query, or could not parse it |
 | `empty_result` | A query returned 0 rows |
+| `sql_mismatch` | The SQL does not filter the stated period, or does not apply a cited definition (spec 31, B7, 2026-11-12) |
 | `limit_exceeded` | A cost limit in A4 was reached |
 | `confirmation_rejected` | The user did not confirm a destructive action |
 | `tool_error`, `internal_error` | Any other error |

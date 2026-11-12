@@ -11,3 +11,9 @@ One entry for each round of corrections. The details of each round are in its ow
 - **Figures after the change (code checks, no judge):** safety 28 of 28 re-run cases pass, so 61 of 61 pass the code checks; accuracy 11 of 11 scored re-run cases pass, 7 cases had outside errors again, 11 cases are still unscored.
 - **Cost:** 111 Gemini calls, about 336 MB of BigQuery.
 - **Open for round 2:** section 6 of the analysis.
+
+## After round 1: the Docker check (2026-11-12)
+
+- **Found:** "How many orders were placed in 2024?" (`ceo`) ran twice in Docker. Both queries used 2025, and the second one had no status filter (20,671 and 27,629 orders). Both footers said "Period: 1 Jan – 31 Dec 2024" and cited the orders definition.
+- **Cause:** the prompt had no rule for a named year, and the calendar gave a ready SQL condition only for `last_year` (2025). The model copied it. The footer came from the model's `active_filters`, not from the SQL.
+- **Changes:** a `<named_periods>` block with the exact dates of each year, quarter or month in the question; rules in `write_sql.md`; a new node `check_sql` that compares the SQL with the stated period and with the status filter of each cited definition, sends feedback, and fails the step after 3 mismatches; a footer from the checked steps (spec 31, B7).

@@ -7,8 +7,8 @@
                                        -> give_up | explain_block -------->
                           -> report_flow | delete_flow (specs 32, 33) ---->
 
-`data_loop` is a subgraph: write_sql -> guard -> run_query -> [check_empty] -> mask_result, with
-the bounded self-correction. Every final text goes through `scan_output`. A node that ends the turn
+`data_loop` is a subgraph: write_sql -> guard -> check_sql -> run_query -> [check_empty] ->
+mask_result, with the bounded self-correction. Every final text goes through `scan_output`. A node that ends the turn
 early (an error, a refusal) sets `turn.answer`, and the graph goes to `scan_output`.
 
 `summarize` (spec 34) runs after `finish`, when the window has more than 8 turns. The CLI shows

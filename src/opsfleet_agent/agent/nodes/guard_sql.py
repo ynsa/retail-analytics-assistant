@@ -2,7 +2,8 @@
 
 - `policy_block`: the loop ends with the guard message. No retry.
 - `parse_error`: the guard's `model_feedback` goes back to `write_sql`.
-- `pass`: the scoped SQL runs next. The `GuardResult` stays in the turn scratch, not in the state.
+- `pass`: `check_sql` checks the period and the definitions, then the scoped SQL runs. The
+  `GuardResult` stays in the turn scratch, not in the state.
 """
 
 from __future__ import annotations
@@ -103,4 +104,4 @@ def guard(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any]:
                 max_attempts,
             )
         }
-    return {"turn": {**turn, "next": "run_query"}}
+    return {"turn": {**turn, "next": "check_sql"}}

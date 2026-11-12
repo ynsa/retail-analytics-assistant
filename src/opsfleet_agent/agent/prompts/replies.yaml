@@ -58,16 +58,49 @@ give_up_reasons:
   bq_not_found: The query used a field that does not exist.
   bq_bytes_cap: The query had to read too much data.
   empty_result: The query found no rows because of a wrong filter.
+  sql_mismatch: >-
+    The query did not use the period or the metric definitions that the answer must state, so I
+    do not show a figure that could be wrong.
   default: The query failed.
 
 give_up_help:
   bq_bytes_cap: A shorter period or fewer fields can help.
   empty_result: Other filter values or another period can help.
+  sql_mismatch: A question with exact dates, for example "from 2024-01-01 to 2024-12-31", can help.
   default: A simpler question, another period or other fields can help.
 
 # Feedback to the model on a retry (spec 31, B2.4).
 retry:
   bq_bytes_cap: The query reads too much data. Filter by date or select fewer columns.
+  # The period and definition checks before the query runs (spec 31, B7). The SQL did not run.
+  period:
+    outside: >-
+      The period of the question is {{ period }}, but the SQL filters {{ column }} from
+      {{ sql_range }}. Use the dates of the period: {{ condition }}. If the SQL also reads a
+      comparison period, write it in active_filters.other, for example
+      "compared with 2023-01-01..2023-12-31".
+    not_covered: >-
+      The period of the question is {{ period }}, but the SQL filters {{ column }} only from
+      {{ sql_range }}, so it leaves out a part of the period. Use: {{ condition }}. A TIMESTAMP
+      column with "<= TIMESTAMP('YYYY-MM-DD')" or "BETWEEN ... AND 'YYYY-MM-DD'" leaves out the
+      last day.
+    no_end: >-
+      The period of the question is {{ period }}, but the SQL filters {{ column }} from
+      {{ sql_range }}, so it also counts the rows after the period. Add the end date:
+      {{ column }} < TIMESTAMP('{{ end }}').
+    no_date_filter: >-
+      active_filters.period is {{ period }}, but the SQL has no date filter, so it counts all
+      dates. Add the date filter, for example {{ condition }}. Set period to null only when the
+      question asks for all the data.
+    question: >-
+      The question names {{ named }}, but active_filters.period is {{ period }}. A year, a quarter
+      or a month in the question is that calendar period: {{ named }} is {{ named_period }}. Use
+      {{ condition }}, and write this period in active_filters.period. Do not use last_year for a
+      named year.
+  definition: >-
+    The SQL does not apply the definition of {{ key }}: {{ meaning }} It needs a status filter on
+    oi.status (order_items.status) that leaves out {{ statuses }}, for example {{ example }}.
+    Keep a key in definitions_used only when the query computes that figure.
 
 notes:
   steps_missing: >-

@@ -31,9 +31,13 @@ from tests.conftest import (
     sql_reply,
 )
 
+# The glossary filter and the stated period of `sql_reply` (the checks of spec 31, B7 pass).
 SQL = (
     f"SELECT p.name AS product, COUNT(*) AS items FROM {T('order_items')} AS oi "
-    f"JOIN {T('products')} AS p ON p.id = oi.product_id GROUP BY 1"
+    f"JOIN {T('products')} AS p ON p.id = oi.product_id "
+    "WHERE oi.status NOT IN ('Cancelled', 'Returned') "
+    "AND oi.created_at >= TIMESTAMP('2026-10-01') AND oi.created_at < TIMESTAMP('2026-11-01') "
+    "GROUP BY 1"
 )
 MAYA_BRANDS = ["Calvin Klein", "Carhartt"]
 DELETE_TEXT = "Delete all the reports we made in this conversation."

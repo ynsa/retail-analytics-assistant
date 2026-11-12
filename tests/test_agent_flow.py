@@ -26,13 +26,17 @@ from tests.conftest import (
 
 T_ITEMS = "`bigquery-public-data.thelook_ecommerce.order_items`"
 T_PRODUCTS = "`bigquery-public-data.thelook_ecommerce.products`"
+# The model SQL follows the glossary and the stated period (2026-10-01..2026-10-31 in
+# `sql_reply`), so the period and definition checks of spec 31 (B7) pass.
 ORDERS_SQL = (
     f"SELECT COUNT(DISTINCT oi.order_id) AS orders FROM {T_ITEMS} oi "
-    "WHERE oi.created_at >= TIMESTAMP('2026-10-01') AND oi.created_at < TIMESTAMP('2026-11-01')"
+    "WHERE oi.created_at >= TIMESTAMP('2026-10-01') AND oi.created_at < TIMESTAMP('2026-11-01') "
+    "AND oi.status NOT IN ('Cancelled', 'Returned')"
 )
 REVENUE_SQL = (
     f"SELECT SUM(oi.sale_price) AS revenue FROM {T_ITEMS} oi "
-    "WHERE oi.status NOT IN ('Cancelled', 'Returned')"
+    "WHERE oi.status NOT IN ('Cancelled', 'Returned') "
+    "AND oi.created_at >= TIMESTAMP('2026-10-01') AND oi.created_at < TIMESTAMP('2026-11-01')"
 )
 
 
@@ -398,7 +402,12 @@ def test_empty_result_with_an_error_retries_with_the_checker_feedback(make_sessi
         "WHERE status = 'completed'"
     )
     llm = FakeLLM(
-        [route_reply(), sql_reply(wrong), sql_reply(ORDERS_SQL), "1,200 orders."]
+        [
+            route_reply(),
+            sql_reply(wrong, period=None, definitions=[]),
+            sql_reply(ORDERS_SQL),
+            "1,200 orders.",
+        ]
     )
     bq = FakeBQ([frame_result(pd.DataFrame({"n": []})), orders()])
     session, _, _ = make_session("ceo", llm=llm, bq=bq)
@@ -514,7 +523,13 @@ def test_manager_answer_from_the_users_table_has_the_scope_note(make_session):
         "WHERE u.created_at >= TIMESTAMP('2025-01-01') AND u.created_at < TIMESTAMP('2026-01-01')"
     )
     frame = frame_result(pd.DataFrame({"new_users": [661]}))
-    llm = FakeLLM([route_reply(), sql_reply(sql), "Your brands had 661 new users."])
+    llm = FakeLLM(
+        [
+            route_reply(),
+            sql_reply(sql, period="2025-01-01..2025-12-31", definitions=[]),
+            "Your brands had 661 new users.",
+        ]
+    )
     session, _, bq = make_session("maya", llm=llm, bq=FakeBQ([frame]))
     result = session.ask("How many new users signed up in 2025?")
     assert "scope_brands" in bq.queries[0]
@@ -534,11 +549,21 @@ def test_ceo_query_runs_without_parameters(make_session):
 
 
 def test_rows_are_masked_and_formatted_before_the_answer_prompt(make_session):
-    sql = f"SELECT p.name, SUM(oi.sale_price) AS revenue FROM {T_PRODUCTS} p JOIN {T_ITEMS} oi ON oi.product_id = p.id GROUP BY p.name"
+    sql = (
+        f"SELECT p.name, SUM(oi.sale_price) AS revenue FROM {T_PRODUCTS} p "
+        f"JOIN {T_ITEMS} oi ON oi.product_id = p.id "
+        "WHERE oi.status NOT IN ('Cancelled', 'Returned') GROUP BY p.name"
+    )
     frame = pd.DataFrame(
         {"name": ["Jeans ann@x.com", "Shirt"], "revenue": [385083.240183115, 12.5]}
     )
-    llm = FakeLLM([route_reply(), sql_reply(sql), "Two products."])
+    llm = FakeLLM(
+        [
+            route_reply(),
+            sql_reply(sql, period=None, definitions=["revenue"]),
+            "Two products.",
+        ]
+    )
     session, _, _ = make_session("ceo", llm=llm, bq=FakeBQ([frame_result(frame)]))
     session.ask("Products?")
     prompt = llm.calls[2]["prompt"]
@@ -565,7 +590,12 @@ def test_follow_up_gets_the_history_and_the_pinned_filters(make_session):
             sql_reply(ORDERS_SQL, definitions=["orders", "last_month"]),
             "1,200 orders in October.",
             route_reply(follow_up=True),
-            sql_reply(ORDERS_SQL, period="2026-09-01..2026-09-30"),
+            sql_reply(
+                ORDERS_SQL.replace("2026-11-01", "2026-10-01").replace(
+                    "TIMESTAMP('2026-10-01') AND", "TIMESTAMP('2026-09-01') AND", 1
+                ),
+                period="2026-09-01..2026-09-30",
+            ),
             "1,100 orders in September.",
         ]
     )

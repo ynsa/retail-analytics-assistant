@@ -258,6 +258,13 @@ ATTRIBUTE_ALLOWLIST: dict[str, frozenset[str]] = {
             "folded_turns",
             "summary_words",
             "scanner_hits",
+            # spec 31 B7: the period and definition checks (dates, codes and glossary keys)
+            "period_check",
+            "period_check_code",
+            "period",
+            "sql_periods",
+            "definition_check",
+            "definitions_missing",
         }
     ),
     "llm": frozenset(

@@ -160,6 +160,7 @@ stateDiagram-v2
 | `bq_error` | Temporary errors after retries, open breaker | The message of A2.5 |
 | `guard_policy_block`, `guard_parse_error` | Spec 30 | Spec 30 and spec 31 |
 | `empty_result` | Spec 30 | Not an error message. The answer explains the zero. |
+| `sql_mismatch` | After 3 attempts (spec 31, B7) | The `give_up` message of spec 31 |
 | `limit_exceeded` | Spec 00 | The spec 00 messages |
 | `confirmation_rejected` | Spec 33 | The spec 33 messages |
 | `tool_error` | A tool fails, for example a file write | "The action '<tool>' failed: <short reason>." |

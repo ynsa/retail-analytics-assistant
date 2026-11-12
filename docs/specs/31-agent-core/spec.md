@@ -210,6 +210,7 @@ The model returns:
 | `bq_syntax`, `bq_not_found` | Yes | The BigQuery message, the original SQL (not the rewritten SQL), the table columns |
 | `bq_bytes_cap` (dry run over 1 GB) | Yes | "The query reads too much data. Filter by date or select fewer columns." |
 | `empty_result` with diagnosis `error` | Yes | The checker's `model_feedback` (spec 30) |
+| `sql_mismatch` (B7, 2026-11-12) | Yes | The exact period or definition problem, for example "The period of the question is 1 Jan – 31 Dec 2024 (2024-01-01..2024-12-31), but the SQL filters order_items.created_at from 2025-01-01 to 2026-01-01." |
 | `guard_policy_block` | No | — (the user gets the guard message) |
 | `bq_permission`, `bq_timeout`, `bq_error`, `limit_exceeded` | No | — (the user gets the message of spec 36) |
 
@@ -573,3 +574,32 @@ After round 1 (2026-11-12, polish pass):
 5. The output fields: `definitions_used` holds only keys of the `<definitions>` block, and `active_filters.period` must be the period that the SQL filters. Code checks both (see the next note).
 
 Tests: `tests/test_question_periods.py`.
+
+#### Period and definition checks before the query runs (2026-11-12)
+
+The prompt change makes the error less probable, but it cannot make it impossible. So code now checks each SQL step before it runs. The new node `check_sql` is between `guard` and `run_query`: `write_sql -> guard -> check_sql -> run_query -> …`. Code: `agent/sql_checks/` and `agent/nodes/check_sql.py`.
+
+1. **Input.** The model's SQL as the guard qualified it (`GuardResult.qualified_sql`, before the scope rewrite), so a CEO and a manager get the same result. The stated period is `active_filters.period`, and a comparison period in `active_filters.other` is also stated. The cited definitions are `definitions_used`.
+2. **Date filters** (`date_filters.py`, sqlglot). For each date column of a base table, also through CTEs and subqueries, code reads the ranges of the row filters (`WHERE`, `HAVING`, `QUALIFY`, `JOIN … ON`) and of the conditional filters (`CASE WHEN`, `IF`, `COUNTIF`). `AND` intersects, `OR` joins. The forms: `>=`, `>`, `<`, `<=`, `=`, `BETWEEN`, `IN` with `TIMESTAMP('…')`, `DATE '…'`, string and `CAST` literals; `DATE(x)`, `CAST(x AS DATE)`; `DATE_TRUNC`, `TIMESTAMP_TRUNC` and `DATETIME_TRUNC` by day, month, quarter or year; `EXTRACT(YEAR | QUARTER | MONTH | DATE …)` (a month or a quarter only with a year); `FORMAT_DATE` and `FORMAT_TIMESTAMP` with `%Y`, `%Y-%m` or `%Y-%m-%d`. A TIMESTAMP compared with a day keeps its exact meaning: `created_at <= '2024-12-31'` ends at 00:00 of that day.
+3. **Period rules** (`period_check.py`). The columns are `order_items.created_at` and `orders.created_at` when the SQL filters them, else each date column that it filters (for example `users.created_at`).
+
+   | Code | Mismatch |
+   |---|---|
+   | `outside` | A SQL range is outside the stated periods. One period of the same length, at least one year, before them is allowed (a comparison with the previous period). |
+   | `not_covered` | The SQL ranges leave out a part of the main period (from the first day of the data to today). Only when code can read all filters of the column. |
+   | `no_end` | The main period ended before today, and the SQL range has no end date. Not when another date column (for example `delivered_at`) has closed ranges that cover the period. |
+   | `no_date_filter` | The SQL reads a dated table, has no date filter, and the stated period is not all the data. |
+   | `question` | The question names a year, a quarter or a month (not after "before", "since" and similar words), and no stated period touches it. |
+
+4. **Definition rule** (`status_filters.py`, `definition_check.py`). The glossary has a new line `- **Excludes:**` for each metric with a status filter: `Cancelled, Returned` for revenue, orders, items sold, average order value, spend per customer and gross margin; `Cancelled` for purchase, customer of a brand, repeat customer, churned customer, monthly churn rate and return rate. Each cited key needs one filter on `order_items.status` that leaves out exactly these statuses. A condition in `CASE WHEN`, `IF` or `COUNTIF` also gets the `WHERE` of its `SELECT`. A filter that leaves out more statuses also counts when another cited key explains it: with `revenue` and `purchase` cited, one revenue filter passes, because code cannot tell which figure uses which filter. Also: an output column with the name of such a metric (`orders`, `total_revenue`, `items_sold_prev`) needs the filter, also when the key is not cited. This applies only when the query reads `order_items` and has no condition on any `status` column.
+5. **Mismatch.** The SQL does not run. The feedback goes back to `write_sql` in the `<retry>` block, with the error type `sql_mismatch` and the normal attempt budget (3 attempts for each step). The texts are in `replies.yaml` (`retry.period.*`, `retry.definition`). Example: "The period of the question is 1 Jan – 31 Dec 2024 (2024-01-01..2024-12-31), but the SQL filters order_items.created_at from 2025-01-01 to 2026-01-01. Use the dates of the period: …".
+6. **Still a mismatch after the last attempt.** The step fails with the `give_up` message: "… The query did not use the period or the metric definitions that the answer must state, so I do not show a figure that could be wrong." We chose this, not a footer with the period of the SQL. Reason: the model writes the answer text from the question, so the text would still name the asked period. A failure with a clear message is safer than a figure for another period.
+7. **Cannot verify.** A filter that code cannot read (`CURRENT_DATE()` arithmetic, `DATE_DIFF`, `NOT`, `!=`, a week, a date column inside an aggregate such as `MAX(created_at)`, a status condition such as `LOWER(oi.status) NOT IN (…)`) gives `unverified`. An exception in the checks also gives `unverified` (span event `check_failed`). The query runs. The `node.check_sql` span has `period_check` (`match`, `mismatch`, `unverified`, `no_period`, `skipped`), `period_check_code`, `period`, `sql_periods`, `definition_check` and `definitions_missing`.
+8. **Footer truth.** The step record keeps `period`, `period_check`, `definitions` and `definition_check`. The footer takes the period and the definition sentences from the steps that ran after the checks, not from the `write_sql` output. A key that is not in the glossary (`last_year`) never shows. When the model states no period and code can read the SQL ranges, the footer shows the period of the SQL, not "all data".
+9. **Not checked.** A report query (spec 32) skips the checks (`period_check = skipped`): its SQL comes from the report plan, and a report often reads a trend outside the report period.
+
+New error type `sql_mismatch` (spec 00, B2; spec 36, B2.5). `MAX_FEEDBACK_CHARS` is 1,200 (was 800), so the period and the definition feedback fit together.
+
+Test fixtures: many unit tests had SQL without a date filter or a status filter, with a stated period and the key `orders`. Their SQL now follows the glossary and the stated period.
+
+Tests: `tests/test_sql_checks.py`: the date forms (`>=`/`<`, `EXTRACT(YEAR …)`, `BETWEEN`, `DATE_TRUNC`, `TIMESTAMP_TRUNC`, `FORMAT_DATE`, CTE, `CASE WHEN`, `OR`), each mismatch rule, the forms that give `unverified`, a comparison with two ranges, a question without a period (default last month), the CEO and a manager (the same result before and after the scope rewrite), and the flow with a fake model: 2025 for 2024 → feedback → corrected, a missing status filter → feedback → corrected, 3 mismatches → `give_up` with no query.

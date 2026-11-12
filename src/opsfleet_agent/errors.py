@@ -19,6 +19,8 @@ class ErrorType(StrEnum):
     GUARD_POLICY_BLOCK = "guard_policy_block"
     GUARD_PARSE_ERROR = "guard_parse_error"
     EMPTY_RESULT = "empty_result"
+    # The SQL does not filter the stated period or does not apply a cited definition (spec 31, B7)
+    SQL_MISMATCH = "sql_mismatch"
     LIMIT_EXCEEDED = "limit_exceeded"
     CONFIRMATION_REJECTED = "confirmation_rejected"
     TOOL_ERROR = "tool_error"

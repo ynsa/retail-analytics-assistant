@@ -136,7 +136,9 @@ flowchart TD
     plan --> guard{"SQL guard"}
     guard -->|"policy block:<br/>PII, other brand, write"| explain["Explain the block"]
     guard -->|"parse error"| retry{"Attempt below 3?"}
-    guard -->|"pass"| dry{"Dry run under<br/>the byte cap?"}
+    guard -->|"pass"| same{"SQL period and definitions<br/>match the answer?"}
+    same -->|"no"| retry
+    same -->|"yes or cannot verify"| dry{"Dry run under<br/>the byte cap?"}
     dry -->|"no"| retry
     dry -->|"yes"| run["Run the query<br/>parameters, labels, timeout"]
     run --> check{"Result"}
@@ -165,7 +167,7 @@ The main nodes (spec 31):
 1. `load_context` reads the user context, the pinned facts, the summary and the persona.
 2. `route` is one small Gemini call with structured output. It returns the intent: `analysis`, `schema`, `report`, `delete`, `clarify`, `chitchat`, `off_topic` or `unsafe`. The route call never sees query results, so data cannot change the route. Before the route, code sends SQL text in the message that changes data to the guard. The guard blocks it, and no model call occurs.
 3. `write_sql` writes one `SELECT` with full table names. It returns `final: true` or `false`, so one call also decides "more data needed".
-4. `guard`, `run_query`, `check_empty` and `mask_result` form the subgraph `data_loop`. The report flow uses the same subgraph for each report query.
+4. `guard`, `check_sql`, `run_query`, `check_empty` and `mask_result` form the subgraph `data_loop`. `check_sql` compares the SQL with the stated period and with the status filter of each cited definition, before the query runs (spec 31, B7). The report flow uses the same subgraph for each report query.
 5. `write_answer` writes the answer from the masked results. `scan_output` runs the output scanner and the prompt-leak check.
 6. `finish` updates the memory. Then `summarize` shortens the old turns when the window is full. The session writes the turn record.
 

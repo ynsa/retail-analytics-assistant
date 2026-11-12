@@ -81,6 +81,16 @@ class Lineage:
                 yield projections[index], leaf
 
     # --- lineage ------------------------------------------------------------------------------
+    def projections_of(
+        self, column: exp.Column
+    ) -> list[tuple[exp.Expression, Scope]] | None:
+        """The projection that defines a column of a CTE or a subquery, in each branch, with the
+        scope of the branch. None when the column comes from a base table or is not known."""
+        source = self.source_of(column, self.scope_of(column))
+        if not isinstance(source, Scope):
+            return None
+        return list(self._projections(source, column.name))
+
     def base_of(self, column: exp.Column, depth: int = 0) -> BaseColumn | None:
         """Follow a plain column through CTEs and subqueries to its base table column."""
         if depth > _MAX_DEPTH:

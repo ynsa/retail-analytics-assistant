@@ -40,7 +40,12 @@ MAIN = "gemini-3.5-flash-lite"
 FALLBACK = "gemini-3.1-flash-lite"
 NOW = datetime(2026, 11, 12, 10, 0, tzinfo=UTC)  # 02:00 in Los Angeles
 T_ITEMS = "`bigquery-public-data.thelook_ecommerce.order_items`"
-ORDERS_SQL = f"SELECT COUNT(DISTINCT oi.order_id) AS orders FROM {T_ITEMS} oi"
+# Glossary filter and the stated period of `sql_reply` (the checks of spec 31, B7 pass).
+ORDERS_SQL = (
+    f"SELECT COUNT(DISTINCT oi.order_id) AS orders FROM {T_ITEMS} oi "
+    "WHERE oi.created_at >= TIMESTAMP('2026-10-01') AND oi.created_at < TIMESTAMP('2026-11-01') "
+    "AND oi.status NOT IN ('Cancelled', 'Returned')"
+)
 DOWN = messages.text("llm_down")
 
 

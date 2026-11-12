@@ -1,4 +1,5 @@
-"""The subgraph `data_loop`: write_sql -> guard -> run_query -> [check_empty] -> mask_result.
+"""The subgraph `data_loop`: write_sql -> guard -> check_sql -> run_query -> [check_empty] ->
+mask_result.
 
 It runs the query steps of one question with the bounded self-correction (spec 31, B2.4). It ends
 in one of these states:
@@ -20,6 +21,7 @@ from typing import Any, TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from opsfleet_agent.agent.nodes.check_empty import check_empty
+from opsfleet_agent.agent.nodes.check_sql import check_sql
 from opsfleet_agent.agent.nodes.common import turn_of
 from opsfleet_agent.agent.nodes.guard_sql import guard
 from opsfleet_agent.agent.nodes.mask_result import mask_result
@@ -27,7 +29,14 @@ from opsfleet_agent.agent.nodes.run_query import run_query
 from opsfleet_agent.agent.nodes.write_sql import write_sql
 from opsfleet_agent.agent.state import AgentState, TurnContext, TurnState
 
-LOOP_NODES = ("write_sql", "guard", "run_query", "check_empty", "mask_result")
+LOOP_NODES = (
+    "write_sql",
+    "guard",
+    "check_sql",
+    "run_query",
+    "check_empty",
+    "mask_result",
+)
 
 
 class LoopOutput(TypedDict):
@@ -57,6 +66,7 @@ def build_data_loop() -> Any:
     g = StateGraph(AgentState, context_schema=TurnContext, output_schema=LoopOutput)
     g.add_node("write_sql", write_sql)
     g.add_node("guard", guard)
+    g.add_node("check_sql", check_sql)
     g.add_node("run_query", run_query)
     g.add_node("check_empty", check_empty)
     g.add_node("mask_result", mask_result)

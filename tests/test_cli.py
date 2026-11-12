@@ -34,7 +34,12 @@ SNAPSHOTS = Path(__file__).parent / "snapshots"
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
 TRACE = "4f2a9c1e00112233445566778899aabb"
 T_ITEMS = "`bigquery-public-data.thelook_ecommerce.order_items`"
-ORDERS_SQL = f"SELECT COUNT(DISTINCT oi.order_id) AS orders FROM {T_ITEMS} oi"
+# Glossary filter and the stated period of `sql_reply` (the checks of spec 31, B7 pass).
+ORDERS_SQL = (
+    f"SELECT COUNT(DISTINCT oi.order_id) AS orders FROM {T_ITEMS} oi "
+    "WHERE oi.created_at >= TIMESTAMP('2026-10-01') AND oi.created_at < TIMESTAMP('2026-11-01') "
+    "AND oi.status NOT IN ('Cancelled', 'Returned')"
+)
 
 
 # --- helpers ---------------------------------------------------------------------------------------

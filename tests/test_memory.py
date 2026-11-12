@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 
@@ -44,14 +44,32 @@ from tests.report_helpers import (
 
 NOW = datetime(2026, 11, 11, 12, 0, tzinfo=UTC)
 T_ITEMS = "`bigquery-public-data.thelook_ecommerce.order_items`"
-ORDERS_SQL = (
-    f"SELECT COUNT(DISTINCT oi.order_id) AS orders FROM {T_ITEMS} oi "
-    "WHERE oi.created_at >= TIMESTAMP('2026-01-01') AND oi.created_at < TIMESTAMP('2026-04-01')"
-)
-REVENUE_SQL = (
-    f"SELECT SUM(oi.sale_price) AS revenue FROM {T_ITEMS} oi "
-    "WHERE oi.status NOT IN ('Cancelled', 'Returned')"
-)
+
+
+def _dates(period: str) -> str:
+    """The SQL condition of a `YYYY-MM-DD..YYYY-MM-DD` period (the checks of spec 31, B7)."""
+    start, end = (date.fromisoformat(d) for d in period.split(".."))
+    after = (end + timedelta(days=1)).isoformat()
+    return (
+        f"oi.created_at >= TIMESTAMP('{start.isoformat()}') "
+        f"AND oi.created_at < TIMESTAMP('{after}')"
+    )
+
+
+def orders_sql(period: str) -> str:
+    return (
+        f"SELECT COUNT(DISTINCT oi.order_id) AS orders FROM {T_ITEMS} oi "
+        f"WHERE {_dates(period)} AND oi.status NOT IN ('Cancelled', 'Returned')"
+    )
+
+
+def revenue_sql(period: str) -> str:
+    return (
+        f"SELECT SUM(oi.sale_price) AS revenue FROM {T_ITEMS} oi "
+        f"WHERE oi.status NOT IN ('Cancelled', 'Returned') AND {_dates(period)}"
+    )
+
+
 Q1 = "2026-01-01..2026-03-31"
 Q2 = "2026-04-01..2026-06-30"
 SUMMARY = (
@@ -185,7 +203,7 @@ def data_turn(text: str, period: str, n: int = 120, **route: Any) -> Turn:
         text,
         [
             route_reply(follow_up=True, **route),
-            sql_reply(ORDERS_SQL, period=period, definitions=["orders"]),
+            sql_reply(orders_sql(period), period=period, definitions=["orders"]),
             f"Your brands had {n} orders.",
         ],
         [orders_frame(n)],
@@ -205,7 +223,7 @@ def script(change_at_20: bool = True) -> list[Turn]:
             "And the revenue in the same period?",
             [
                 route_reply(follow_up=True),
-                sql_reply(REVENUE_SQL, period=Q1, definitions=["revenue"]),
+                sql_reply(revenue_sql(Q1), period=Q1, definitions=["revenue"]),
                 "Your brands had revenue of $24,813.17.",
             ],
             [revenue_frame()],
@@ -628,7 +646,11 @@ def test_11_result_reference_in_the_window_and_full_rows_in_the_cache(
         {"month": [f"2026-{m:02d}" for m in range(1, 13)] * 2, "revenue": range(24)}
     )
     llm = ScriptLLM(
-        [route_reply(), sql_reply(MONTHLY_SQL, purpose="Revenue by month"), "OK."]
+        [
+            route_reply(),
+            sql_reply(MONTHLY_SQL, purpose="Revenue by month", period=Q1),
+            "OK.",
+        ]
     )
     session = new_session(llm=llm, bq=FakeBQ([frame_result(rows)]))
     session.send("Revenue by month?")
@@ -662,7 +684,11 @@ def test_12_result_cache_read_by_another_user_gives_no_row(conn):
 
 def test_save_last_after_30_days_needs_a_new_question(new_session, clock):
     llm = ScriptLLM(
-        [route_reply(), sql_reply(MONTHLY_SQL, purpose="Revenue by month"), "OK."]
+        [
+            route_reply(),
+            sql_reply(MONTHLY_SQL, purpose="Revenue by month", period=Q1),
+            "OK.",
+        ]
     )
     session = new_session(llm=llm, bq=FakeBQ([monthly_frame()]))
     session.send("Revenue by month?")
@@ -838,7 +864,10 @@ def test_standing_filter_and_user_definition_are_pinned_and_used(new_session):
                 set_filters=[{"field": "department", "value": "Women"}],
             ),
             route_reply(),
-            sql_reply(REVENUE_SQL, period="2025-01-01..2025-12-31"),
+            sql_reply(
+                revenue_sql("2025-01-01..2025-12-31"),
+                period="2025-01-01..2025-12-31",
+            ),
             "Your brands had revenue of $24,813.17.",
             route_reply("schema", schema_kind="conversation"),
             "The filter is department = Women.",
