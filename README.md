@@ -42,6 +42,8 @@ The production design document and the diagrams (specs 10 and 11) are ready for 
 
 Source: [prototype.drawio](docs/design/diagrams/prototype.drawio). The production design on Google Cloud is in the [design document](docs/design/hld.md).
 
+The evaluation is ready (specs 20–23): the test sets, the reference results and the runner. The runs on the finished agent follow in Phase 3 (spec 50).
+
 ## Run the prototype
 
 ```bash
@@ -67,6 +69,22 @@ A simple question costs 3 Gemini calls (route, SQL, answer) and 1 query. A greet
 The cost limits for each answer and for each day are in `config/settings.yaml`, and the agent limits (attempts, steps, message length) are in its `agent` section. The prompts are in `src/opsfleet_agent/agent/prompts/`. The traces of each answer are in `data/traces/`.
 
 At the first start, the assistant builds `data/value_cache.json` with one small query (about 40 MB billed). The cache holds the brand names, the filter values and the date range of the data. The assistant builds it again after 7 days. The start stops when a brand in `config/users.yaml` does not exist in the data, and the message gives the close names.
+
+## Evaluate the assistant
+
+The evaluation sets are in `evals/sets/`: 50 accuracy questions with checked reference SQL (spec 21), 61 safety cases and a 32-turn conversation (spec 22). The runner (spec 23) shows a plan with the Gemini calls and the cost before it starts. A run with more than 10 planned calls starts only after you type `yes`.
+
+```bash
+uv run opsfleet-eval plan --set accuracy          # the plan only: no Gemini call, free BigQuery dry runs
+uv run opsfleet-eval run --set smoke              # 5 cases, at most 10 Gemini calls, no judge
+uv run opsfleet-eval run --set accuracy           # asks for "yes" (about 216 calls)
+uv run opsfleet-eval run --resume <run_id>        # continue a run that stopped at its cap or the daily limit
+uv run opsfleet-eval snapshot --set accuracy      # refresh the reference results after a data change
+uv run opsfleet-eval review --run <run_id>        # label 10 judged answers blind
+uv run opsfleet-eval compare <run_a> <run_b>      # metric changes and the cases that changed
+```
+
+Each run writes `data/eval/runs/<run_id>/report.md`.
 
 ## Documents
 

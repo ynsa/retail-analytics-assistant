@@ -1,0 +1,246 @@
+"""Execution match: compare the reference result with each result of the agent (spec 21, B2.6).
+
+Steps: normalize the values, map each reference column to the agent column whose values match best
+(the names do not matter), compare the rows with the mode of the case, and apply the tolerance.
+One matching agent result is enough.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from opsfleet_agent.evals.cases import Expected
+from opsfleet_agent.evals.normalize import (
+    NUMBER_KINDS,
+    context_year,
+    is_missing,
+    norm_key,
+    to_float,
+)
+from opsfleet_agent.evals.records import QueryRecord
+from opsfleet_agent.evals.scorers import ScoreResult
+from opsfleet_agent.evals.snapshot import top_k_rows
+
+DEFAULT_REL = 0.005
+DEFAULT_ABS = 0.01
+RATIO_ABS = 0.0001  # 0.01 percentage points: 0.01 is too wide for a ratio
+# The order of the reasons, from "nearly correct" to "no result". The best failure is reported.
+_REASON_RANK = [
+    "wrong_value",
+    "wrong_order",
+    "wrong_rows",
+    "missing_column",
+    "no_result",
+]
+
+
+@dataclass
+class _Table:
+    columns: list[str]
+    rows: list[list[Any]]
+
+    def column(self, name: str) -> list[Any]:
+        i = self.columns.index(name)
+        return [row[i] if i < len(row) else None for row in self.rows]
+
+
+def values_match(ref: Any, got: Any, kind: str, expected: Expected) -> bool:
+    """The tolerance rule: 0.5% or 0.01 (the larger), counts exactly, a ratio also as a percent."""
+    if is_missing(ref) or is_missing(got):
+        return is_missing(ref) and is_missing(got)
+    if kind not in NUMBER_KINDS:
+        return norm_key(ref, kind) == norm_key(got, kind)
+    a, b = to_float(ref), to_float(got)
+    if a is None or b is None:
+        return False
+    if kind == "count" and expected.abs_tol is None and expected.rel_tol is None:
+        return abs(a - b) < 0.5
+    rel = DEFAULT_REL if expected.rel_tol is None else expected.rel_tol
+    floor = RATIO_ABS if kind == "ratio" else DEFAULT_ABS
+    floor = floor if expected.abs_tol is None else expected.abs_tol
+    if abs(a - b) <= max(abs(a) * rel, floor):
+        return True
+    if kind == "ratio":  # the agent shows the ratio as a percent
+        return abs(a * 100 - b) <= max(abs(a * 100) * rel, floor * 100)
+    return False
+
+
+def _map_keys(
+    ref: list[dict[str, Any]], table: _Table, expected: Expected
+) -> tuple[dict[str, str], dict[str, int | None]] | None:
+    """Map each reference key column to the agent column with the best value overlap."""
+    mapping: dict[str, str] = {}
+    years: dict[str, int | None] = {}
+    for key in expected.key_columns():
+        kind = expected.columns[key].kind
+        ref_vals = [norm_key(r.get(key), kind) for r in ref]
+        year = context_year(ref_vals, kind)
+        years[key] = year
+        wanted = {v for v in ref_vals if v is not None}
+        best, best_score = None, 0.0
+        for col in table.columns:
+            if col in mapping.values():
+                continue
+            got = {norm_key(v, kind, year) for v in table.column(col)}
+            score = len(wanted & got) / max(len(wanted), 1)
+            if score > best_score:
+                best, best_score = col, score
+        if best is None:
+            return None
+        mapping[key] = best
+    return mapping, years
+
+
+def _agent_keys(
+    table: _Table,
+    mapping: dict[str, str],
+    years: dict[str, int | None],
+    expected: Expected,
+) -> list[tuple[str | None, ...]]:
+    cols = {k: table.column(c) for k, c in mapping.items()}
+    out = []
+    for i in range(len(table.rows)):
+        out.append(
+            tuple(
+                norm_key(cols[k][i], expected.columns[k].kind, years[k])
+                for k in expected.key_columns()
+            )
+        )
+    return out
+
+
+def _ref_key(row: dict[str, Any], expected: Expected) -> tuple[str | None, ...]:
+    return tuple(
+        norm_key(row.get(k), expected.columns[k].kind) for k in expected.key_columns()
+    )
+
+
+def _map_values(
+    pairs: list[tuple[dict[str, Any], int]],
+    table: _Table,
+    expected: Expected,
+    used: set[str],
+) -> tuple[dict[str, str], list[str]]:
+    """Map each reference value column to the agent column that matches the most aligned rows."""
+    mapping: dict[str, str] = {}
+    wrong: list[str] = []
+    for col in expected.value_columns():
+        kind = expected.columns[col].kind
+        best, best_hits = None, -1
+        for agent_col in table.columns:
+            if agent_col in used or agent_col in mapping.values():
+                continue
+            values = table.column(agent_col)
+            hits = sum(
+                1
+                for ref_row, i in pairs
+                if values_match(ref_row.get(col), values[i], kind, expected)
+            )
+            if hits > best_hits:
+                best, best_hits = agent_col, hits
+        if best is None:
+            wrong.append(col)
+            continue
+        mapping[col] = best
+        if best_hits < len(pairs):
+            wrong.append(col)
+    return mapping, wrong
+
+
+def _score_value(
+    ref: list[dict[str, Any]], table: _Table, expected: Expected
+) -> ScoreResult:
+    if not ref:
+        return ScoreResult.fail("no_result", note="the reference has no row")
+    col = expected.value_columns()[0]
+    kind = expected.columns[col].kind
+    target = ref[0].get(col)
+    for i, row in enumerate(table.rows):
+        for j, value in enumerate(row):
+            if values_match(target, value, kind, expected):
+                return ScoreResult.ok(row=i, column=table.columns[j])
+    return ScoreResult.fail("wrong_value", expected=target, got=table.rows[:3])
+
+
+def score_table(
+    ref: list[dict[str, Any]], table: _Table, expected: Expected
+) -> ScoreResult:
+    """Compare one agent result with the reference rows."""
+    if not table.rows:
+        empty_ref = all(all(is_missing(v) or v == 0 for v in r.values()) for r in ref)
+        return (
+            ScoreResult.ok(note="both empty")
+            if empty_ref
+            else ScoreResult.fail("no_result")
+        )
+    if expected.mode == "value" or not expected.key_columns():
+        return _score_value(ref, table, expected)
+    mapped = _map_keys(ref, table, expected)
+    if mapped is None:
+        return ScoreResult.fail("missing_column", columns=table.columns)
+    key_map, years = mapped
+    agent_keys = _agent_keys(table, key_map, years, expected)
+    ref_rows = top_k_rows(ref, expected) if expected.mode == "top_k" else ref
+    ref_index = {_ref_key(r, expected): r for r in ref_rows}
+    ref_keys = [_ref_key(r, expected) for r in ref_rows]
+
+    if expected.mode == "top_k":
+        k = min(expected.k or len(ref), len(ref))
+        first = agent_keys[:k]
+        distinct = len(set(first)) == len(first)
+        if len(first) < k or not distinct or any(key not in ref_index for key in first):
+            return ScoreResult.fail("wrong_rows", expected=ref_keys, got=first)
+        compare = list(range(k))
+    elif expected.mode == "contains":
+        missing = [key for key in ref_keys if key not in agent_keys]
+        if missing:
+            return ScoreResult.fail("wrong_rows", missing=missing[:10])
+        compare = [agent_keys.index(key) for key in ref_keys]
+    else:
+        if sorted(map(str, agent_keys)) != sorted(map(str, ref_keys)):
+            return ScoreResult.fail(
+                "wrong_rows",
+                missing=[k for k in ref_keys if k not in agent_keys][:10],
+                extra=[k for k in agent_keys if k not in ref_index][:10],
+            )
+        if expected.mode == "rows_ordered" and agent_keys != ref_keys:
+            return ScoreResult.fail("wrong_order", expected=ref_keys, got=agent_keys)
+        compare = list(range(len(agent_keys)))
+
+    pairs = [(ref_index[agent_keys[i]], i) for i in compare]
+    value_map, wrong = _map_values(pairs, table, expected, set(key_map.values()))
+    if wrong:
+        return ScoreResult.fail(
+            "wrong_value", columns=wrong, mapping={**key_map, **value_map}
+        )
+    return ScoreResult.ok(mapping={**key_map, **value_map})
+
+
+def execution_match(
+    expected: Expected,
+    ref_columns: list[str],
+    ref_rows: list[list[Any]],
+    queries: list[QueryRecord],
+) -> ScoreResult:
+    """Pass when one agent result matches the reference. Otherwise report the best failure."""
+    ref = [dict(zip(ref_columns, row, strict=False)) for row in ref_rows]
+    missing = [c for c in expected.columns if c not in ref_columns]
+    if missing:
+        return ScoreResult.fail("missing_column", note=f"reference lacks {missing}")
+    results = [q for q in queries if q.error_type is None]
+    if not results:
+        return ScoreResult.fail("no_result", note="the agent ran no successful query")
+    best: ScoreResult | None = None
+    for i, query in enumerate(results):
+        outcome = score_table(ref, _Table(query.columns, query.rows), expected)
+        if outcome.passed:
+            outcome.details["query"] = i
+            return outcome
+        if best is None or _REASON_RANK.index(
+            outcome.reason or "no_result"
+        ) < _REASON_RANK.index(best.reason or "no_result"):
+            best = outcome
+    assert best is not None
+    best.details["queries"] = len(results)
+    return best

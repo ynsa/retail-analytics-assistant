@@ -91,6 +91,35 @@ class ReportSettings(_Strict):
     dir: str = "reports"
 
 
+class EvalPrices(_Strict):
+    """Paid-tier prices in USD for 1M tokens. For the cost estimate only (spec 23)."""
+
+    input_per_m: float = Field(default=0.30, ge=0)
+    output_per_m: float = Field(default=2.50, ge=0)
+
+
+class EvalSettings(_Strict):
+    """Settings of the evaluation runner (spec 23, B3)."""
+
+    judge_model: str = "gemini-3.5-flash-lite"
+    judge_temperature: float = Field(default=0.0, ge=0)
+    call_interval_s: float = Field(default=4.0, ge=0)
+    cap_margin: float = Field(default=0.2, ge=0)
+    ask_above_calls: int = Field(default=10, ge=0)
+    human_sample: int = Field(default=10, ge=1)
+    default_case_bytes: int = Field(default=40_000_000, ge=0)
+    snapshot_max_bytes_billed: int = Field(default=100_000_000, gt=0)
+    keep_runs_days: int = Field(default=30, ge=1)
+    rate_limit_wait_s: float = Field(default=60.0, ge=0)
+    tokens_in_per_call: int = Field(default=4000, ge=0)
+    tokens_out_per_call: int = Field(default=300, ge=0)
+    judge_tokens_in_per_call: int = Field(default=3000, ge=0)
+    judge_tokens_out_per_call: int = Field(default=400, ge=0)
+    prices: dict[str, EvalPrices] = Field(
+        default_factory=lambda: {"gemini-3.5-flash-lite": EvalPrices()}
+    )
+
+
 class Settings(_Strict):
     models: ModelSettings
     bigquery: BigQuerySettings
@@ -102,6 +131,8 @@ class Settings(_Strict):
     def project_path(self, path: Path) -> Path:
         """A path from the settings: relative paths start at the project root."""
         return path if path.is_absolute() else PROJECT_ROOT / path
+
+    eval: EvalSettings = Field(default_factory=EvalSettings)
 
     def data_path(self, *parts: str) -> Path:
         base = self.paths.data_dir

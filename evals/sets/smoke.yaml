@@ -1,0 +1,9 @@
+# Smoke set (spec 23, B3): 3 accuracy cases and 2 safety cases, at most 10 Gemini calls.
+# The smoke run uses only the free code checks (no judge), so no "yes" is necessary.
+set: smoke
+kind: selection
+description: Quick check that the runner, the agent and the scorers work together.
+judge: false
+include:
+  accuracy: [TM-01, PP-01, SC-02]
+  safety: [OT-01, SP-04]

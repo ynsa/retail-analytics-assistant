@@ -1,6 +1,6 @@
 # Spec 23: Evaluation runner and scoring
 
-- **Status:** Approved (owner review, 2026-11-11)
+- **Status:** Done (2026-11-11). The live runs on the agent belong to spec 50.
 - **Phase and stream:** Phase 2, stream B (evaluation)
 - **Depends on:** 00, 01, 20, 21, 22
 - **Requirements covered:** Req 6 (quality assurance). The metrics also use the traces of Req 7.
@@ -73,7 +73,7 @@ The owner runs one command and gets an evaluation report. The report shows how m
 | | Decision | Choice | Alternatives | Reason |
 |---|---|---|---|---|
 | ⚑ | Approval and cap | A cost estimate in every plan. A "yes" above 10 planned calls: typed, or `--yes` after the owner approved the plan in the conversation. Each run has a hard cap of the plan plus 20%. | No estimate, or no cap | The owner's rule (2026-11-11): small checks of up to 10 calls run freely, and a full run needs a cost estimate and a "yes". The cap makes the plan binding. |
-| ⚑ | Judge model | `gemini-3.8-flash`, temperature 0, set in `config/settings.yaml` (`eval.judge_model`). The same judge for all runs and both models in spec 51. | The agent model as judge, or a judge from another provider | A stronger model judges better. The same judge keeps the runs comparable. We have only a Gemini key. |
+| ⚑ | Judge model | `gemini-3.5-flash-lite`, temperature 0, set in `config/settings.yaml` (`eval.judge_model`). The same judge for all runs and both models in spec 51. (Changed on 2026-11-11, see B7.) | `gemini-3.8-flash`, or a judge from another provider | The free tier of `gemini-3.8-flash` allows only about 20 requests each day. One run needs 13 to 44 judge calls. The same judge keeps the runs comparable. We have only a Gemini key. |
 | ⚑ | Report format | Markdown `report.md` in the run folder. Spec 50 copies the final report to `docs/evaluation/`. | HTML, or only JSON | Markdown shows well on GitHub and in the terminal. The reviewers read the repository. HTML can come later. |
 | | Framework | pytest and our own scorers (spec 20) | DeepEval, Inspect AI | Spec 20 gives the reasons. |
 | | How the runner calls the agent | In the same process, through `AssistantSession` (spec 37) | `build_graph()` directly, or the CLI | `AssistantSession` already handles the delete `interrupt()` and the resume, the same way as the CLI and the UI. The runner reads the queries, results and model inputs from the traces. |
@@ -276,11 +276,11 @@ Entry point in `pyproject.toml`: `opsfleet-eval = "opsfleet_agent.evals.cli:app"
 
 ```yaml
 eval:
-  judge_model: gemini-3.8-flash
+  judge_model: gemini-3.5-flash-lite
   judge_temperature: 0
   call_interval_s: 4
   cap_margin: 0.2
-  ask_above_calls: 20
+  ask_above_calls: 10
   human_sample: 10
   default_case_bytes: 40000000
   keep_runs_days: 30
@@ -322,7 +322,41 @@ The accuracy set and the safety set do not fit together in one day of 300 calls.
 ### B6. Risks and open points
 
 - The estimates of calls for each case are guesses until the first run. The cap protects the budget, and `call_stats.json` corrects the next plan.
-- The judge model also is one of the two models in spec 51. It can prefer its own answers. The main metrics (execution match, answer facts, safety code checks) do not use the judge.
+- The judge model is also the default agent model. It can prefer its own answers. The main metrics (execution match, answer facts, safety code checks) do not use the judge. The human labels (A2.6) measure the agreement of the judge.
 - 10 human labels for each run give a wide uncertainty. The report adds the labels of all runs with the same judge model and rubric hash.
-- The free-tier limits of `gemini-3.8-flash` can be lower than those of `gemini-3.5-flash-lite`. The judge calls then pause the run more often.
+- The judge calls and the agent calls share the free-tier limit of `gemini-3.5-flash-lite`. A full set with the judge needs more calls than a run without the judge. The plan shows the judge calls separately.
 - The records keep the model inputs for debugging. They contain no PII by design. `H-PIIM` checks this in each safety run.
+
+### B7. Notes from the build (2026-11-11)
+
+**Change of the judge model (2026-11-11).** The judge model is now `gemini-3.5-flash-lite`, not `gemini-3.8-flash`. The free tier of `gemini-3.8-flash` allows only about 20 requests each day. A full accuracy run needs 13 judge calls, and a full safety run needs 44. The setting `eval.judge_model` can change the judge again. A change of the judge model needs a new calibration (BP-E7).
+
+**Approval rule.** `eval.ask_above_calls` is 10, as in the owner's rule. The first draft of B3 had 20.
+
+**What the build added or changed:**
+
+- **Agent adapter.** The runner calls the agent only through `evals/agent_adapter.py`. The interface is `adapter.start(case_id, user_id, case_dir, fixture, fixture_args)` and `conversation.send(text) -> TurnRecord`. `SessionAdapter` uses `AssistantSession.ask()` of spec 01 today, and `send()` of spec 37 when it exists. A change of the session API changes only this file.
+- **Records.** `TurnRecord` (in `evals/records.py`) holds the data that the scorers read. It has the answer, the kind (answer or confirmation), the error type, the trace ID and the route. It also has the queries with their results, the model inputs and the spans. For the safety checks, it has the identity before and after the turn, the pending confirmation, the report states, the report body and the report files.
+- **Run without the judge.** With `--no-judge`, or in a set with `judge: false` (the smoke set), the judge scorers do not run and do not count. Only the code checks score the cases (spec 50, B1).
+- **Resume.** `--resume` makes a new plan for the cases that are not scored, with a new cap, and needs a new "yes" above 10 calls. A case that stopped in the judge step keeps its record. On `--resume`, only the judge runs for it, not the agent.
+- **Judge output.** The JSON field of a criterion is `passed`, not `pass`. The judge prompt lists only the criteria of the case.
+- **Report scanner.** Until the output scanner of spec 30 exists, the report uses a small scanner for emails, phone numbers and coordinates.
+- **Data change during a run.** The runner compares the table change times at the end with the times at the start of the run. If they differ, the runner refreshes the snapshots of all cases of the run and scores all stored records again. It appends a new result line with `rescored_at`. The judge results stay. If the refresh needs more than 1 GB of BigQuery, the runner does not refresh. It shows the two commands to run: `opsfleet-eval snapshot` and `opsfleet-eval report --rescore`.
+- **No hidden retries.** The evaluation sets `max_retries` to 0 for its Gemini clients. The SDK retries are not visible to the cap and the throttle. A rate-limit error ends the turn, and the runner waits and runs the case again (B2.9).
+- **Judge results are not asked again.** After a rate limit in the judge step, or on `--resume`, the runner uses the judge results that worked (from `judge.jsonl`). It asks the judge only for the missing ones.
+- **H-SCOPE needs evidence.** For a manager, each executed query must have the scope of the user: the guard parameter `@scope_brands`, or a guard span with the user's brands. A query without this evidence fails the check.
+- **Code review (2026-11-11).** An independent review found 10 points. Each correction has a regression test in `tests/eval/test_review_findings.py` or `tests/eval/test_runner_fakes.py`. One point stays open: in the `value` mode, any cell of the agent result can match the reference value. A wrong column with the same value can pass.
+- **Smoke set.** `evals/sets/smoke.yaml` has TM-01, PP-01, SC-02, OT-01 and SP-04: 10 planned calls, no judge.
+- **Files.** The code is in `src/opsfleet_agent/evals/`: `cases.py`, `records.py`, `snapshot.py`, `normalize.py`, `textnum.py`, `recorder.py`, `agent_adapter.py`, `fixtures.py`, `safety_checks.py`, `score.py`, `runner.py`, `orchestrate.py`, `plan.py`, `storage.py`, `metrics.py`, `report.py`, `compare.py`, `review.py`, `cli.py` and `scorers/`.
+
+**Sample plan** (`uv run opsfleet-eval plan --set accuracy`, 2026-11-11, no call made):
+
+```text
+Set: accuracy (50 cases, 0 skipped)      Agent model: gemini-3.5-flash-lite
+Gemini calls: 216 planned (agent 203, judge 13 on gemini-3.5-flash-lite). Hard cap for this run: 260.
+Daily budget left: 480 calls. This run fits.
+Tokens: about 0.85M in, 0.07M out. Price at the paid tier: about $0.42. Free tier: $0.
+BigQuery: 2.00 GB planned (snapshot refresh 0.00 GB, agent 2.00 GB).
+Time: about 17 minutes (one call every 4 s).
+Not confirmed by a person yet (reviewed_by: claude-draft): 50 cases.
+```

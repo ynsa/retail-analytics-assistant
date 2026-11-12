@@ -1,6 +1,6 @@
 # Spec 21: Evaluation dataset: questions and reference SQL
 
-- **Status:** Approved (owner review, 2026-11-11)
+- **Status:** Done (2026-11-11). Each case has `reviewed_by: claude-draft`. The owner confirms each case (B7).
 - **Phase and stream:** Phase 2, stream B (evaluation)
 - **Depends on:** 00, 20
 - **Requirements covered:** Req 6 (quality assurance). The set checks the expected capabilities from the brief and Req 2 (brand scope) and Req 5 (empty results, self-correction).
@@ -437,8 +437,41 @@ Cases without SQL (SC-01, SC-02, SC-04, SC-05) have `reference_sql: null` and a 
 
 ### B6. Risks and open points
 
-- The state names in MS-01 (`California`, `Texas`) are not checked yet. The reviewer checks them in step 3 of B2.8.
+- Resolved on 2026-11-11: the state names in MS-01 exist. The snapshot has 710 customers in California and 480 in Texas.
 - Resolved on 2026-11-11: gap analysis N4 now defines the sale date as `order_items.created_at`. "Last month" is the last full calendar month before today (UTC). Rows dated after today stay out. TM-07 follows this rule, and the spec 31 glossary contains it.
 - Resolved on 2026-11-11: the spec 31 glossary contains "purchase", "return rate", "cancellation rate", "average order value" and "spend per customer", with the same definitions as this spec.
 - We do not know if Google changes old rows or only adds new rows. The refresh handles both cases.
 - The judge (`rows + judge` cases) checks the explanation. An explanation can be correct in more than one way. The rubric (spec 23) checks that the explanation uses figures from the results.
+
+### B7. Notes from the build (2026-11-11)
+
+**Review.** Claude drafted all reference SQL, ran each one on BigQuery, and read each result. Each case has `drafted_by: claude`, `reviewed_by: claude-draft` and `reviewed_at: "2026-11-11"`. The status is `ready`, so the runner uses the cases. The plan lists the cases that a person did not confirm. The owner confirms a case and writes the own name in `reviewed_by`.
+
+**Snapshots.** All 46 cases with SQL and the 3 references of the conversation sets have a snapshot of 2026-11-11 (data changed at 03:44 UTC). The runtime snapshots are in `data/eval/snapshots/`. A reviewed copy is in the repository: `evals/baseline/snapshots.json`. A new clone uses this copy until the data changes. `uv run opsfleet-eval snapshot --set accuracy --export` writes the copy again.
+
+**Corrections after the first run of the reference SQL:**
+
+| Case | Problem | Correction |
+|---|---|---|
+| MS-06 | A country with only cancelled items gave a row with an empty return rate. An agent can leave out this row and fail for no reason. | The SQL leaves out groups without items that are not cancelled (`HAVING`). |
+| TM-09 | Correct methods to count days (hours / 24, `TIMESTAMP_DIFF(DAY)`, `DATE_DIFF`) differ by up to 0.4 days. A wide tolerance of 0.6 days accepted almost any answer. | Two alternative references, one for each day count, each with a tolerance of 0.15 days. |
+| LC-01 (spec 22) | No order of maya's brands in the Women department has revenue above 150 USD (the largest is 144.99 USD). The check was a true zero only. | The threshold is 100 USD: 58 orders. |
+
+**Additions to the case format (B3):**
+
+- `params`: more query parameters. `@focus_brands` holds a brand that the question names (PP-03, ER-03), so the SQL text never has a brand name.
+- `alt_references`: other correct shapes of the result, for example one column for each year (MS-02), both years in one query (MS-04), or a margin rate (PP-06). One match is enough.
+- `expected.rel_tol` and `expected.abs_tol`: a tolerance for one case (TM-09).
+- `required` and `forbidden`: the words for the `facts` scorer. `accept_clarification`: the words of an accepted clarifying question (ER-03).
+- A fact can name the row of rank N with `@rankN`.
+
+**Cases that the owner must look at first.** These results are close, so a small change of the data or of a definition can change the answer:
+
+- CB-03: 8 customers have the same spend (259.99) at ranks 4 to 11. The top-k rule accepts any of them.
+- CB-07: Email (97.74) and Search (97.24) differ by 0.5%.
+- PP-07: three products have the same revenue (1,806.00) at rank 1.
+- PP-09: distribution center 2 (3,512 items) and center 1 (3,500 items) differ by 0.3%. The table `distribution_centers` is not allowed, so the answer gives only the ID.
+- MS-06: the categories at rank 3 and 4 (Active 12.99%, Skirts 12.92%) are close.
+- TM-08 counts the delivery month (`delivered_at`), not the sale month, because the question asks about deliveries.
+
+**Cost of the work.** A dry run before each query, `maximum_bytes_billed` on each query. BigQuery billed about 1.3 GB in total for 58 queries. These are 52 reference queries, 4 corrected queries and 2 small checks. The checks are the order sizes for LC-01 and customer 4521 for spec 22. Gemini calls: 0.
