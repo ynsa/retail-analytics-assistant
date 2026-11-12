@@ -20,7 +20,13 @@ from opsfleet_agent.cli.chat_loop import chat_loop, end_chat
 from opsfleet_agent.cli.render import Ui
 from opsfleet_agent.config import AppConfig, load_config
 from opsfleet_agent.errors import ConfigError
-from opsfleet_agent.startup import StartError, check_user, start_session
+from opsfleet_agent.startup import (
+    StartError,
+    check_secrets,
+    check_user,
+    start_services,
+    start_session,
+)
 
 app = typer.Typer(
     add_completion=False,
@@ -245,8 +251,6 @@ def ui_command(
     ),
 ) -> None:
     """Start the local test UI (spec 52) on http://127.0.0.1:8000."""
-    from opsfleet_agent.session import build_services
-    from opsfleet_agent.startup import check_secrets, start_error
     from opsfleet_agent.ui.backend import AssistantFactory, UiBackend
     from opsfleet_agent.ui.server import serve
 
@@ -255,10 +259,7 @@ def ui_command(
     try:
         check_secrets(config)
         with ui.status("Starting: reading the table schemas and the value cache"):
-            try:
-                services = build_services(config)
-            except Exception as exc:
-                raise StartError(start_error(exc), 3) from exc
+            services = start_services(config)
     except StartError as exc:
         ui.line(exc.message, "red")
         raise typer.Exit(code=exc.exit_code) from exc

@@ -26,6 +26,7 @@ from opsfleet_agent.memory.conversations import canonical_id
 from opsfleet_agent.reports.library import ReportLibrary
 from opsfleet_agent.resilience.safe_node import internal_message, log_exception
 from opsfleet_agent.session import CommandOutcome, ConfirmationView, TurnResult
+from opsfleet_agent.startup import StartError
 from opsfleet_agent.store.db import connect
 from opsfleet_agent.tracing import init_tracing
 from opsfleet_agent.ui import views
@@ -77,31 +78,33 @@ class SessionFactory(Protocol):
 
 
 class AssistantFactory:
-    """The real sessions: the same `AssistantSession` and services as the CLI."""
+    """The real sessions: `startup.start_session()`, the same start as `opsfleet-agent chat`.
+    The services are built once when the server starts. A start problem (for example a wrong
+    brand of the user, spec 30 B2.8) raises `StartError`."""
 
     def __init__(self, config: AppConfig, services: Any) -> None:
         self.config = config
         self.services = services
 
     def create(self, user: UserContext) -> SessionLike:
-        from opsfleet_agent.session import AssistantSession
-
-        self._check(user)
-        return AssistantSession(self.config, user, self.services)
+        return self._start(user.id)
 
     def resume(self, user: UserContext, conversation_id: str) -> SessionLike:
-        from opsfleet_agent.session import AssistantSession
+        return self._start(user.id, conversation_id)
 
-        self._check(user)
-        return AssistantSession.resume(
-            self.config, user, self.services, conversation_id
-        )
+    def _start(self, user_id: str, resume: str | None = None) -> SessionLike:
+        from opsfleet_agent.startup import start_session
 
-    def _check(self, user: UserContext) -> None:
-        """Spec 30, B2.8: a wrong brand of this user stops the start (ConfigError)."""
-        from opsfleet_agent.session import check_user_brands
+        started = start_session(self.config, user_id, resume, services=self.services)
+        return started.session  # type: ignore[return-value]
 
-        check_user_brands(self.config, self.services.values, user.id)
+
+def _start_error(exc: StartError) -> UiError:
+    """An unknown conversation, or one of another user (spec 34), is "not found". Another start
+    problem, for example a wrong brand in `users.yaml`, is a normal error."""
+    if isinstance(exc.__cause__, AgentError):
+        return NotFound(exc.message)
+    return UiError(exc.message)
 
 
 @dataclass
@@ -158,8 +161,8 @@ class UiBackend:
         user = self.user(user_id)
         try:
             session = self.factory.create(user)
-        except ConfigError as exc:
-            raise UiError(str(exc)) from exc
+        except StartError as exc:
+            raise UiError(exc.message) from exc
         with self._lock:
             self._live[session.conversation_id] = LiveSession(session, user.id)
         return {
@@ -244,10 +247,8 @@ class UiBackend:
                 return live
             try:
                 session = self.factory.resume(user, conversation_id)
-            except AgentError as exc:
-                raise NotFound(exc.user_message) from exc
-            except ConfigError as exc:
-                raise UiError(str(exc)) from exc
+            except StartError as exc:
+                raise _start_error(exc) from exc
             live = LiveSession(session, user.id)
             self._live[session.conversation_id] = live
             return live

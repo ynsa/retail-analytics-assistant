@@ -11,6 +11,7 @@ import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 from opsfleet_agent.config import AppConfig
 from opsfleet_agent.errors import AgentError, ConfigError
@@ -93,30 +94,19 @@ def run_retention(config: AppConfig, now: datetime) -> PruneResult | None:
         conn.close()
 
 
-def start_session(
-    config: AppConfig,
-    user_id: str,
-    resume: str | None = None,
-    refresh_cache: bool = False,
-    clock: Callable[[], datetime] = lambda: datetime.now(UTC),
-) -> Started:
-    user = check_user(config, user_id)
-    check_secrets(config)
-    if resume:
-        check_resume(config, user.id, resume)
+def start_services(config: AppConfig, refresh_cache: bool = False) -> Any:
+    """The services of the sessions: the clients, the table schemas and the value cache.
 
-    from opsfleet_agent.session import (
-        AssistantSession,
-        build_services,
-        check_user_brands,
-    )
+    `start_session()` builds them for one chat. The local UI builds them once and gives them to
+    `start_session()` for each conversation."""
+    from opsfleet_agent.session import build_services
 
     try:
         with warnings.catch_warnings():
             # google-auth warns about user credentials without a quota project. The free
             # public dataset needs none, and the warning is not for the chat user.
             warnings.filterwarnings("ignore", message=_ADC_WARNING)
-            services = build_services(config, refresh_cache=refresh_cache)
+            return build_services(config, refresh_cache=refresh_cache)
     except ConfigError as exc:
         raise StartError(str(exc), 2) from exc
     except AgentError as exc:  # for example the daily BigQuery limit of the value cache
@@ -125,6 +115,27 @@ def start_session(
         ) from exc
     except Exception as exc:
         raise StartError(start_error(exc), 3) from exc
+
+
+def start_session(
+    config: AppConfig,
+    user_id: str,
+    resume: str | None = None,
+    refresh_cache: bool = False,
+    clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    services: Any = None,
+) -> Started:
+    """The checks of B2.6, the services (when `services` is None), the retention and the
+    session."""
+    user = check_user(config, user_id)
+    check_secrets(config)
+    if resume:
+        check_resume(config, user.id, resume)
+
+    from opsfleet_agent.session import AssistantSession, check_user_brands
+
+    if services is None:
+        services = start_services(config, refresh_cache)
     try:
         brand_warnings = check_user_brands(config, services.values, user.id)
     except ConfigError as exc:

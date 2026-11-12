@@ -678,7 +678,35 @@ def test_ui_command_is_in_the_cli():
     assert "local test UI" in output and "--port" in output
 
 
-def test_real_session_through_the_ui_api(config, make_session):
+def real_backend(config: AppConfig, persona_file: Path, monkeypatch, llm, bq):
+    """The real `AssistantFactory` (`startup.start_session()`) with a fake Gemini and a fake
+    BigQuery. The services come from the factory, so the start builds none."""
+    import opsfleet_agent.session as session_module
+    from opsfleet_agent.agent.context import PromptLibrary
+    from opsfleet_agent.agent.state import Services
+    from opsfleet_agent.config import Secrets
+    from opsfleet_agent.ui.backend import AssistantFactory
+    from tests.conftest import load_test_schema, load_test_values
+
+    def no_build(*_a: Any, **_k: Any) -> None:
+        raise AssertionError("the UI builds the services once, at the server start")
+
+    monkeypatch.setattr(session_module, "build_services", no_build)
+    cfg = config.model_copy(
+        update={"secrets": Secrets(google_api_key="k", google_cloud_project="p")}
+    )
+    services = Services(
+        settings=cfg.settings,
+        llm=llm,
+        bq=bq,
+        schema=load_test_schema(),
+        values=load_test_values(),
+        prompts=PromptLibrary(persona_path=persona_file),
+    )
+    return UiBackend(cfg, AssistantFactory(cfg, services))
+
+
+def test_real_session_through_the_ui_api(config, persona_file, monkeypatch):
     """One data question with the real `AssistantSession`, a fake Gemini and a fake BigQuery:
     the stages come from the real node spans, and the steps from the real trace file."""
     import pandas as pd
@@ -686,18 +714,9 @@ def test_real_session_through_the_ui_api(config, make_session):
     from tests.conftest import FakeBQ, FakeLLM, frame_result, route_reply, sql_reply
     from tests.test_agent_flow import ORDERS_SQL
 
-    class RealFactory:
-        def create(self, user: UserContext):
-            llm = FakeLLM(
-                [route_reply(), sql_reply(ORDERS_SQL), "There were 1,200 orders."]
-            )
-            bq = FakeBQ([frame_result(pd.DataFrame({"orders": [1200]}))])
-            return make_session(user.id, llm=llm, bq=bq)[0]
-
-        def resume(self, user: UserContext, conversation_id: str):
-            raise AssertionError("not used")
-
-    backend = UiBackend(config, RealFactory())
+    llm = FakeLLM([route_reply(), sql_reply(ORDERS_SQL), "There were 1,200 orders."])
+    bq = FakeBQ([frame_result(pd.DataFrame({"orders": [1200]}))])
+    backend = real_backend(config, persona_file, monkeypatch, llm, bq)
     client = TestClient(create_app(backend), base_url="http://127.0.0.1")
     conversation_id = start(client)
     response = client.post(
@@ -721,3 +740,42 @@ def test_real_session_through_the_ui_api(config, make_session):
     history = client.get("/api/conversations?user=maya").json()
     assert history[0]["id"] == conversation_id
     assert Path(config.settings.data_path("traces")).is_dir()
+
+
+def test_real_start_errors(config, persona_file, monkeypatch):
+    """`start_session()` checks the start: an unknown conversation is "not found" (spec 34), a
+    wrong brand of the user stops the start (spec 30, B2.8)."""
+    import opsfleet_agent.session as session_module
+    from opsfleet_agent.errors import ConfigError
+    from tests.conftest import FakeBQ, FakeLLM
+
+    backend = real_backend(config, persona_file, monkeypatch, FakeLLM(), FakeBQ())
+    client = TestClient(create_app(backend), base_url="http://127.0.0.1")
+    response = client.post(
+        "/api/conversations/C-ZZZZZ/messages", json={"user": "maya", "text": "Hi"}
+    )
+    assert response.status_code == 404
+    assert "C-ZZZZZ not found" in response.json()["detail"]
+
+    def wrong_brand(*_a: Any, **_k: Any) -> list[str]:
+        raise ConfigError("Brand 'Calvn Klein' of user maya is not in the data.")
+
+    monkeypatch.setattr(session_module, "check_user_brands", wrong_brand)
+    response = client.post("/api/conversations", json={"user": "maya"})
+    assert response.status_code == 400
+    assert "Calvn Klein" in response.json()["detail"]
+
+
+def test_ui_command_start_error(monkeypatch, config):
+    """A start problem stops the `ui` command with the message and the exit code of the CLI."""
+    from typer.testing import CliRunner
+
+    from opsfleet_agent.cli import main as cli
+    from opsfleet_agent.config import Secrets
+
+    cfg = config.model_copy(
+        update={"secrets": Secrets(google_api_key=None, google_cloud_project="p")}
+    )
+    monkeypatch.setattr(cli, "load_config", lambda: cfg)
+    out = CliRunner().invoke(cli.app, ["ui"])
+    assert out.exit_code == 2 and "GOOGLE_API_KEY is not set" in out.output
