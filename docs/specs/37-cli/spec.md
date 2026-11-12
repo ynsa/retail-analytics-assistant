@@ -322,14 +322,14 @@ Unit tests use Typer's `CliRunner` and a fake `AssistantSession`. Snapshot tests
 
 #### Files
 
-- `cli/main.py` (Typer: `chat`, `conversations`, `stats`, `purge`), `cli/chat_loop.py` (the loop of B2.1, Ctrl-C and Ctrl-D, the replay, the resume hint), `cli/commands.py` (parsing), `cli/render.py` (`Ui`: Rich output, plain mode, the status line with the seconds), `cli/status.py` (B2.2).
+- `cli/main.py` (Typer: `chat`, `conversations`, `stats`, `purge`, and `ui` of spec 52), `cli/chat_loop.py` (the loop of B2.1, Ctrl-C and Ctrl-D, the replay, the resume hint), `cli/commands.py` (parsing), `cli/render.py` (`Ui`: Rich output, plain mode, the status line with the seconds), `cli/status.py` (B2.2).
 - Core: `display.py` (B2.3), `startup.py` (B2.6), `commands.py` (A2.4), `capabilities.py` (B2.5). Each part registers its capability when its module loads. All 7 parts are registered, so the development-build line does not appear.
 
 #### Interfaces for the local UI (spec 52) and the evaluation runner
 
 | Member | Use |
 |---|---|
-| `startup.start_session(config, user_id, resume=None)` | The session and the start errors (`StartError.message`, `.exit_code`). It also runs the retention of spec 35. |
+| `startup.start_session(config, user_id, resume=None, services=None)` | The session and the start errors (`StartError.message`, `.exit_code`). It also runs the retention of spec 35. The local UI builds the services once with `startup.start_services()` and gives them with `services` (2026-11-12). |
 | `session.send(text, on_answer=None, on_progress=None)` | `on_progress` gets `ProgressEvent(node, attempt)`. `cli.status.status_text(event)` gives the text of B2.2. |
 | `session.command(name, args)` | `CommandOutcome(kind, text, path, title, data)`. `data` is `Stats` for `/stats` and `TraceTree` for `/trace`. `commands.COMMANDS` lists the commands, `commands.KEEP_PENDING` the commands that keep a waiting delete. |
 | `session.greeting()`, `session.missing_capabilities()`, `session.last_trace()` | The greeting panel, the development-build line (`capabilities.development_line()`), and the trace of `/trace` without an ID. |

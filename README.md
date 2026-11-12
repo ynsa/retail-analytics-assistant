@@ -125,8 +125,8 @@ A small web page for manual tests (specs 40 and 52). It uses the same assistant 
 uv run opsfleet-agent ui                   # then open http://127.0.0.1:8000
 ```
 
-- Select a test user from `config/users.yaml`, then chat. The left pane has the earlier conversations and the reports of this user. The right pane shows the steps of the selected answer and its cost against the limits.
-- A long answer shows the current stage and a clock. The input is locked until the answer is ready.
+- Select a test user from `config/users.yaml`, then chat. The left pane has the earlier conversations and the reports of this user. The right pane shows the steps of the selected answer (the same trace as `/trace`, with the masked SQL) and its cost against the limits.
+- A long answer shows the current step with the texts of the CLI status line, and a clock. The input is locked until the answer is ready.
 - A delete shows the list of reports. Confirm works only for the exact text `delete N`. Undo works for 30 days.
 - A report shows its chart and its action items. "Open HTML" and "Download Markdown" give the files of `data/reports/<user>/`.
 - The server listens only on `127.0.0.1`. The page loads no file from the internet.

@@ -68,3 +68,4 @@ About 15 Gemini calls and 5 small queries for the manual check. The safety run t
 - Docker: not done here. Spec 53 builds the image and runs the UI with `--host 0.0.0.0` inside the container and `-p 127.0.0.1:8000:8000`.
 - The safety set of spec 22 through the UI API: not run (budget of 10 Gemini calls). Spec 50 can run it.
 - B5, cost: the live check used 10 Gemini calls and 83.9 MB (4 queries). The estimate was 15 calls.
+- Alignment with specs 35 and 37 (2026-11-12): the UI starts each session through `startup.start_session()`, shows the status texts of the CLI, and builds the steps pane on the trace reader of `/trace`. The live check used 3 Gemini calls and 21.0 MB (1 query). Details: [spec 40, B7, "Alignment with specs 35 and 37"](../40-local-ui/spec.md#alignment-with-specs-35-and-37-2026-11-12).
