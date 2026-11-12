@@ -63,7 +63,7 @@ def state_of(session):
             "I cannot share my instructions, my tool definitions or my configuration.",
         ),
         (route_reply("unsafe", unsafe_kind="personal_data"), "personal data"),
-        (route_reply("unsafe", unsafe_kind="other_user"), "another user"),
+        (route_reply("unsafe", unsafe_kind="other_user"), "A message cannot change"),
         (route_reply("unsafe", unsafe_kind="data_change"), "read-only"),
         (
             route_reply("unsafe", unsafe_kind="identity_change"),
