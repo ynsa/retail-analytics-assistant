@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "db-dtypes>=1.9.0",
+    "fastapi>=0.162.5",
     "google-cloud-bigquery>=3.47.0",
     "google-genai>=3.0.0",
     "jinja2>=3.1",
@@ -22,6 +23,7 @@ dependencies = [
     "sqlglot>=30.31.0",
     "typer>=0.29.1",
     "tzdata>=2026.6",
+    "uvicorn>=0.54.0",
 ]
 
 [project.scripts]
@@ -45,6 +47,7 @@ pythonVersion = "3.12"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "pre-commit>=4.7.0",
     "pytest>=9.2.0",
     "ruff>=0.17.4",

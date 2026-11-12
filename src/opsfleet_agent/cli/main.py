@@ -394,5 +394,42 @@ def purge_command(
         console.print(f"Files deleted: {result.files_deleted}.")
 
 
+@app.command("ui")
+def ui_command(
+    port: int = typer.Option(8000, "--port", help="The port on 127.0.0.1."),
+    host: str = typer.Option(
+        "127.0.0.1",
+        "--host",
+        help="Keep 127.0.0.1. Use 0.0.0.0 only inside a container (spec 52).",
+    ),
+) -> None:
+    """Start the local test UI (spec 52) on http://127.0.0.1:8000."""
+    try:
+        config = load_config()
+    except ConfigError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=2) from exc
+    missing = check_secrets(config)
+    if missing:
+        console.print(f"[red]{missing}[/red]")
+        raise typer.Exit(code=2)
+
+    from opsfleet_agent.session import build_services
+    from opsfleet_agent.ui.backend import AssistantFactory, UiBackend
+    from opsfleet_agent.ui.server import serve
+
+    with console.status("Starting: reading the table schemas and the value cache…"):
+        try:
+            services = build_services(config)
+        except Exception as exc:
+            console.print(f"[red]{start_error(exc)}[/red]")
+            raise typer.Exit(code=1) from exc
+    backend = UiBackend(config, AssistantFactory(config, services))
+    console.print(
+        f"[bold]Local test UI:[/bold] http://127.0.0.1:{port}  (Ctrl-C to stop)"
+    )
+    serve(backend, host=host, port=port)
+
+
 def main() -> None:
     app()
