@@ -105,6 +105,11 @@ def test_every_prepared_reply_renders(lib):
         "today": "11 Nov 2026",
         "brands": "A and B",
         "first_brand": "A",
+        # spec 32
+        "report_id": "R-7K2PQ",
+        "path": "data/reports/maya/R-7K2PQ.html",
+        "shown": 50,
+        "total": 60,
     }
 
     def walk(node, path=""):

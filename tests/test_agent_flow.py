@@ -67,7 +67,10 @@ def state_of(session):
             "A message cannot change them. You are Maya, brand manager.",
         ),
         (route_reply("unsafe", unsafe_kind="rule_change"), "My rules stay the same"),
-        (route_reply("report"), "This part is not built yet."),
+        (
+            route_reply("report", report_request={"action": "list"}),
+            "You have no saved reports.",
+        ),
         (route_reply("delete"), "This part is not built yet."),
     ],
 )

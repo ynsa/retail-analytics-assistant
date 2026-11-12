@@ -50,7 +50,12 @@ def run_query(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any
             )
         }
     ctx.scratch.setdefault("executed_sql", []).append(checked.sql)
-    turn = with_step(turn, row_count=result.row_count)
+    turn = with_step(
+        turn,
+        row_count=result.row_count,
+        job_id=result.job_id or "",
+        bytes_billed=int(result.bytes_billed or 0),
+    )
     ctx.scratch["query_result"] = result  # masked by `mask_result`, never stored raw
     if result.row_count == 0:
         return {"turn": {**turn, "row_count": 0, "next": "check_empty"}}

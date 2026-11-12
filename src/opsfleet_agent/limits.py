@@ -122,11 +122,28 @@ class TurnBudget:
             if kind == "report"
             else self._limits.max_seconds_question
         )
+        self.reserved_llm_calls = (
+            0  # calls that only the last steps of a report may use
+        )
         self.llm_calls = 0
         self.bq_queries = 0
         self.tokens_in = 0
         self.tokens_out = 0
         self.bytes_billed = 0
+
+    def use_report_limits(self) -> None:
+        """A report gets the report time limit (spec 00, A4). The route decides it after the
+        budget is made, so the kind can change once. The time counts from the start of the turn."""
+        self.kind = "report"
+        self.max_seconds = self._limits.max_seconds_report
+
+    def reserve_llm_calls(self, count: int) -> None:
+        """Keep `count` model calls for the last steps of a report (spec 32, B2.1). Query
+        corrections cannot use them. Call it again with 0 before the reserved calls."""
+        self.reserved_llm_calls = max(0, count)
+
+    def llm_calls_left(self) -> int:
+        return max(0, self._limits.max_llm_calls - self.llm_calls)
 
     # --- time -------------------------------------------------------------------------------
     def elapsed(self) -> float:
@@ -137,6 +154,12 @@ class TurnBudget:
 
     def check_time(self) -> None:
         if self.elapsed() >= self.max_seconds:
+            if self.kind == "report":
+                raise LimitExceeded(
+                    "per_turn.max_seconds_report",
+                    f"The report took longer than {self.max_seconds:g} s. "
+                    "Please ask for a shorter period or fewer topics.",
+                )
             raise LimitExceeded(
                 "per_turn.max_seconds",
                 f"The answer took longer than {self.max_seconds:g} s. Please ask a narrower question.",
@@ -146,7 +169,7 @@ class TurnBudget:
     def charge_llm(self) -> None:
         """Call before each Gemini call. Raises LimitExceeded when a limit is reached."""
         self.check_time()
-        if self.llm_calls >= self._limits.max_llm_calls:
+        if self.llm_calls >= self._limits.max_llm_calls - self.reserved_llm_calls:
             raise LimitExceeded(
                 "per_turn.max_llm_calls",
                 f"This question needs more steps than allowed ({self._limits.max_llm_calls} model calls). "

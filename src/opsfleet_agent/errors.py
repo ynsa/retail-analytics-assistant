@@ -47,5 +47,17 @@ class LimitExceeded(AgentError):
         self.limit = limit
 
 
+class ReportNotFound(AgentError):
+    """A report that does not exist, is deleted, or belongs to another user (spec 32, B2.6).
+    All three cases give the same message, so a user cannot learn about the reports of others."""
+
+    def __init__(self, report_id: str) -> None:
+        shown = report_id.strip()[:20] or "?"
+        super().__init__(
+            ErrorType.TOOL_ERROR, f"Report {shown} not found.", "report not found"
+        )
+        self.report_id = report_id
+
+
 class ConfigError(Exception):
     """The configuration files or the user selection are not valid."""

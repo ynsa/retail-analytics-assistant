@@ -1,6 +1,6 @@
 # Spec 32: Reports
 
-- **Status:** Approved (owner review, 2026-11-11)
+- **Status:** Done (2026-11-12)
 - **Phase and stream:** Phase 2, stream C
 - **Depends on:** 00, 30, 31. Spec 33 uses the library tables of this spec.
 - **Requirements covered:** the "report with action items" capability of the brief. The base for Req 3 (the Saved Reports library). Part of Req 2 (PII scan of files).
@@ -324,3 +324,49 @@ Live test (marker `live`): one report for the manager `maya`, with an HTML file.
 - matplotlib adds about 30 MB to the Docker image. Spec 53 checks the image size.
 - A report can need more than 150 s on a slow day. The user then asks for a shorter period. The limit stays (spec 00).
 - Spec 33 must run after this spec, because it uses the tables of this spec. The roadmap order (30, 31, 33, 32) puts spec 33 first.
+
+### B7. Implementation notes (2026-11-12)
+
+#### Deviations from this spec
+
+| # | Spec text | Implementation | Reason |
+|---|---|---|---|
+| 1 | B3: `reports_fts` with `content='reports'` | `reports_fts` keeps its own copy of `title` and `body_markdown`, with the column `report_id` (not indexed). Three triggers keep it in step with `reports`. | An external-content FTS table needs a stable integer `rowid`. `reports` has a text key, and `VACUUM` can change its `rowid` values. |
+| 2 | B3: `reports.dir: data/reports` | `reports.dir: reports` is a folder inside `paths.data_dir`. The row stores the path relative to `data/`, for example `reports/maya/R-7K2PQ.html`. The chat shows `data/reports/maya/R-7K2PQ.html`. | The tests use a temporary data folder. A second setting for the same folder could point to the real `data/` folder by mistake. |
+| 3 | B3: the columns of `reports` | Extra column `unverified_figures`. | The statistics of spec 35 can count removed figures without a trace search. |
+| 4 | B2.4 step 1: "cut at a section end" | Code removes items from the end of a section. Each section keeps its first item, so the 6 sections always appear. The method section has the note. | A cut of a full section can remove the action items. |
+| 5 | B2.2: the queries go through `data_loop` | The loop starts at the guard with the planned SQL (`turn.next = "guard"`, `turn.single_step = true`). The planned SQL is attempt 1. A correction goes back to `write_sql` with the feedback, so each query has at most 2 corrections. | The plan already has the SQL. A new `write_sql` call for each query costs 4 more model calls. |
+| 6 | B2.1: "Corrections use the remaining calls" | Two model calls stay reserved for `write_report` and the rewrite request (`TurnBudget.reserve_llm_calls`). A correction that needs a reserved call fails, and the part is missing. | Without the reserve, corrections can use all 8 calls, and the report cannot be written. |
+| 7 | A2.9: a part fails after 3 attempts | A part is also missing after a policy block of the guard, a `cannot_answer`, a non-retryable BigQuery error, or the query or call limit. The time limit stops the full report. | The spec does not say what happens in these cases. The report keeps the parts that have data. |
+| 8 | B2.1: `save_last` reads the result cache of spec 34 | `finish` keeps the masked results of the last data answer in `AgentState.last_data`. Spec 34 replaces it with the result cache. | Spec 34 is not built yet. |
+| 9 | B4 case 9: the SVG data equals the result | Each bar, point and pie slice has an element ID with the drawn value, for example `bar_s0_i2_v900.0`. The test reads the IDs. The SVG also has `role="img"` and `aria-label` with the title. | Coordinates in the SVG are pixels. The ID gives the drawn value, and screen readers get the title. |
+| 10 | A4: "Other types become a bar chart or a table" | Other types become a bar chart. | One rule is simpler to test. |
+| 11 | B2.5: the scan of the HTML file | Code scans the text nodes and the readable attribute values (`aria-label`, `title`, `alt`, `content`). A hit stops the write of the HTML file (fail closed). The Markdown file gets `[removed]`. | Code scans all report text before the render. A hit in the HTML file means a bug. The SVG path data can look like a phone number. |
+| 12 | B2.4 step 6: "rewrite the sentence" | The rewrite request (`fix_figures.md`) sends the full text of each item with an untraceable number: a summary bullet, a finding, a reason or an action item field. | An item is short. A sentence split is not reliable with figures such as `$1,300.25`. |
+| 13 | B2.4 step 7: brand names in the title | The longest brand name wins: "Calvin Klein Jeans" in a title does not also give "Calvin Klein". | Spec 33, A2.3: a report about "Calvin Klein Jeans" must not match "Calvin Klein". |
+| 14 | B2.2: `start <= end` | Code swaps the dates when `start` is after `end`. The compare period also ends at today at the latest. | A swap keeps the report. The compare period has the same rule. |
+| 15 | B1: report IDs | The letters O, I and L read as 0, 1 and 1. | Crockford base32 does this, so a typing error still finds the report. |
+| 16 | B2.6: `ReportNotFound` | It has the error type `tool_error`. The chat and the commands show its text as a normal message, not as an error. | A wrong ID is a user error, not a failure of the system. |
+| 17 | B3: settings | Extra settings: `min_action_items`, `max_bar_categories`, `max_pie_slices`, `max_listed`. | The limits of A4 are all in `settings.yaml`. |
+
+#### Changes outside this spec
+
+- Spec 31: `route.md` describes `report_request` and `delete_request`. The `data_loop` subgraph can start at the guard. The guard step records the filter values of the report entities (`entities`). `run_query` records `job_id` and `bytes_billed` in the step. `mask_result` ends after one step when `single_step` is set. `write_sql` tells the model that a correction is one report query.
+- Spec 00: `TurnBudget.use_report_limits()` switches to the report time limit after the route. The time counts from the start of the turn. `TurnBudget.reserve_llm_calls()` and `llm_calls_left()` are new. The time message of a report is the message of A4.
+- `TurnContext.store` gives the nodes the connection to `data/app.db`. `Services.clock` gives the UTC time (a fake clock in the tests).
+- `TurnResult` has the new fields `calculated_figures`, `report_id` and `report_files`. `AssistantSession.command(name, args) -> CommandOutcome` runs `/reports`, `/open` and `/export`. The CLI sends these commands to the session (spec 37 builds the full CLI).
+- New dependencies: `matplotlib` and `markdown-it-py`. `MPLCONFIGDIR` is a folder in the temporary directory when it is not set.
+
+#### Interfaces for spec 33
+
+- `ReportLibrary.find(user, Matcher)` with the matcher kinds `all`, `conversation`, `ids`, `entity` and `text` (an FTS5 phrase). `ReportLibrary.entity_values(user)` gives the entity values for the close names.
+- `reports/files.py`: `owner_dir()`, `report_file()`, `trash_dir()` and `display_path()`.
+
+#### Tests
+
+- 390 unit tests pass (325 before this spec). They cover each case of B4 with a fake Gemini, a fake BigQuery and a temporary data folder: `tests/test_reports_flow.py`, `tests/test_report_charts.py`, `tests/test_report_library.py`, and `tests/fixtures/mermaid_quote.md` for case 13.
+- `tests/test_reports_live.py` (marker `live`) creates one report for `maya` with an HTML file.
+
+#### Live check
+
+The live check of this spec ran in one session with spec 33. See the implementation notes of spec 33.

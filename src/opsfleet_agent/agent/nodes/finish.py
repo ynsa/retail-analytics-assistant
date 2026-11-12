@@ -15,6 +15,33 @@ from opsfleet_agent.agent.nodes.common import INTERNAL_MESSAGE, node, turn_of
 from opsfleet_agent.agent.state import AgentState, TurnContext, TurnState
 
 MAX_PINNED_DEFINITIONS = 10
+LAST_DATA_STEP_FIELDS = (
+    "purpose",
+    "sql",
+    "result_ref",
+    "job_id",
+    "bytes_billed",
+    "entities",
+)
+
+
+def last_data(state: AgentState, turn: TurnState) -> dict[str, Any] | None:
+    """The data of an answer with results, for "save this as a report" (spec 32, A2.5).
+    Only masked results go into the state. Spec 34 replaces it with the result cache."""
+    if turn.get("intent") != "analysis" or not turn.get("results"):
+        return None
+    steps = [
+        {k: step[k] for k in LAST_DATA_STEP_FIELDS if k in step}  # type: ignore[literal-required]
+        for step in turn.get("steps") or []
+        if step.get("result_ref")
+    ]
+    return {
+        "question": turn.get("question", ""),
+        "results": list(turn.get("results") or []),
+        "plans": list(turn.get("plans") or []),
+        "steps": steps,
+        "conversation_id": state.get("conversation_id", ""),
+    }
 
 
 def update_pinned(pinned: dict[str, Any] | None, turn: TurnState) -> dict[str, Any]:
@@ -42,8 +69,12 @@ def update_pinned(pinned: dict[str, Any] | None, turn: TurnState) -> dict[str, A
 def finish(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any]:
     turn = turn_of(state)
     answer = turn.get("final_text") or turn.get("answer") or INTERNAL_MESSAGE
-    return {
+    update: dict[str, Any] = {
         "messages": [{"role": "assistant", "text": answer}],
         "pinned": update_pinned(state.get("pinned"), turn),
         "turn": {**turn, "final_text": answer},
     }
+    data = last_data(state, turn)
+    if data:
+        update["last_data"] = data
+    return update

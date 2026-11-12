@@ -45,7 +45,7 @@ def mask_result(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, A
     }
     max_steps = services.settings.agent.max_steps_per_question
     step_index = turn.get("step_index", 0)
-    if plan.get("final", True):
+    if plan.get("final", True) or turn.get("single_step"):
         return {"turn": {**turn, "loop_outcome": "answer"}}
     if step_index + 1 >= max_steps:
         note = services.prompts.reply("notes.steps_missing", max_steps=max_steps)

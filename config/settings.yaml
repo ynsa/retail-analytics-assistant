@@ -40,3 +40,19 @@ agent:                             # spec 31
   answer_max_rows: 20              # rows of a table in a chat answer
   persona_file: config/persona.md  # company tone, read at each turn
   persona_max_chars: 2000
+
+reports:                           # spec 32
+  max_planned_queries: 4
+  max_charts: 3
+  chart_types: [bar, line, pie]
+  max_words: 1200                  # about 1,200 words of model text
+  max_findings: 6
+  min_action_items: 3
+  max_action_items: 7
+  max_table_rows: 15
+  max_chart_points: 60
+  max_bar_categories: 20
+  max_pie_slices: 6
+  max_listed: 50                   # reports in /reports
+  max_file_bytes: 2000000
+  dir: reports                     # inside paths.data_dir: data/reports/<user>/

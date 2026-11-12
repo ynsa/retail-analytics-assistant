@@ -83,3 +83,23 @@ def test_budget_totals(budget):
     totals = budget.totals()
     assert totals["llm_calls"] == 1 and totals["bq_queries"] == 1
     assert totals["tokens_in"] == 1000 and totals["bytes_billed"] == 10_485_760
+
+
+def test_report_limits_and_reserved_calls(config, ledger):
+    clock = [0.0]
+    budget = TurnBudget(config.settings.limits, ledger, monotonic=lambda: clock[0])
+    budget.use_report_limits()
+    clock[0] = 100.0
+    budget.check_time()  # a question would stop at 60 s, a report goes on
+    budget.reserve_llm_calls(2)
+    for _ in range(6):
+        budget.charge_llm()
+    with pytest.raises(LimitExceeded):
+        budget.charge_llm()  # the last 2 calls are reserved
+    budget.reserve_llm_calls(0)
+    budget.charge_llm()
+    assert budget.llm_calls_left() == 1
+    clock[0] = 150.0
+    with pytest.raises(LimitExceeded) as err:
+        budget.check_time()
+    assert err.value.user_message.startswith("The report took longer than 150 s.")

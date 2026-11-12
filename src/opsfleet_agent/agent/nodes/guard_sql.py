@@ -18,6 +18,15 @@ from opsfleet_agent.errors import ErrorType
 from opsfleet_agent.guard.sql_guard import GuardOutcome, GuardResult
 
 BRAND_FILTER_OPS = frozenset({"=", "in"})
+# Filter columns that name a report entity (spec 32, B2.4 step 7): (table, column) -> kind.
+ENTITY_COLUMNS = {
+    ("products", "brand"): "brand",
+    ("products", "category"): "category",
+    ("products", "department"): "department",
+    ("products", "name"): "product",
+    ("users", "state"): "state",
+    ("users", "country"): "country",
+}
 
 
 def brand_literals(result: GuardResult) -> list[str]:
@@ -32,6 +41,17 @@ def brand_literals(result: GuardResult) -> list[str]:
         ):
             names += [v for v in lit.values if v not in names]
     return names
+
+
+def entity_literals(result: GuardResult) -> dict[str, list[str]]:
+    """The values of exact filters on the entity columns, for the report entities (spec 32)."""
+    found: dict[str, list[str]] = {}
+    for lit in result.filters:
+        kind = ENTITY_COLUMNS.get((lit.table, lit.column))
+        if kind and lit.op in BRAND_FILTER_OPS and lit.exact:
+            values = found.setdefault(kind, [])
+            values += [v for v in lit.values if v not in values]
+    return found
 
 
 def guard_result_for(runtime: Runtime[TurnContext], turn: TurnState) -> GuardResult:
@@ -56,6 +76,7 @@ def guard(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any]:
         guard_outcome=result.outcome.value,
         reason_code=result.reason_code or "",
         brands=brand_literals(result),
+        entities=entity_literals(result),
     )
     turn = {
         **turn,

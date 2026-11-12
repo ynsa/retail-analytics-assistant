@@ -8,7 +8,9 @@ in one of these states:
 - `turn.loop_outcome = "policy_block"`: the guard blocked the request.
 - `turn.answer` is set: an error that cannot be corrected ended the turn.
 
-The report flow (spec 32) uses the same subgraph for each report query.
+The report flow (spec 32) uses the same subgraph for each report query. A report query has its
+SQL already, so the report flow sets `turn.next = "guard"` and `turn.single_step = true`: the loop
+starts at the guard and ends after one step.
 """
 
 from __future__ import annotations
@@ -43,6 +45,14 @@ def next_in_loop(state: AgentState) -> str:
     return nxt if nxt in LOOP_NODES else END
 
 
+def loop_entry(state: AgentState) -> str:
+    """`write_sql` for a question. `guard` for a report query with its SQL (spec 32)."""
+    turn = turn_of(state)
+    if turn.get("next") == "guard" and turn.get("sql"):
+        return "guard"
+    return "write_sql"
+
+
 def build_data_loop() -> Any:
     g = StateGraph(AgentState, context_schema=TurnContext, output_schema=LoopOutput)
     g.add_node("write_sql", write_sql)
@@ -50,7 +60,9 @@ def build_data_loop() -> Any:
     g.add_node("run_query", run_query)
     g.add_node("check_empty", check_empty)
     g.add_node("mask_result", mask_result)
-    g.add_edge(START, "write_sql")
+    g.add_conditional_edges(
+        START, loop_entry, {"write_sql": "write_sql", "guard": "guard"}
+    )
     targets = {name: name for name in LOOP_NODES} | {END: END}
     for name in LOOP_NODES:
         g.add_conditional_edges(name, next_in_loop, targets)

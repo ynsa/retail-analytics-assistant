@@ -105,3 +105,27 @@ examples:
     - Which 10 brands had the highest revenue last month?
     - How did revenue and orders change month by month this year?
     - Why do customers in Texas spend less than customers in California?
+
+# Reports (spec 32).
+reports:
+  saved: "Saved as {{ report_id }}."
+  file_written: "File: {{ path }}"
+  missing_part: "{{ purpose }}: no result. {{ reason }}"
+  missing_reasons:
+    give_up: The query failed after {{ attempts }} attempts.
+    policy_block: The query did not pass the data access rules.
+    limit_exceeded: The report reached its limit of queries or model calls.
+    default: The data service returned an error.
+  period_moved: The planned period ended after today. The report uses the data up to today, {{ today }}.
+  no_result: >-
+    I could not get a result for any part of the report after {{ attempts }} attempts for each
+    query, so nothing was saved. A shorter period or fewer topics can help.
+  no_plan: I could not plan queries for this report. Please name the period and the topics, for example "a report for Q1 2026 on revenue and returns".
+  no_last_data: >-
+    There is no earlier answer with data to save. Ask a question about the data first, or ask
+    for a new report.
+  no_id: Please give the report ID, for example R-7K2PQ. Type /reports to see your reports.
+  empty_list: You have no saved reports.
+  list_header: "Your reports:"
+  list_more: "Showing the newest {{ shown }} of {{ total }} reports."
+  exported: "Saved: {{ path }}"

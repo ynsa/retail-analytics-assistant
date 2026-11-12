@@ -7,7 +7,9 @@ Objects that must not be stored (the budget, the clients, raw rows) go in `TurnC
 from __future__ import annotations
 
 import operator
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal, TypedDict
 
 from opsfleet_agent.agent.context import PromptLibrary
@@ -34,6 +36,10 @@ Intent = Literal[
 LoopOutcome = Literal["answer", "give_up", "policy_block"]
 
 
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
 class Message(TypedDict):
     role: Literal["user", "assistant"]
     text: str
@@ -51,6 +57,11 @@ class StepRecord(TypedDict, total=False):
     error_type: str
     attempts: int
     brands: list[str]  # brand literals of the guard filters, for the footer
+    entities: dict[
+        str, list[str]
+    ]  # spec 32: filter literals on brand, category, state, ...
+    job_id: str  # spec 32: the BigQuery job of the step, for the report appendix
+    bytes_billed: int
 
 
 class RetryInfo(TypedDict):
@@ -96,6 +107,15 @@ class TurnState(TypedDict, total=False):
     scanner_hits: int
     prompt_leak: bool
     final_text: str
+    # reports (spec 32)
+    single_step: bool  # a report query: the data loop runs one step only
+    report: dict[
+        str, Any
+    ]  # the report flow data: plan, queries, draft, report ID, files
+    delete: dict[str, Any]  # the delete flow data: scope, matches, outcome, batch ID
+    confirmation_prompt: str  # the list text that the confirmation showed
+    confirm_text: str  # the user's typed answer to the confirmation
+    replay_input: bool  # spec 33, A2.8: the answer was a new message, send it again
 
 
 class AgentState(TypedDict, total=False):
@@ -108,6 +128,9 @@ class AgentState(TypedDict, total=False):
     ]  # spec 34 owns it. Spec 31 writes format, filters and definitions.
     pending_confirmation: dict[str, Any] | None  # spec 33
     summary: str  # spec 34
+    last_data: dict[
+        str, Any
+    ]  # spec 32 "save the last answer": the last turn with results
 
 
 @dataclass
@@ -122,6 +145,7 @@ class Services:
     prompts: PromptLibrary
     masker: ResultMasker = field(default_factory=ResultMasker)
     scanner: OutputScanner = field(default_factory=OutputScanner)
+    clock: Callable[[], datetime] = field(default=utc_now)  # a fake clock in the tests
 
 
 @dataclass
@@ -133,6 +157,9 @@ class TurnContext:
     user: UserContext
     guard: SqlGuard  # spec 30: built once for each session, with the user's scope
     empty_checker: EmptyResultChecker
+    store: Any | None = (
+        None  # sqlite3.Connection of data/app.db (reports, audit events)
+    )
     # Objects of this turn that the checkpoint must not store: the GuardResult with its query
     # parameters, the raw query result before the masker, the persona text of this turn, and the
     # scoped SQL that ran. A node that does not find an entry builds it again from the state.

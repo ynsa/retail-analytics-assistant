@@ -26,7 +26,16 @@ from jinja2 import Environment, StrictUndefined, Template
 
 PROMPT_DIR = Path(__file__).parent / "prompts"
 # The prompts whose text must never appear in an answer (the prompt-leak check, B2.7 #6).
-PROTECTED_PROMPTS = ("safety", "route", "write_sql", "write_answer", "schema_answer")
+PROTECTED_PROMPTS = (
+    "safety",
+    "route",
+    "write_sql",
+    "write_answer",
+    "schema_answer",
+    "plan_report",
+    "write_report",
+    "fix_figures",
+)
 LEAK_RUN_WORDS = 12
 _WORD = re.compile(r"[a-z0-9']+")
 _DEFINITION = re.compile(r"^###\s+`?(\w+)`?\s*$")

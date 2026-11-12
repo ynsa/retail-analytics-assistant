@@ -25,14 +25,20 @@ charset-normalizer==3.5.2
     # via requests
 colorama==0.4.6 ; sys_platform == 'win32'
     # via typer
+contourpy==1.4.0
+    # via matplotlib
 cryptography==50.0.2
     # via google-auth
+cycler==0.12.1
+    # via matplotlib
 db-dtypes==1.9.0
     # via opsfleet-agent
 distro==1.9.0
     # via
     #   google-genai
     #   langsmith
+fonttools==4.68.0
+    # via matplotlib
 google-api-core==2.44.0
     # via
     #   google-cloud-bigquery
@@ -93,6 +99,8 @@ jsonpatch==1.47
     # via langchain-core
 jsonpointer==3.12
     # via jsonpatch
+kiwisolver==1.5.1
+    # via matplotlib
 langchain-core==1.8.0
     # via
     #   langgraph
@@ -119,14 +127,20 @@ langgraph-sdk==0.4.14
 langsmith==0.14.17
     # via langchain-core
 markdown-it-py==4.3.0
-    # via rich
+    # via
+    #   opsfleet-agent
+    #   rich
 markupsafe==3.0.4
     # via jinja2
+matplotlib==3.11.2
+    # via opsfleet-agent
 mdurl==0.1.2
     # via markdown-it-py
 numpy==2.5.4
     # via
+    #   contourpy
     #   db-dtypes
+    #   matplotlib
     #   pandas
 opentelemetry-api==1.45.2
     # via
@@ -149,10 +163,13 @@ packaging==26.3
     #   google-cloud-bigquery
     #   langchain-core
     #   langsmith
+    #   matplotlib
 pandas==3.1.1
     # via
     #   db-dtypes
     #   opsfleet-agent
+pillow==13.0.0
+    # via matplotlib
 proto-plus==1.29.0
     # via google-api-core
 protobuf==7.36.2
@@ -181,9 +198,12 @@ pydantic-core==2.50.4
     # via pydantic
 pygments==2.21.0
     # via rich
+pyparsing==3.3.3
+    # via matplotlib
 python-dateutil==2.9.0.post0
     # via
     #   google-cloud-bigquery
+    #   matplotlib
     #   pandas
 python-dotenv==1.2.4
     # via opsfleet-agent

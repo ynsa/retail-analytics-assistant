@@ -19,7 +19,14 @@ Phase 2 has started. Query safety (spec 30) and the agent core (spec 31) are act
 - Vague requests get a default, not a question: "the stats for last month" gives revenue, orders, items sold and average order value against the month before.
 - The company tone is in `config/persona.md`. A change applies to the next answer, without a restart.
 
-Reports, the delete flow and the long-conversation memory follow in Phase 2 (specs 32–37). The `report` and `delete` requests get the answer "This part is not built yet".
+Reports (spec 32) are active:
+
+- "Create a report for Q1 with action items for Q2" plans up to 4 queries, runs them with the same safety checks, and saves the report in the user's library. Each report has the same 6 sections: summary, findings, reasons, action items, date range and definitions, and the method with the SQL.
+- Code computes every derived figure and draws every chart from the query results. A figure that no result explains does not appear in the report.
+- On request ("… as an HTML file", "… as Markdown"), the assistant writes `data/reports/<user>/<report ID>.html` (inline SVG charts, no JavaScript, works offline) or `.md` (Mermaid charts with a data table).
+- "Save this as a report" saves the last answer without a new query. Each user sees only the own reports.
+
+The delete flow and the long-conversation memory follow in Phase 2 (specs 33–37). A `delete` request gets the answer "This part is not built yet".
 
 The production design document and the diagrams (specs 10 and 11) are ready for review.
 
@@ -39,6 +46,10 @@ uv run pytest -m live                      # live tests: see the cost in each te
 ```
 
 Example questions: "What can I check?", "Give me the stats for last month", "Which 5 categories had the highest revenue last quarter?", "Why are customers in Texas spending less than customers in California?".
+
+Reports: "Create a report for Q1 2026 with action items for Q2, as an HTML file", "Save this as a report", "Show my reports". Chat commands (no model call, no query): `/reports`, `/open R-7K2PQ`, `/export R-7K2PQ --format html` or `--format md`.
+
+A report costs 3 to 5 Gemini calls (route, plan, text, and at most one correction or figure rewrite) and up to 4 queries. Its time limit is 150 s.
 
 A simple question costs 3 Gemini calls (route, SQL, answer) and 1 query. A greeting or an access question costs 1 call and no query.
 

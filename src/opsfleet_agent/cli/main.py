@@ -1,6 +1,11 @@
-"""Command-line interface (spec 01). Spec 37 adds the full set of commands."""
+"""Command-line interface (spec 01). Spec 37 adds the full set of commands.
+
+Specs 32 and 33 add the minimum: the report commands (`/reports`, `/open`, `/export`).
+"""
 
 from __future__ import annotations
+
+import shlex
 
 import typer
 from rich.console import Console
@@ -16,10 +21,31 @@ app = typer.Typer(
 console = Console()
 
 DEV_NOTE = (
-    "Development build: brand scope, personal-data protection, self-correction and multi-step "
-    "questions are active. Reports, the delete flow and the long-conversation memory are not "
-    "active yet."
+    "Development build: the long-conversation memory is not active yet. "
+    "Type /reports, /open <id> or /export <id> --format html|md for your saved reports."
 )
+COMMANDS = ("reports", "open", "export")
+
+
+def run_command(session, line: str) -> None:
+    """A slash command: no model call and no query."""
+    try:
+        parts = shlex.split(line[1:])
+    except ValueError:
+        parts = line[1:].split()
+    name, args = (parts[0].lower(), parts[1:]) if parts else ("", [])
+    if name not in COMMANDS:
+        console.print(f"[yellow]Unknown command '/{name}'. Type /exit to end.[/yellow]")
+        return
+    outcome = session.command(name, args)
+    if outcome.kind == "error":
+        console.print(f"[yellow]{outcome.text}[/yellow]")
+    elif name == "open":
+        console.print(Markdown(outcome.text))
+    elif outcome.path:
+        console.print(f"[green]{outcome.text}[/green]")
+    else:
+        console.print(Markdown(outcome.text))
 
 
 @app.callback()
@@ -80,6 +106,9 @@ def chat(
             continue
         if question in ("/exit", "/quit"):
             break
+        if question.startswith("/"):
+            run_command(session, question)
+            continue
         with console.status("Working…"):
             result = session.ask(question)
         console.print(Markdown(result.answer))

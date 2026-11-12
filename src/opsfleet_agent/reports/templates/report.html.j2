@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>{{ title }}</title>
+<style>
+  :root { --ink: #1f2933; --muted: #5f6b76; --line: #d9dee3; --accent: #2f5d8a; --bg: #ffffff; --soft: #f5f7f9; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 20px 64px; }
+  h1 { font-size: 1.7rem; line-height: 1.25; margin: 0 0 4px; }
+  h2 { font-size: 1.2rem; margin: 2.2em 0 0.6em; padding-bottom: 4px; border-bottom: 2px solid var(--line); color: var(--accent); }
+  p, li { max-width: 72ch; }
+  table { border-collapse: collapse; margin: 12px 0 20px; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+  th, td { border-bottom: 1px solid var(--line); padding: 5px 10px; text-align: left; vertical-align: top; }
+  th { background: var(--soft); }
+  td:not(:first-child) { text-align: right; }
+  pre { background: var(--soft); padding: 12px; overflow-x: auto; font-size: 0.8rem; border-radius: 4px; }
+  code { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  blockquote { margin: 12px 0; padding: 6px 14px; border-left: 4px solid #d08c2f; background: #fdf6ec; }
+  figure.chart { margin: 20px 0 4px; }
+  figure.chart svg { width: 100%; height: auto; }
+  footer { margin-top: 48px; color: var(--muted); font-size: 0.8rem; }
+</style>
+</head>
+<body>
+<main>
+{{ body }}
+<footer>Created by the retail analytics assistant. The charts and the figures come from the query results. This file loads nothing from the network.</footer>
+</main>
+</body>
+</html>

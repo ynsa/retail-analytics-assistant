@@ -72,12 +72,32 @@ class AgentSettings(_Strict):
     persona_max_chars: int = Field(default=2000, gt=0)
 
 
+class ReportSettings(_Strict):
+    """Reports (spec 32, B3). `dir` is a folder inside `paths.data_dir`."""
+
+    max_planned_queries: int = Field(default=4, gt=0)
+    max_charts: int = Field(default=3, ge=0)
+    chart_types: list[str] = Field(default_factory=lambda: ["bar", "line", "pie"])
+    max_words: int = Field(default=1200, gt=0)
+    max_findings: int = Field(default=6, gt=0)
+    min_action_items: int = Field(default=3, ge=0)
+    max_action_items: int = Field(default=7, gt=0)
+    max_table_rows: int = Field(default=15, gt=0)
+    max_chart_points: int = Field(default=60, gt=0)
+    max_bar_categories: int = Field(default=20, gt=0)
+    max_pie_slices: int = Field(default=6, gt=0)
+    max_listed: int = Field(default=50, gt=0)
+    max_file_bytes: int = Field(default=2_000_000, gt=0)
+    dir: str = "reports"
+
+
 class Settings(_Strict):
     models: ModelSettings
     bigquery: BigQuerySettings
     limits: Limits
     paths: Paths
     agent: AgentSettings = Field(default_factory=AgentSettings)
+    reports: ReportSettings = Field(default_factory=ReportSettings)
 
     def project_path(self, path: Path) -> Path:
         """A path from the settings: relative paths start at the project root."""
@@ -88,6 +108,10 @@ class Settings(_Strict):
         if not base.is_absolute():
             base = PROJECT_ROOT / base
         return base.joinpath(*parts)
+
+    def reports_dir(self) -> Path:
+        """The folder of the report files: `<data_dir>/reports` (spec 32, B2.5)."""
+        return self.data_path(self.reports.dir)
 
 
 class Role(StrEnum):

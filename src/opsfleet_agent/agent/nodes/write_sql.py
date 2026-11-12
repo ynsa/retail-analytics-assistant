@@ -95,9 +95,12 @@ def build_contents(state: AgentState, ctx: TurnContext, calendar: Calendar) -> s
     ]
     results = turn.get("results") or []
     max_steps = services.settings.agent.max_steps_per_question
-    parts.append(
-        f"This is query step {turn.get('step_index', 0) + 1} of at most {max_steps}."
-    )
+    if turn.get("single_step"):  # a report query (spec 32): one query, no next step
+        parts.append("This is one query of a report. Write only this query.")
+    else:
+        parts.append(
+            f"This is query step {turn.get('step_index', 0) + 1} of at most {max_steps}."
+        )
     parts += [data_block(r, STEP_BLOCK_ROWS) for r in results]
     retry = retry_block(turn, services.schema, manager)
     if retry:

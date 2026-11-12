@@ -7,10 +7,12 @@ The session builds the services once, creates a TurnBudget for each turn, runs t
 from __future__ import annotations
 
 import sqlite3
+import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from langgraph.checkpoint.sqlite import SqliteSaver
 
@@ -19,7 +21,7 @@ from opsfleet_agent.agent.graph import build_graph
 from opsfleet_agent.agent.state import Services, TurnContext
 from opsfleet_agent.bq import BigQueryService
 from opsfleet_agent.config import AppConfig, Settings
-from opsfleet_agent.errors import ConfigError
+from opsfleet_agent.errors import AgentError, ConfigError, ReportNotFound
 from opsfleet_agent.guard.empty_result import EmptyResultChecker
 from opsfleet_agent.guard.masker import ResultMasker
 from opsfleet_agent.guard.sql_guard import SqlGuard
@@ -31,6 +33,9 @@ from opsfleet_agent.guard.value_cache import (
 from opsfleet_agent.identity import UserContext
 from opsfleet_agent.limits import DailyLedger, TurnBudget
 from opsfleet_agent.llm import GeminiClient
+from opsfleet_agent.reports.files import display_path
+from opsfleet_agent.reports.flow import build_report_flow, list_text
+from opsfleet_agent.reports.library import ReportLibrary
 from opsfleet_agent.schema import Schema, load_schema
 from opsfleet_agent.store.db import connect
 from opsfleet_agent.tracing import current_trace_id, init_tracing, span
@@ -55,6 +60,18 @@ class TurnResult:
     footer: str = ""  # period, brands, definitions and assumptions
     unverified_figures: int = 0  # numbers that the figure check replaced
     calc_errors: int = 0  # placeholders that became "[not available]"
+    calculated_figures: int = 0  # spec 32: figures that code computed from placeholders
+    report_id: str | None = None  # spec 32: the saved report of this turn
+    report_files: tuple[str, ...] = ()  # spec 32: files written in this turn
+
+
+@dataclass(frozen=True)
+class CommandOutcome:
+    """The result of a slash command (spec 37, B3). Commands make no model call and no query."""
+
+    kind: Literal["message", "error"]
+    text: str
+    path: str | None = None  # a written file, for /export
 
 
 def build_prompts(settings: Settings) -> PromptLibrary:
@@ -141,7 +158,10 @@ class AssistantSession:
                 settings.data_path("checkpoints.db"), check_same_thread=False
             )
             checkpointer = SqliteSaver(cp_conn)
-        self.graph = build_graph(checkpointer)
+        self.graph = build_graph(checkpointer, flows={"report": build_report_flow()})
+        self.monotonic: Callable[[], float] = (
+            time.monotonic
+        )  # a fake clock in the tests
         self.guard = SqlGuard(user, services.schema, services.values)
         self.empty_checker = EmptyResultChecker(
             self.guard, services.bq, services.values
@@ -154,13 +174,19 @@ class AssistantSession:
             )
 
     def ask(self, question: str) -> TurnResult:
-        budget = TurnBudget(self.config.settings.limits, self.ledger, kind="question")
+        budget = TurnBudget(
+            self.config.settings.limits,
+            self.ledger,
+            kind="question",
+            monotonic=self.monotonic,
+        )
         context = TurnContext(
             services=self.services,
             budget=budget,
             user=self.user,
             guard=self.guard,
             empty_checker=self.empty_checker,
+            store=self.conn,
         )
         config = {"configurable": {"thread_id": self.conversation_id}}
         with span(
@@ -197,4 +223,63 @@ class AssistantSession:
             footer=turn.get("footer") or "",
             unverified_figures=int(turn.get("unverified_figures") or 0),
             calc_errors=int(turn.get("calc_errors") or 0),
+            calculated_figures=int(
+                ((turn.get("report") or {}).get("built") or {}).get(
+                    "calculated_figures"
+                )
+                or 0
+            ),
+            report_id=(turn.get("report") or {}).get("saved_id"),
+            report_files=tuple((turn.get("report") or {}).get("files") or ()),
         )
+
+    # --- commands (no model call, no query) ---------------------------------------------------
+    @property
+    def library(self) -> ReportLibrary:
+        return ReportLibrary(
+            self.conn,
+            self.config.settings,
+            self.services.scanner,
+            self.services.clock,
+        )
+
+    def command(self, name: str, args: list[str]) -> CommandOutcome:
+        """`/reports`, `/open <id>`, `/export <id> --format html|md` (spec 32, A2.6 and A2.7)."""
+        name = name.lstrip("/").lower()
+        try:
+            if name == "reports":
+                listing = self.library.list(self.user)
+                return CommandOutcome(
+                    "message", list_text(self.services.prompts, listing)
+                )
+            if name == "open":
+                if len(args) != 1:
+                    return CommandOutcome("error", "Usage: /open <id>")
+                return CommandOutcome(
+                    "message", self.library.get(self.user, args[0]).body_markdown
+                )
+            if name == "export":
+                fmt = _export_format(args)
+                if fmt is None:
+                    return CommandOutcome(
+                        "error", "Usage: /export <id> --format html|md"
+                    )
+                path = display_path(self.library.export(self.user, args[0], fmt))
+                return CommandOutcome("message", f"Saved: {path}", path=path)
+        except ReportNotFound as exc:
+            return CommandOutcome("error", exc.user_message)
+        except AgentError as exc:
+            return CommandOutcome("error", exc.user_message)
+        return CommandOutcome("error", f"Unknown command '/{name}'. Type /help.")
+
+
+def _export_format(args: list[str]) -> str | None:
+    """`<id> --format html|md` (the format is html when it is not given)."""
+    if not args:
+        return None
+    rest = args[1:]
+    if not rest:
+        return "html"
+    if len(rest) == 2 and rest[0] == "--format" and rest[1] in ("html", "md"):
+        return rest[1]
+    return None
