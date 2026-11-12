@@ -393,3 +393,7 @@ One session as `maya`, with the per-query byte cap lowered to 75 MB for this run
 - A call without a valid grant also writes its span, with the error type `confirmation_rejected`.
 - The evaluation check `H-TOOL` of spec 22 reads these spans. A span with `side_effect = destructive` is correct only in the turn that follows the confirmation list, and only when the user typed the exact text.
 - `tests/test_delete_flow.py` checks the span of a refused call and of a confirmed delete.
+
+#### Clock of the delete tool (2026-11-12)
+
+- `test_undo_after_30_days_is_too_old` failed from 12:00 UTC on 2026-11-12. The delete tool kept the clock of the services from the start of the session, so a test that replaced the clock later got the real time for the batch. The tool now reads the clock of the services at each call. The behavior of the product does not change.

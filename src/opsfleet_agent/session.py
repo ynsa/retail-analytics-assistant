@@ -255,7 +255,8 @@ class AssistantSession:
         self.saver = GuardedSaver(checkpointer)
         checkpointer = self.saver
         if services.tools is None:
-            services.tools = build_tools(settings, services.clock)
+            # Read the clock of the services at each call: a test can replace it later.
+            services.tools = build_tools(settings, lambda: services.clock())
         self.graph = build_graph(
             checkpointer,
             flows={"report": build_report_flow(), "delete": build_delete_flow()},
