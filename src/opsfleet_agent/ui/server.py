@@ -19,6 +19,7 @@ from fastapi.responses import (
     FileResponse,
     HTMLResponse,
     JSONResponse,
+    PlainTextResponse,
     Response,
     StreamingResponse,
 )
@@ -126,9 +127,9 @@ def create_app(backend: UiBackend, allowed_hosts: list[str] | None = None) -> Fa
     def steps(trace_id: str, user: str) -> dict[str, Any]:
         return backend.steps(user, trace_id)
 
-    @app.get("/api/turns/{trace_id}/spans")
-    def spans(trace_id: str, user: str) -> list[dict[str, Any]]:
-        return backend.spans(user, trace_id)
+    @app.get("/api/turns/{trace_id}/trace")
+    def trace(trace_id: str, user: str) -> PlainTextResponse:
+        return PlainTextResponse(backend.trace(user, trace_id))
 
     @app.get("/api/reports")
     def reports(user: str) -> list[dict[str, Any]]:

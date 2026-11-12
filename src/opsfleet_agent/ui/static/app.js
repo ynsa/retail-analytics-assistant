@@ -803,7 +803,7 @@ function renderSteps(data) {
     ...data.totals.map((line) => el("p", { text: line })),
     el("a", {
       className: "link",
-      href: `/api/turns/${encodeURIComponent(data.trace_id)}/spans?${userQuery()}`,
+      href: `/api/turns/${encodeURIComponent(data.trace_id)}/trace?${userQuery()}`,
       target: "_blank",
       rel: "noopener",
       text: "Open the full trace",

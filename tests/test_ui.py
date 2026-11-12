@@ -466,6 +466,13 @@ def add_history(config: AppConfig, user: str = "maya") -> None:
             status="ok",
             error_type=None,
         )
+        # The figures of spec 35, as the session writes them at the end of the turn.
+        conn.execute(
+            "UPDATE conversation_turns SET duration_ms = 6300, llm_calls = 3, "
+            "tokens_in = 3120, tokens_out = 240, bq_queries = 1, "
+            "bq_bytes_billed = 20971520 WHERE conversation_id = 'C-8M2QX'"
+        )
+        conn.commit()
     finally:
         conn.close()
     write_trace(config, data_question_trace(TRACE_A, user))
@@ -513,8 +520,11 @@ def test_steps_pane_shows_the_steps_and_the_limits(client, config):
         "Bytes billed: 21.0 MB",
         "Time: 6.3 s of 60 s",
     ]
-    spans = client.get(f"/api/turns/{TRACE_A}/spans?user=maya").json()
-    assert len(spans) == 13
+    trace = client.get(f"/api/turns/{TRACE_A}/trace?user=maya")
+    assert trace.headers["content-type"].startswith("text/plain")
+    assert trace.text.startswith("Trace aaaaaaaa (13 steps)")  # the text of /trace
+    assert "bq.query · 1.4 s · bytes_billed=21.0 MB" in trace.text
+    assert client.get(f"/api/turns/{TRACE_A}/trace?user=alex").status_code == 404
 
 
 def test_a_trace_of_another_user_is_not_found(client, config):
@@ -527,28 +537,40 @@ def test_a_trace_of_another_user_is_not_found(client, config):
     }
 
 
-def test_steps_work_with_the_span_names_of_spec_35(client, config):
-    """Spec 35 renames `bq.query` to `sql.query`, adds `sql_masked`, and keeps fewer turn
-    attributes. The totals then come from the child spans."""
+def test_steps_show_the_masked_sql_and_the_totals_of_the_spans(client, config):
+    """A blocked query shows the SQL of the model in the guard step, a query that ran shows its
+    SQL in the BigQuery step. A turn that stopped with an internal error has no figures on its
+    `turn` span: the totals then come from the child spans."""
     t = TRACE_B
     write_trace(
         config,
         [
-            record(t, "n1", "node.run_query", "node", "t0", 900, step_index=0),
-            record(t, "d1", "sql.dry_run", "sql", "n1", 100, bytes_processed=5),
+            record(t, "n1", "node.guard", "node", "t0", 20),
+            record(
+                t,
+                "g1",
+                "guard.check",
+                "guard",
+                "n1",
+                10,
+                outcome="policy_block",
+                reason_code="pii_column",
+                sql_masked="SELECT email FROM users",
+            ),
+            record(t, "n2", "node.run_query", "node", "t0", 900, step_index=0),
             record(
                 t,
                 "q1",
-                "sql.query",
+                "bq.query",
                 "sql",
-                "n1",
+                "n2",
                 800,
                 bytes_billed=10_000_000,
-                sql_masked="SELECT … WHERE email = '<s:16>'",
+                sql_masked="SELECT … WHERE brand IN ('<s:12>')",
             ),
             record(
                 t,
-                "n2",
+                "n3",
                 "node.write_answer",
                 "node",
                 "t0",
@@ -557,7 +579,7 @@ def test_steps_work_with_the_span_names_of_spec_35(client, config):
                 error_type="llm_timeout",
             ),
             record(
-                t, "l1", "llm.generate", "llm", "n2", 500, tokens_in=10, tokens_out=0
+                t, "l1", "llm.generate", "llm", "n3", 500, tokens_in=10, tokens_out=0
             ),
             record(
                 t, "t0", "turn", "turn", None, 1500, user_id="maya", intent="report"
@@ -565,13 +587,28 @@ def test_steps_work_with_the_span_names_of_spec_35(client, config):
         ],
     )
     data = client.get(f"/api/turns/{TRACE_B}?user=maya").json()
-    query, answer = data["steps"]
+    guard, query, answer = data["steps"]
+    assert guard["title"] == "SQL guard: block"
+    assert guard["note"] == "reason: pii column"
+    assert guard["sql"] == "SELECT email FROM users"
     assert query["title"] == "BigQuery: 1 query"
-    assert query["sql"] == "SELECT … WHERE email = '<s:16>'"
+    assert query["sql"] == "SELECT … WHERE brand IN ('<s:12>')"
     assert answer["status"] == "error" and answer["note"] == "llm_timeout"
     assert "Model calls: 1 of 8" in data["totals"]
     assert "Bytes billed: 10.0 MB" in data["totals"]
     assert "Time: 1.5 s of 150 s" in data["totals"]  # the report limit
+
+
+def test_an_old_turn_without_figures_has_no_cost_line(client, config):
+    add_history(config)
+    conn = connect(config.settings.data_path("app.db"))
+    try:
+        conn.execute("UPDATE conversation_turns SET duration_ms = 0")
+        conn.commit()
+    finally:
+        conn.close()
+    turn = client.get("/api/conversations/C-8M2QX?user=maya").json()["turns"][0]
+    assert turn["cost_line"] == "" and turn["totals"] is None
 
 
 # --- reports (A2.5) -------------------------------------------------------------------------------
@@ -756,6 +793,9 @@ def test_real_session_through_the_ui_api(config, persona_file, monkeypatch):
     titles = [s["title"] for s in steps["steps"]]
     assert titles[:3] == ["Route: data question", "Write SQL", "SQL guard: pass"]
     assert "Model calls: 3 of 8" in steps["totals"]
+    # The history reads the figures that the session wrote to `conversation_turns`.
+    earlier = client.get(f"/api/conversations/{conversation_id}?user=maya").json()
+    assert " · 3 model calls · 1 query · " in earlier["turns"][0]["cost_line"]
     history = client.get("/api/conversations?user=maya").json()
     assert history[0]["id"] == conversation_id
     assert Path(config.settings.data_path("traces")).is_dir()

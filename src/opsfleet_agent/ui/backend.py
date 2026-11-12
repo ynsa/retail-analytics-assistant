@@ -19,12 +19,14 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from opsfleet_agent.cli.status import OTHER, STATUS_TEXTS, status_text
+from opsfleet_agent.commands import NOT_FOUND as TRACE_NOT_FOUND
 from opsfleet_agent.config import AppConfig
 from opsfleet_agent.errors import AgentError, ConfigError, ReportNotFound
 from opsfleet_agent.identity import UserContext, resolve_user
 from opsfleet_agent.memory import conversations
 from opsfleet_agent.memory.conversations import canonical_id
 from opsfleet_agent.observability.progress import ProgressEvent
+from opsfleet_agent.observability.trace_view import TraceTree, load_trace, trace_text
 from opsfleet_agent.reports.library import ReportLibrary
 from opsfleet_agent.resilience.safe_node import internal_message, log_exception
 from opsfleet_agent.session import CommandOutcome, ConfirmationView, TurnResult
@@ -33,10 +35,8 @@ from opsfleet_agent.store.db import connect
 from opsfleet_agent.tracing import init_tracing
 from opsfleet_agent.ui import views
 from opsfleet_agent.ui.history import conversation_turns, report_of_trace
-from opsfleet_agent.ui.trace_reader import load_turn, load_turns
 
 Emit = Callable[[str, dict[str, Any]], None]
-TRACE_NOT_FOUND = "Trace not found."
 REPORT_START = "plan_report"  # from this node on, the time limit of a report applies
 
 
@@ -212,12 +212,6 @@ class UiBackend:
                 for t in turns
                 if t["intent"] == "report"
             }
-        traces = load_turns(
-            self.trace_dir,
-            [t["trace_id"] for t in turns if t["trace_id"]],
-            user.id,
-            views.scope_text(user),
-        )
         live = self._live_of(user, row.id)
         pending = live.session.pending if live and not live.lock.locked() else None
         return {
@@ -225,10 +219,7 @@ class UiBackend:
             "title": row.title,
             "user": views.user_view(user),
             "turns": [
-                views.history_turn_view(
-                    t, traces.get(t["trace_id"] or ""), reports.get(t["trace_id"])
-                )
-                for t in turns
+                views.history_turn_view(t, reports.get(t["trace_id"])) for t in turns
             ],
             "pending": views.confirmation_view(pending) if pending else None,
         }
@@ -357,19 +348,23 @@ class UiBackend:
         return {"kind": outcome.kind, "text": outcome.text}
 
     # --- traces ------------------------------------------------------------------------------------
-    def steps(self, user_id: str, trace_id: str) -> dict[str, Any]:
+    def _trace(self, user_id: str, trace_id: str) -> tuple[UserContext, TraceTree]:
+        """The trace of `/trace` (spec 35). A trace of another user is "not found"."""
         user = self.user(user_id)
-        trace = load_turn(self.trace_dir, trace_id, user.id, views.scope_text(user))
-        if trace is None:
-            raise NotFound(TRACE_NOT_FOUND)
-        return views.steps_view(trace, self.settings.limits.per_turn)
+        tree = load_trace(self.trace_dir, trace_id, user.id)
+        if tree is None:
+            raise NotFound(TRACE_NOT_FOUND)  # the text of `/trace`
+        return user, tree
 
-    def spans(self, user_id: str, trace_id: str) -> list[dict[str, Any]]:
-        user = self.user(user_id)
-        trace = load_turn(self.trace_dir, trace_id, user.id)
-        if trace is None:
-            raise NotFound(TRACE_NOT_FOUND)
-        return list(trace.spans)
+    def steps(self, user_id: str, trace_id: str) -> dict[str, Any]:
+        user, tree = self._trace(user_id, trace_id)
+        return views.steps_view(
+            tree, self.settings.limits.per_turn, views.scope_text(user)
+        )
+
+    def trace(self, user_id: str, trace_id: str) -> str:
+        """The full trace as text: the same text as `/trace` in the CLI."""
+        return trace_text(self._trace(user_id, trace_id)[1])
 
     # --- reports -----------------------------------------------------------------------------------
     @contextmanager
