@@ -1,0 +1,9 @@
+╭─────────────────────────── Delete these reports? ────────────────────────────╮
+│ ID       Title                         Created     Why                       │
+│ R-7K2PQ  Q1 2026 sales review          2026-11-12  this conv.                │
+│ R-3M9XA  Levi's returns, October       2026-11-12  this conv.                │
+│ R-9QF2D  Calvin Klein vs Carhartt, Q3  2026-11-12  this conv.                │
+│                                                                              │
+│ To delete these 3 reports, type: delete 3                                    │
+│ Any other answer cancels. You can undo for 30 days with /undo.               │
+╰──────────────────────────────────────────────────────────────────────────────╯

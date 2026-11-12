@@ -1,0 +1,11 @@
+Revenue of your brands in October 2026:
+
+
+ Brand           Revenue  Orders
+ ───────────────────────────────
+ Calvin Klein  $8,120.40     131
+ Carhartt      $5,716.47      88
+
+
+Period: 1–31 Oct 2026 · Brands: Calvin Klein, Carhartt
+12.4 s · 3 model calls · 2 queries · 34.0 MB · trace 4f2a9c1e

@@ -1,6 +1,6 @@
 # Spec 37: CLI
 
-- **Status:** Approved (owner review, 2026-11-11)
+- **Status:** Done (2026-11-12)
 - **Phase and stream:** Phase 2, stream C (last part of the stream)
 - **Depends on:** 00, 01, 31, 32, 33, 34, 35, 36
 - **Requirements covered:** Deliverable 4 (CLI-based chat). The user side of Req 3 (the confirmation panel), Req 5 (no crash, clear errors) and Req 7 (`/trace`, `/stats`).
@@ -72,15 +72,15 @@ The final terminal interface. A user starts a chat with one command, asks questi
 
 ### A5. Done when
 
-- [ ] `opsfleet-agent --help` and `opsfleet-agent chat --help` list all commands and options.
-- [ ] Each slash command in A2.4 works, and makes no model call and no query. A unit test with a fake session checks each one.
-- [ ] The delete panel, the `confirm>` prompt and both outcomes look as in B2.4.
-- [ ] Text that is not the confirmation cancels the delete, and the CLI sends the same text as a new question.
-- [ ] Each error type of spec 00 appears as one line with the right prefix and color, and with the trace ID for failures.
-- [ ] No traceback appears on the screen without `--debug`.
-- [ ] The development-build line names the missing parts, and disappears when all parts are ready.
-- [ ] The scripted input of A2.11 works, and its output has no color codes.
-- [ ] The output fits an 80-column terminal. Snapshot tests check the main screens.
+- [x] `opsfleet-agent --help` and `opsfleet-agent chat --help` list all commands and options.
+- [x] Each slash command in A2.4 works, and makes no model call and no query. A unit test with a fake session checks each one.
+- [x] The delete panel, the `confirm>` prompt and both outcomes look as in B2.4.
+- [x] Text that is not the confirmation cancels the delete, and the CLI sends the same text as a new question.
+- [x] Each error type of spec 00 appears as one line with the right prefix and color, and with the trace ID for failures.
+- [x] No traceback appears on the screen without `--debug`.
+- [x] The development-build line names the missing parts, and disappears when all parts are ready.
+- [x] The scripted input of A2.11 works, and its output has no color codes.
+- [x] The output fits an 80-column terminal. Snapshot tests check the main screens.
 
 ---
 
@@ -299,3 +299,62 @@ Unit tests use Typer's `CliRunner` and a fake `AssistantSession`. Snapshot tests
 - Some terminals do not render the box characters or the links. Rich falls back to plain characters.
 - The CLI depends on all specs of stream C. It is the last part, so its snapshot tests change when the texts of other specs change.
 - `/stats` and `/trace` read local files. In the Docker image, these files are in the `data/` volume.
+
+### B7. Implementation notes (2026-11-12)
+
+#### Deviations from this spec
+
+| # | Spec text | Implementation | Reason |
+|---|---|---|---|
+| 1 | B3: `AssistantSession.start(user_id, resume, settings)` | `startup.start_session(config, user_id, resume, refresh_cache)` returns `Started` (the session, the user, the warnings, the retention result). Each start problem raises `StartError` with the message and the exit code of B2.6. | The session constructor and `AssistantSession.resume()` of specs 33 and 34 stay as they are. The evaluation adapter uses them. |
+| 2 | B3: `TurnOutcome` with `kind` and `FooterInfo` | The session keeps `TurnResult` (specs 31–36). `display.describe(result)` gives the kind (`answer`, `confirmation`, `message`, `error`), the color and the prefixed text. `display.footer_line(result)` gives the footer line from `totals`. `TurnResult.footer` stays the line with the period and the brands. | The rules of B2.3 are in one core module, so the local UI shows the same lines. |
+| 3 | B1: progress from `stream(..., stream_mode="updates")` | The node wrapper opens a `node.<name>` span when a node starts. `observability/progress.py` sends a `ProgressEvent(node, attempt)` to `send(text, on_progress=...)`. | An update arrives when a node ends, so the status would show the step before. The spans also show the nodes inside `data_loop` and the report flow. |
+| 4 | B2.2: "Other: Working" | The first text is "Working". A node that is not in the table keeps the current text. | `scan_output` and `finish` are short. A change to "Working" for some milliseconds only blinks. |
+| 5 | B2.3: the `limit_exceeded` line has the trace ID | As specified. The CLI adds " Trace: 4f2a9c1e." to the limit message of spec 36, which has no trace. | The table of B2.3. |
+| 6 | B2.3: the error line | A turn that ends with an error type of a failed SQL step (`bq_syntax`, `guard_parse_error`, after `give_up`) is also a red "Error:" line with the trace. A `tool_error` without a trace (a report that is not found, spec 32 B7 #16) is a normal line. | The `give_up` text has the error type of the last attempt. |
+| 7 | A2.11: plain mode | Also: in plain mode, the CLI shows the input line after the prompt (`maya> How many orders in 2024?`). A message line is not cut at 80 columns: the terminal wraps it, so a command in it stays one line to copy. | A scripted session then reads like a terminal session (`docs/images/cli-session.txt`). |
+| 8 | B3: `cli/commands.py` dispatches the commands | The commands are in the core module `commands.py` (`run_command`, `CommandOutcome` with `title` and `data`). `cli/commands.py` only parses the line (shlex). | The local UI (spec 52) uses the same commands. |
+| 9 | A2.4: `/reports` is a Rich table | The session gives a Markdown table, and Rich shows it as a table. | The text is the same for the chat answer "Show my reports" and for the UI. |
+| 10 | B2.6: messages | "User 'x' is not in config/users.yaml." (exit 2), "GOOGLE_API_KEY is not set. See the setup guide." (exit 2), a configuration error while the services start (exit 2), BigQuery down or another service error at the start (exit 3). | B2.6. Before, BigQuery down gave exit code 1. |
+| 11 | B2.6: `--debug` | It also shows each log record with its stack trace on stderr, so an error that the session catches shows its traceback too. | The session catches every error of a turn (spec 36, B7 #9). |
+| 12 | — | The start hides the google-auth warning about user credentials without a quota project. | The public dataset needs no quota project. The warning confused the chat output. |
+| 13 | B4: the manual demo inside Docker | Not run here. Spec 53 runs it. | The budget of this work was 10 Gemini calls. |
+
+#### Files
+
+- `cli/main.py` (Typer: `chat`, `conversations`, `stats`, `purge`), `cli/chat_loop.py` (the loop of B2.1, Ctrl-C and Ctrl-D, the replay, the resume hint), `cli/commands.py` (parsing), `cli/render.py` (`Ui`: Rich output, plain mode, the status line with the seconds), `cli/status.py` (B2.2).
+- Core: `display.py` (B2.3), `startup.py` (B2.6), `commands.py` (A2.4), `capabilities.py` (B2.5). Each part registers its capability when its module loads. All 7 parts are registered, so the development-build line does not appear.
+
+#### Interfaces for the local UI (spec 52) and the evaluation runner
+
+| Member | Use |
+|---|---|
+| `startup.start_session(config, user_id, resume=None)` | The session and the start errors (`StartError.message`, `.exit_code`). It also runs the retention of spec 35. |
+| `session.send(text, on_answer=None, on_progress=None)` | `on_progress` gets `ProgressEvent(node, attempt)`. `cli.status.status_text(event)` gives the text of B2.2. |
+| `session.command(name, args)` | `CommandOutcome(kind, text, path, title, data)`. `data` is `Stats` for `/stats` and `TraceTree` for `/trace`. `commands.COMMANDS` lists the commands, `commands.KEEP_PENDING` the commands that keep a waiting delete. |
+| `session.greeting()`, `session.missing_capabilities()`, `session.last_trace()` | The greeting panel, the development-build line (`capabilities.development_line()`), and the trace of `/trace` without an ID. |
+| `display.describe(result)`, `display.footer_line(result)` | The presentation rules of B2.3. |
+
+The evaluation adapter needs no change: it calls `send(text)` and `close()`.
+
+#### Tests
+
+- `tests/test_cli.py` covers the cases 1–17 of B4: a fake session for the loop, the real session with a fake model and a fake BigQuery for the commands (0 model calls, 0 queries), Typer's `CliRunner` for the commands of the program and piped input, and Rich consoles of 80 columns. The snapshots are in `tests/snapshots/` (the greeting, an answer with a table, the delete panel).
+- 948 unit tests pass in total.
+
+#### Live check (2026-11-12)
+
+Two sessions as `maya`, with piped input. The transcript is in [`docs/images/cli-session.txt`](../../images/cli-session.txt).
+
+| Session | Input | Gemini calls | Queries | Bytes billed |
+|---|---|---|---|---|
+| Test run | `/help`, "What was the revenue of my brands last month?", `/trace`, "What is the weather in Paris today?", `/stats`, `/reports`, `/exit` | 4 | 1 | 21.0 MB |
+| Transcript, part 1 | "What was the revenue of my brands in Q3 2026, by month?", `/trace`, "What is the weather in Paris today?", `/stats`, `/reports`, `/exit` | 4 | 1 | 21.0 MB |
+| Transcript, part 2 | `--resume C-M5DJP`, `/trace`, `/stats`, `/reports`, `/exit` | 0 | 0 | 0 |
+
+- In total: 8 Gemini calls and 2 queries, 41.9 MB billed. `usage_daily` for 2026-11-12 (Pacific date): 26 calls, 10 queries, 199,229,440 bytes before; 34 calls, 12 queries, 241,172,480 bytes after.
+- The data question: a table of three months ($9,639.81, $8,552.36, $11,388.86; total $29,581.03), the footer "14.2 s · 3 model calls · 1 query · 21.0 MB · trace 8d936a2b", no "Assumed" line.
+- `/trace`: 17 steps, with the model, the tokens, the guard decision, the masked SQL of the model, the BigQuery job and its bytes.
+- The off-topic question: the prepared reply as one plain line, without a footer. 1 call.
+- `/stats`: 4 turns of the day (2 questions, 2 refusals), the times, the tokens, the routes, the nodes, 41.9 MB billed.
+- After the first run, the `tools_used` of its 2 turns still had the nodes of every turn (deviation #8 of spec 35 came after it). A script removed these 3 node names from the 4 rows of the day, so the figures of the transcript use one rule.

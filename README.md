@@ -8,7 +8,7 @@ This repository contains the design and a command-line prototype for the OpsFlee
 
 Phase 1 is done: the foundation (spec 00) and the walking skeleton (spec 01). A user can ask a simple data question in the terminal and get an answer from the real BigQuery data.
 
-Phase 2 has started. Query safety (spec 30) and the agent core (spec 31) are active:
+Phase 2: query safety (spec 30) and the agent core (spec 31) are active:
 
 - Each manager sees only the data of their brands. Code rewrites every query to the brand scope.
 - Personal data never reaches the model or the user. The SQL guard blocks PII columns, and it blocks a single customer together with a location, age, gender or traffic source. The result masker cleans the rows, and the output scanner cleans the answer.
@@ -55,7 +55,15 @@ Observability and statistics (spec 35) are active:
 - `/trace` shows the steps of the last turn, `/trace 4f2a9c1e` the steps of an error message. `/stats` shows the user's own figures. `opsfleet-agent stats --all` shows the figures of all users, and `--export csv` writes them without any question or answer text.
 - Traces and logs older than 30 days, and texts older than 90 days, are deleted at the start of each chat. No data leaves the machine: there is no LangSmith and no other trace service (spec 35, B2.6).
 
-The full CLI follows in Phase 2 (spec 37).
+The full CLI (spec 37) is active:
+
+- `opsfleet-agent chat --user maya` shows a greeting with the role, the brands, the date range of the data and the conversation ID. A status line shows the current step and the seconds ("Running the query (BigQuery) … 4 s").
+- Answers are formatted text with tables. A grey line follows each answer: "14.2 s · 3 model calls · 1 query · 21.0 MB · trace 8d936a2b".
+- A guard block or a limit is one yellow line ("Not possible: …", "Limit: …"). A refusal of an off-topic question is one normal line. A service error is one red line that starts with "Error:" and ends with the trace ID. No Python traceback appears (only with `--debug`).
+- The delete confirmation is a red panel, and the prompt changes to `confirm>`.
+- With piped input, the CLI prints plain text without colors and without the status line. A real session is in [docs/images/cli-session.txt](docs/images/cli-session.txt).
+
+With spec 37, the command-line prototype of Phase 2 is complete. Phase 3 runs the evaluation on the real agent, builds the local UI and the Docker image (specs 50–55).
 
 The production design document and the diagrams (specs 10 and 11) are ready for review.
 
@@ -71,21 +79,35 @@ The evaluation is ready (specs 20–23): the test sets, the reference results an
 
 ```bash
 uv run opsfleet-agent chat --user maya     # users: ceo, maya, alex (config/users.yaml)
-uv run opsfleet-agent chat --user maya --refresh-cache   # build the value cache again
 uv run opsfleet-agent chat --user maya --resume C-8M2QX  # continue a saved conversation
+uv run opsfleet-agent chat --user maya --refresh-cache   # build the value cache again
+uv run opsfleet-agent chat --user maya --debug           # show stack traces on the screen
 uv run opsfleet-agent conversations --user maya          # the conversations of the last 90 days
+uv run opsfleet-agent stats --user maya --days 30        # the statistics of one user
+uv run opsfleet-agent stats --all --export csv           # all users, one row per turn, figures only
+uv run opsfleet-agent purge --dry-run      # list the delete batches older than 30 days
+uv run opsfleet-agent purge                # delete them for good, and remove old traces and logs
+printf "How many orders in 2024?\n/exit\n" | uv run opsfleet-agent chat --user maya  # scripted
 uv run pytest                              # unit tests, no network
 uv run pytest -m live                      # live tests: see the cost in each test file
 ```
 
+Chat commands (no model call, no query):
+
+| Command | Result |
+|---|---|
+| `/help` | The commands and 3 example questions |
+| `/reports` | The user's saved reports |
+| `/open R-7K2PQ` | A report in the terminal |
+| `/export R-7K2PQ --format html` (or `md`) | Writes the report file and shows its path |
+| `/undo [batch]` | Restores the last deleted reports |
+| `/trace [trace ID]` | The steps of the last turn, or of the turn of an error message |
+| `/stats [--days N]` | The user's own statistics (default 7 days, at most 90) |
+| `/exit` (or Ctrl-D) | Ends the chat and shows the command to continue it |
+
 Example questions: "What can I check?", "Give me the stats for last month", "Which 5 categories had the highest revenue last quarter?", "Why are customers in Texas spending less than customers in California?".
 
-Reports: "Create a report for Q1 2026 with action items for Q2, as an HTML file", "Save this as a report", "Show my reports", "Delete all the reports we made in this conversation". Chat commands (no model call, no query): `/reports`, `/open R-7K2PQ`, `/export R-7K2PQ --format html` or `--format md`, `/undo`.
-
-```bash
-uv run opsfleet-agent purge --dry-run      # list the delete batches older than 30 days
-uv run opsfleet-agent purge                # delete them for good
-```
+Reports: "Create a report for Q1 2026 with action items for Q2, as an HTML file", "Save this as a report", "Show my reports", "Delete all the reports we made in this conversation".
 
 A report costs 3 to 5 Gemini calls (route, plan, text, and at most one correction or figure rewrite) and up to 4 queries. Its time limit is 150 s.
 
