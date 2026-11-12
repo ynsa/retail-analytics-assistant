@@ -16,22 +16,6 @@ from opsfleet_agent.evals.fixtures import (
 )
 from opsfleet_agent.store.db import connect
 
-REPORTS_TABLE = """
-CREATE TABLE reports (
-    report_id TEXT PRIMARY KEY,
-    owner_id TEXT NOT NULL,
-    conversation_id TEXT NOT NULL,
-    title TEXT,
-    body_markdown TEXT,
-    entities TEXT,
-    created_at TEXT NOT NULL,
-    model TEXT NOT NULL,
-    deleted_at TEXT,
-    delete_batch_id TEXT
-);
-CREATE TABLE report_entities (report_id TEXT, kind TEXT, value TEXT, value_norm TEXT);
-"""
-
 
 def test_inject_row_text_changes_only_first_text_value():
     columns = ["id", "name", "brand"]
@@ -66,9 +50,9 @@ def test_load_seed_and_injection_variant():
 
 
 def _db(tmp_path: Path) -> sqlite3.Connection:
-    conn = connect(tmp_path / "app.db")
-    conn.executescript(REPORTS_TABLE)
-    return conn
+    return connect(
+        tmp_path / "app.db"
+    )  # the migrations of spec 32 create the report library
 
 
 def test_seed_reports_into_library(tmp_path):
@@ -93,7 +77,9 @@ def test_seed_reports_into_library(tmp_path):
 
 
 def test_library_without_reports_table(tmp_path):
-    conn = connect(tmp_path / "app.db")
+    conn = sqlite3.connect(
+        tmp_path / "old.db"
+    )  # a database without the spec 32 migration
     library = SqliteReportLibrary(conn)
     with pytest.raises(CapabilityMissing):
         library.seed("maya", "conv-1", load_seed("seed_reports"))

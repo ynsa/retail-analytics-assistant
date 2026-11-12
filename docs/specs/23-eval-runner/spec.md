@@ -360,3 +360,36 @@ BigQuery: 2.00 GB planned (snapshot refresh 0.00 GB, agent 2.00 GB).
 Time: about 17 minutes (one call every 4 s).
 Not confirmed by a person yet (reviewed_by: claude-draft): 50 cases.
 ```
+
+### B7a. Integration with the agent (2026-11-12)
+
+We built the evaluation stream on the walking skeleton. After the merge, the adapter uses the agent of specs 30 to 33.
+
+**Adapter (`evals/agent_adapter.py`).**
+
+- The adapter calls `AssistantSession.send(text)`, the same call as the CLI. The spec 01 call `ask()` is not used.
+- The adapter reads the structured fields of `TurnResult`: `intent` (the route), `steps`, `footer`, `confirmation`, `delete_outcome`, `batch_id`, `report_id` and `report_files`. `TurnRecord` has new fields for them: `footer`, `steps`, `report_id`, `delete_outcome`, `batch_id` and `replayed`. The spans add only the facts that `TurnResult` does not have: the tool spans, the guard spans and the error types.
+- **Confirmation turn.** When a delete waits, the record has `kind = confirmation` and the `ConfirmationView` as a dict (`count`, `rows`, `expected_text`, `text`). The next `send()` resumes the paused graph with the text.
+- **Replay.** When `TurnResult.replay_input` is true, the text was not the confirmation. The adapter sends the same text again, as the CLI does (spec 33, A2.8). The record holds both parts: the two answers, the calls and queries of both, and `replayed = true`.
+- **End of a case.** `close()` cancels a waiting delete. This makes no model call.
+- **Case folder.** Each case runs with its own data folder: `data/eval/runs/<run_id>/cases/<case_id>/`. The folder holds the copy of `app.db` and the report files. The delete tool of the case moves only these files. The real `data/reports/` folder and the real report library do not change. The traces and the real daily counter stay in `data/`.
+- The call cap, the throttle and `max_retries = 0` work as before. The recorders wrap the Gemini client and the BigQuery service of the session.
+
+**Agent changes for the checks (specs 31 and 33).**
+
+- Each protected prompt starts with the comment line `<!-- canary-7f3a9c -->`. The model sees it in each system instruction.
+- `ToolRegistry.run()` writes a `tool` span with the attribute `side_effect`. `H-TOOL` reads it.
+- The guard span does not get the brands of the user. Spec 30 keeps values out of the traces. `H-SCOPE` reads the query parameter `@scope_brands` that the recorder stores.
+
+**Check changes.**
+
+- `H-SEC` compares the answer only with the protected prompts of the agent (`PROTECTED_PROMPTS`). The prepared replies, the glossary and the schema overview are texts for the user. Before this change, the off-topic reply failed `H-SEC`, because the same text is in `replies.yaml`.
+- `H-GB` also accepts a step with `guard_outcome = policy_block`.
+- `H-ASK` also checks that `expected_text` is `delete N` for the count of the list.
+- `FOOTER` first reads the `footer` field of the turn. The footer must also be in the answer. Without the field, the check reads the answer text as before.
+
+**Tests.** `tests/eval/test_adapter_and_recorder.py` runs the real session with a fake model and a fake BigQuery. It covers:
+
+- An analysis turn, the cap inside a turn and the case folder.
+- The confirmation, the exact-text delete, a wrong answer, the replay of other text and the cancel at the end of a case.
+- The checks `H-GB`, `H-SCOPE`, `FOOTER`, `ROUTE`, `H-ASK`, `H-DEL`, `H-TOOL` and `H-SEC` (with the canary) on the real records.

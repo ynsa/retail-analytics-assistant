@@ -6,15 +6,17 @@ The runner needs a small interface:
     conversation.send(text) -> TurnRecord
     conversation.close()
 
-`SessionAdapter` implements it on `opsfleet_agent.session.AssistantSession`. When the session API
-changes (spec 37: `AssistantSession.start()`, `send()`, `TurnOutcome`), only this file changes.
-Tests use a fake adapter.
+`SessionAdapter` implements it on `opsfleet_agent.session.AssistantSession.send()`, the same call as
+the CLI and the UI. It reads the structured fields of `TurnResult` (intent, steps, footer, the delete
+confirmation, the report ID and files). The spans add the facts that `TurnResult` does not have
+(tool spans, guard spans, error types). When the session API changes, only this file changes.
+Tests of the runner use a fake adapter.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import time
-import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -22,6 +24,7 @@ from typing import Any, Protocol
 from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
 
 from opsfleet_agent import tracing
+from opsfleet_agent.config import PROJECT_ROOT, Paths
 from opsfleet_agent.evals.fixtures import (
     SEED_FIXTURES,
     CapabilityMissing,
@@ -113,9 +116,23 @@ def span_collector(trace_dir: Path) -> SpanCollector:
 # ------------------------------------------------------------------------------------------------
 
 
+def _sum_totals(results: list[Any]) -> dict[str, float | int]:
+    totals: dict[str, float | int] = {}
+    for result in results:
+        for key, value in (result.totals or {}).items():
+            totals[key] = totals.get(key, 0) + value
+    return totals
+
+
+def _absolute(path: str) -> str:
+    """`TurnResult.report_files` holds display paths (relative to the project)."""
+    full = Path(path)
+    return str(full if full.is_absolute() else PROJECT_ROOT / full)
+
+
 @dataclass
 class SessionConversation:
-    session: Any
+    session: Any  # opsfleet_agent.session.AssistantSession
     sink: TurnSink
     collector: SpanCollector
     library: SqliteReportLibrary | None
@@ -145,92 +162,88 @@ class SessionConversation:
             return set()
         return {str(p) for p in self.reports_dir.rglob("*") if p.is_file()}
 
+    def _report_text(self, results: list[Any]) -> str | None:
+        """The body of the report that the turn saved (spec 32 `TurnResult.report_id`)."""
+        report_id = next((r.report_id for r in reversed(results) if r.report_id), None)
+        if self.library is None or report_id is None:
+            return None
+        try:
+            return self.library.body(report_id)
+        except CapabilityMissing:
+            return None
+
     def send(self, text: str) -> TurnRecord:
         before_reports, before_events = self._reports(), self._delete_events()
         before_files = self._files()
         identity_before = self.session.user.as_state()
         self.sink.begin()
         start = time.monotonic()
-        if hasattr(self.session, "send"):  # spec 37 API
-            outcome = self.session.send(text)
-            answer, kind = outcome.text, outcome.kind
-            error_type = outcome.error_type.value if outcome.error_type else None
-            footer = getattr(outcome, "footer", None)
-            trace_id = getattr(footer, "trace_id", None)
-            totals = dict(getattr(footer, "__dict__", {}) or {})
-            confirmation = getattr(outcome, "confirmation", None)
-        else:  # spec 01 API
-            result = self.session.ask(text)
-            answer, kind, error_type = result.answer, "answer", result.error_type
-            trace_id, totals, confirmation = result.trace_id, dict(result.totals), None
+        results = [self.session.send(text)]
+        if results[0].replay_input:
+            # Spec 33, A2.8: the text was not the confirmation. The delete is cancelled, and the
+            # CLI sends the same text again as a new question. The record holds both parts.
+            results.append(self.session.send(text))
         latency_ms = (time.monotonic() - start) * 1000
         queries, llm_calls = self.sink.take()
-        spans = self.collector.take(trace_id)
-        route = next(
-            (
-                s["attributes"].get("intent")
-                for s in spans
-                if s["attributes"].get("intent")
-            ),
-            None,
-        )
-        after_reports = self._reports()
-        new_files = sorted(self._files() - before_files)
+        spans = [s for r in results for s in self.collector.take(r.trace_id)]
+        last = results[-1]
+        files = {_absolute(f) for r in results for f in r.report_files}
+        files |= self._files() - before_files
         return TurnRecord(
             text=text,
-            answer=answer,
-            kind=kind,
-            error_type=error_type,
-            trace_id=trace_id,
-            route=route,
+            answer="\n\n".join(r.answer for r in results),
+            kind="confirmation" if last.confirmation is not None else "answer",
+            error_type=last.error_type,
+            trace_id=last.trace_id,
+            route=last.intent,
             latency_ms=latency_ms,
-            totals=totals,
+            totals=_sum_totals(results),
             queries=queries,
             llm_calls=llm_calls,
             spans=spans,
             identity_before=identity_before,
             identity_after=self.session.user.as_state(),
-            confirmation=_plain_confirmation(confirmation),
+            confirmation=_plain_confirmation(last.confirmation),
             reports_before=before_reports,
-            reports_after=after_reports,
+            reports_after=self._reports(),
             delete_events=self._delete_events() - before_events,
-            report_text=_new_report_text(self.library, before_reports, after_reports),
-            files=new_files,
+            report_text=self._report_text(results),
+            files=sorted(files),
+            footer=last.footer,
+            steps=[dict(s) for r in results for s in r.steps],
+            report_id=last.report_id,
+            delete_outcome=next(
+                (r.delete_outcome for r in results if r.delete_outcome), None
+            ),
+            batch_id=last.batch_id,
+            replayed=len(results) > 1,
         )
 
     def close(self) -> None:
-        close = getattr(self.session, "close", None)
-        if callable(close):
-            close()
+        """End the chat. A waiting delete is cancelled (spec 33, B2.6 #15): no model call."""
+        self.session.close()
+        self.sink.take()
+        self.collector.take(
+            None
+        )  # the spans of the cancel turn are not part of a record
 
 
 def _plain_confirmation(confirmation: Any) -> dict[str, Any] | None:
+    """The `ConfirmationView` of spec 33 as a plain dict (count, rows, expected_text, text)."""
     if confirmation is None:
         return None
     if isinstance(confirmation, dict):
         return confirmation
-    return dict(getattr(confirmation, "__dict__", {}))
-
-
-def _new_report_text(
-    library: SqliteReportLibrary | None,
-    before: dict[str, str | None] | None,
-    after: dict[str, str | None] | None,
-) -> str | None:
-    """The body of a report that the turn created (spec 32 table `reports`)."""
-    if library is None or before is None or after is None:
-        return None
-    new_ids = [i for i in after if i not in before]
-    if not new_ids:
-        return None
-    try:
-        return library.body(new_ids[-1])
-    except (AttributeError, CapabilityMissing):
-        return None
+    return dataclasses.asdict(confirmation)
 
 
 class SessionAdapter:
-    """Runs each case in a new `AssistantSession` with the recorders and a copy of `app.db`."""
+    """Runs each case in a new `AssistantSession` with the recorders, in its own data folder.
+
+    The case folder holds a copy of `app.db` and the report files of the case, so a case never
+    changes the real report library or `data/reports/`. The traces and the real daily counter stay
+    in the real data folder.
+    """
 
     def __init__(
         self,
@@ -278,28 +291,33 @@ class SessionAdapter:
         from opsfleet_agent.session import AssistantSession
         from opsfleet_agent.store.db import connect
 
-        settings = self.config.settings
-        db_path = copy_app_db(settings.data_path("app.db"), case_dir / "app.db")
+        real = self.config.settings
+        settings = real.model_copy(update={"paths": Paths(data_dir=case_dir.resolve())})
+        config = self.config.model_copy(update={"settings": settings})
+        # A new tool registry with the case settings: the delete tool moves the files of the case.
+        services = dataclasses.replace(self.services, settings=settings, tools=None)
+        db_path = copy_app_db(real.data_path("app.db"), settings.data_path("app.db"))
         conn = connect(db_path)
-        user = resolve_user(self.config.users, user_id)
+        user = resolve_user(config.users, user_id)
         session = AssistantSession(
-            self.config, user, self.services, conn=conn, checkpointer=InMemorySaver()
+            config, user, services, conn=conn, checkpointer=InMemorySaver()
         )
-        conversation_id = getattr(session, "conversation_id", uuid.uuid4().hex)
         library = SqliteReportLibrary(conn)
         fixture_ids: dict[str, list[str]] = {}
         self.bq.inject_text = None
         if fixture == "inject_row_text":
             self.bq.inject_text = str((fixture_args or {}).get("text", ""))
         elif fixture in SEED_FIXTURES:
-            fixture_ids = library.seed(user_id, conversation_id, load_seed(fixture))
+            fixture_ids = library.seed(
+                user_id, session.conversation_id, load_seed(fixture)
+            )
         return SessionConversation(
             session=session,
             sink=self.sink,
             collector=self.collector,
             library=library,
             user_id=user_id,
-            conversation_id=conversation_id,
+            conversation_id=session.conversation_id,
             fixture_ids=fixture_ids,
-            reports_dir=settings.data_path("reports", user_id),
+            reports_dir=settings.reports_dir() / user_id,
         )

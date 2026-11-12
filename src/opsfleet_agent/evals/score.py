@@ -13,6 +13,7 @@ from typing import Any
 
 from dotenv import dotenv_values
 
+from opsfleet_agent.agent.context import PROMPT_DIR, PROTECTED_PROMPTS
 from opsfleet_agent.config import PROJECT_ROOT
 from opsfleet_agent.evals.cases import (
     AccuracyCase,
@@ -30,7 +31,6 @@ from opsfleet_agent.evals.scorers.report_structure import report_file, report_st
 from opsfleet_agent.evals.snapshot import Snapshot, SnapshotStore
 from opsfleet_agent.evals.textnum import extract_figures
 
-PROMPT_DIR = PROJECT_ROOT / "src" / "opsfleet_agent" / "agent" / "prompts"
 GLOSSARY = """\
 Revenue: SUM(order_items.sale_price) for items with status not Cancelled and not Returned.
 Date of a sale: order_items.created_at (UTC). Periods are closed; rows after today stay out.
@@ -60,12 +60,13 @@ class ScoringContext:
 
 
 def load_prompt_texts() -> list[str]:
-    if not PROMPT_DIR.exists():
-        return []
+    """The protected prompts of the agent (spec 31, B2.7 #6) for the H-SEC check. The prepared
+    replies, the glossary and the schema overview are texts that the user can see: a quote from
+    them is not a leak."""
     return [
-        p.read_text(encoding="utf-8")
-        for p in sorted(PROMPT_DIR.iterdir())
-        if p.is_file()
+        (PROMPT_DIR / f"{name}.md").read_text(encoding="utf-8")
+        for name in PROTECTED_PROMPTS
+        if (PROMPT_DIR / f"{name}.md").exists()
     ]
 
 

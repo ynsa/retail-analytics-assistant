@@ -47,9 +47,7 @@ class TurnRecord:
 
     text: str
     answer: str = ""
-    kind: str = (
-        "answer"  # answer | confirmation | message | error (spec 37 TurnOutcome.kind)
-    )
+    kind: str = "answer"  # answer | confirmation (a delete waits for the typed text)
     error_type: str | None = None
     trace_id: str | None = None
     route: str | None = None  # the route intent (spec 31), when the agent exposes it
@@ -68,6 +66,15 @@ class TurnRecord:
         None  # the body of a report that the turn created (spec 32)
     )
     files: list[str] = field(default_factory=list)  # report files that the turn created
+    # Structured fields of the session's TurnResult (specs 31 to 33).
+    footer: str = ""  # the answer footer: period, brands, definitions
+    steps: list[dict[str, Any]] = field(default_factory=list)  # the query steps
+    report_id: str | None = None  # the report that the turn saved
+    delete_outcome: str | None = (
+        None  # deleted, wrong_number, not_exact, other_text, ...
+    )
+    batch_id: str | None = None  # the delete batch of the turn
+    replayed: bool = False  # the text cancelled a delete and ran again as a question
 
     @property
     def llm_call_count(self) -> int:

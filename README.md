@@ -84,7 +84,7 @@ uv run opsfleet-eval review --run <run_id>        # label 10 judged answers blin
 uv run opsfleet-eval compare <run_a> <run_b>      # metric changes and the cases that changed
 ```
 
-Each run writes `data/eval/runs/<run_id>/report.md`.
+Each run writes `data/eval/runs/<run_id>/report.md`. Each case runs in its own folder in the run folder, with a copy of `app.db` and its own report files. A run does not change your saved reports.
 
 ## Documents
 
