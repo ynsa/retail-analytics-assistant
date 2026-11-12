@@ -369,4 +369,7 @@ Live test (marker `live`): one report for the manager `maya`, with an HTML file.
 
 #### Live check
 
-The live check of this spec ran in one session with spec 33. See the implementation notes of spec 33.
+The live check of this spec ran in one session with spec 33 (2026-11-12, as `maya`). See the implementation notes of spec 33 for the full session.
+
+- "Create a report for Q1 2026 with action items for Q2, as an HTML file": 3 Gemini calls, 4 queries, 83.9 MB billed, 18 s. The HTML file has the 6 sections in order and 2 charts (revenue by month, top 10 categories). The chart values equal the query values. No figure was removed, and the model used only figures that the SQL computed.
+- A first try stopped at `plan_report` with the Gemini error `504 DEADLINE_EXCEEDED` (2 calls). Nothing was saved.
