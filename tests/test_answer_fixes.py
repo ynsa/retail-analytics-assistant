@@ -227,3 +227,42 @@ def test_strip_data_markup_keeps_normal_text():
 
     assert strip_data_markup("A <data ref='r1'/> B </data> C") == "A  B  C"
     assert strip_data_markup("No markup, 12.5%.") == "No markup, 12.5%."
+
+
+# --- Spec 50 round 1: the missing customer fields only for questions about people ---------------
+@pytest.mark.parametrize(
+    ("question", "expected"),
+    [
+        ("What data do you have?", True),
+        ("Which tables can I use?", True),
+        ("What do we know about our customers?", True),
+        ("How many users signed up?", True),
+        ("Can I see the emails of the buyers?", True),
+        ("Show me the street addresses", True),
+        ("How do you calculate revenue?", False),
+        ("Which columns does the orders table have?", False),
+        ("What time period does the data cover?", False),
+        ("Which product attributes can I use to group sales?", False),
+    ],
+)
+def test_about_people(question, expected):
+    from opsfleet_agent.agent.nodes.schema_answer import about_people
+
+    assert about_people(question) is expected
+
+
+def test_without_missing_fields_removes_only_that_sentence():
+    from opsfleet_agent.agent.nodes.schema_answer import without_missing_fields
+
+    text = (
+        "Gross margin = sale price minus product cost. Personal data such as names, email "
+        "addresses, and street addresses is not available in the system.\n\n"
+        "- Product names are in the catalog.\n"
+        "- Customer names are not available.\n\n"
+        "You can ask: what was the gross margin last month?"
+    )
+    assert without_missing_fields(text) == (
+        "Gross margin = sale price minus product cost.\n\n"
+        "- Product names are in the catalog.\n\n"
+        "You can ask: what was the gross margin last month?"
+    )

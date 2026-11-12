@@ -127,6 +127,33 @@ def test_schema_data_question_uses_one_model_call_and_no_query(make_session):
     assert "- gross_margin: Gross margin = sale price minus product cost" in definitions
 
 
+def test_schema_answer_names_missing_customer_fields_only_for_people_questions(
+    make_session,
+):
+    """Spec 50 round 1: "How do you calculate revenue?" also got the sentence about the missing
+    customer fields. Code now keeps it for questions about customers, personal data or all data."""
+    missing = "Names, email addresses and street addresses are not available."
+    answer = (
+        f"Revenue = sale price of items that were not cancelled or returned. {missing}"
+    )
+    llm = FakeLLM([route_reply("schema", schema_kind="data"), answer])
+    session, _, _ = make_session("maya", llm=llm)
+    result = session.ask("How do you calculate revenue?")
+    assert result.answer == (
+        "Revenue = sale price of items that were not cancelled or returned."
+    )
+    assert missing not in llm.calls[1]["prompt"]
+    assert "Do not write which customer fields are missing" in llm.calls[1]["system"]
+
+    llm = FakeLLM(
+        [route_reply("schema", schema_kind="data"), f"Age and gender. {missing}"]
+    )
+    session, _, _ = make_session("maya", llm=llm)
+    result = session.ask("What do we know about our customers?")
+    assert result.answer == f"Age and gender. {missing}"
+    assert "Also tell which customer fields are missing" in llm.calls[1]["system"]
+
+
 def test_format_only_message_is_pinned_for_the_next_answers(make_session):
     llm = FakeLLM(
         [
