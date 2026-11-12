@@ -53,27 +53,27 @@ The "user" is an OpsFleet reviewer with Docker, a Gemini key and Google Cloud cr
 
 **Part 1: the image.**
 
-- [ ] `docker build -t opsfleet-agent .` passes on a clean clone of the repository.
-- [ ] The image builds for `linux/amd64` and `linux/arm64`.
-- [ ] The container runs as a user without root rights (`id -u` is not 0).
-- [ ] The image contains no `.env`, no ADC file, no `data/` folder, no `CLAUDE.local.md`, no `docs/local/` and no `.claude/` folder.
-- [ ] `docker run --rm opsfleet-agent --help` works without `.env`, without credentials and without network access.
+- [x] `docker build -t opsfleet-agent .` passes on a clean clone of the repository.
+- [x] The image builds for `linux/amd64` and `linux/arm64`.
+- [x] The container runs as a user without root rights (`id -u` is not 0).
+- [x] The image contains no `.env`, no ADC file, no `data/` folder, no `CLAUDE.local.md`, no `docs/local/` and no `.claude/` folder.
+- [x] `docker run --rm opsfleet-agent --help` works without `.env`, without credentials and without network access.
 - [ ] The run commands for macOS, Linux and Windows (B2) start the chat.
-- [ ] Without the ADC folder, the assistant shows a one-line message about `gcloud auth application-default login`.
-- [ ] Without `GOOGLE_API_KEY`, the assistant shows a one-line message about the key.
-- [ ] Without `-it`, the assistant shows the message in A4.
+- [x] Without the ADC folder, the assistant shows a one-line message about `gcloud auth application-default login`.
+- [x] Without `GOOGLE_API_KEY`, the assistant shows a one-line message about the key.
+- [x] Without `-it`, the assistant shows the message in A4.
 - [ ] Reports, files, traces and the database are in the host `data/` folder after the run. A second run lists the reports of the first run.
 - [ ] On Linux, the files in `data/` belong to the host user, not to root.
-- [ ] `/exit`, Ctrl-D and Ctrl-C stop the container in less than 2 s.
+- [x] `/exit`, Ctrl-D and Ctrl-C stop the container in less than 2 s.
 
 **Part 2: the final checks before the submission.** Each check runs on `linux/amd64` and on `linux/arm64`. The table in B4 records the results.
 
-- [ ] The unit tests pass in the test image. 0 network calls.
+- [x] The unit tests pass in the test image. 0 network calls.
 - [ ] The live smoke test of spec 01 passes in the image.
 - [ ] The manual demo (B4, script) gives the expected result at each step.
 - [ ] A container with no network (`--network none`) shows the message for a service that is not available. The chat continues.
-- [ ] The pip path works: in a clean `python:3.12-slim` container, `pip install -r requirements.txt` and `opsfleet-agent --help` pass.
-- [ ] `uv run pre-commit run --all-files` passes.
+- [x] The pip path works: in a clean `python:3.12-slim` container, `pip install -r requirements.txt` and `opsfleet-agent --help` pass.
+- [x] `uv run pre-commit run --all-files` passes.
 - [ ] A secret scan of the full git history (`gitleaks git`) finds nothing.
 - [ ] `git ls-files` shows no `.env`, no `CLAUDE.local.md` and no `docs/local/`. The owner checked the content of `.claude/` before the repository becomes public.
 - [ ] A person follows the README (spec 54) on a clean clone and gets the first answer.
@@ -260,11 +260,11 @@ The `.dockerignore` file in the repository already excludes `.env`, the key file
 
 | Check | linux/arm64 | linux/amd64 (emulated) |
 |---|---|---|
-| Build, size, time | | |
-| Unit tests | | |
-| Live smoke test | | |
-| Demo steps 1–11 | | |
-| pip path | | |
+| Build, size, time | 682 MB unpacked, 202 MB compressed. 19 s without the layer cache. | 671 MB unpacked, 206 MB compressed. 21 s without the layer cache. |
+| Unit tests | 979 passed, `--network none`, 32 s | 979 passed, `--network none`, 50 s |
+| Live smoke test | Not run yet | Not run yet |
+| Demo steps 1–11 | Not run yet | Not run yet |
+| pip path | Passed, 29 s | Passed, 36 s |
 
 ### B5. Cost
 
@@ -281,3 +281,72 @@ The `.dockerignore` file in the repository already excludes `.env`, the key file
 - **WSL.** A Windows user who runs Docker from WSL must use the Linux command and the gcloud folder inside WSL.
 - **Base image updates.** `python:3.12-slim` changes over time. A digest pin keeps the build the same. The implementation decides about the pin.
 - **The `.claude/` folder is in git** (commit `a913918`). `.dockerignore` excludes it, but `.gitignore` does not. The owner decides whether it stays in the public repository.
+
+### B7. Implementation notes (2026-11-12)
+
+The status stays "Approved". The live checks (A5, part 2) need Gemini calls, and the owner approves them first. All checks of this note used 0 Gemini calls and 0 BigQuery queries. The containers used a fake key, and most of them ran with `--network none`.
+
+**Files:** `Dockerfile`, `.dockerignore`, `compose.yaml`, `scripts/docker-checks.sh`, the "Run with Docker" section of `README.md`. Code changes: `cli/main.py` and `startup.py` (rows 6 to 8), with 3 new tests in `tests/test_cli.py`.
+
+**Deviations from B1 to B3:**
+
+| # | Spec | Implementation | Reason |
+|---|---|---|---|
+| 1 | B2: one stage. uv is in the runtime image. | Stages `uv`, `base`, `builder`, `test` and `runtime` (the default). The runtime image gets only `/app/.venv`, `/app/src`, `config/` and `evals/`. It has no uv. | A smaller image without build tools. `evals/` is necessary for `opsfleet-eval`. |
+| 2 | B2: `test` starts from `base`. | `test` starts from `builder`, adds the dev group and `tests/`, and runs as the user `app`: `pytest -q -p no:cacheprovider`. | The tests run with the same rights as the runtime. |
+| 3 | — | The builder deletes the `tests` folders of the installed packages (about 75 MB) and compiles `src/` to bytecode. | Size. The user `app` cannot write `__pycache__` in `/app/src`. |
+| 4 | B6: the digest pin is open. | The Dockerfile pins `python:3.12-slim` (3.12.16, Debian trixie) and `ghcr.io/astral-sh/uv:0.13.7` by digest. The Dockerfile has the update command. | Repeatable builds. |
+| 5 | B2: `useradd --create-home`. | The user `app` (UID 10001) has no home folder and no login shell. | With `--user`, the container has no home folder in any case. `MPLCONFIGDIR=/tmp/matplotlib`. |
+| 6 | B2, start check 4: stdin is not a terminal. | `chat` stops (exit 2, A4 message) when stdin is a device that is not a terminal. `docker run` without `-i` gives `/dev/null`. | Spec 37 supports piped input (`printf ... \| docker run -i ...`). "Not a terminal" also stops piped input. |
+| 7 | — | New start check for all commands: the data folder must be writable. Else: "Cannot write to the data folder /app/data (Permission denied). With Docker on Linux, add --user ..." (exit 2). | B6, Linux file owner. Before, a SQLite error with a Rich traceback showed. |
+| 8 | — | `start_services()` sends the log records of the start to `data/logs/`. | Without ADC, `bq_client.py` logs "ERROR:root:Failed to initialize BigQuery client ..." on stderr. The A5 message had 2 lines. `bq_client.py` stays unchanged. |
+| 9 | B2: `compose.yaml`. | As B2, plus `GOOGLE_APPLICATION_CREDENTIALS: ""` and a health check (`/api/users`) for `ui`. | No health check in the Dockerfile: a chat container has no server. |
+| 10 | B3: `.dockerignore` already complete. | The patterns use `**/`. The context also excludes `docs/`, `scripts/`, the Docker files, `*.pem` and `.env.*`. | A pattern without `**/` matches only the top folder. `src/**/__pycache__` went into the context. |
+| 11 | A3: the README text is spec 54. | The README has a "Run with Docker" section now. | Owner request. Spec 54 can change the text. |
+| 12 | B2: the UI command. | The README UI command also has `-it`. | Ctrl-C then stops the server (0.4 s). |
+
+The tests stay in the build context. Only the `test` target copies them. The runtime image has no `tests/` folder.
+
+**Results.** OrbStack, Docker 29.8.2, builder `orbstack`, Mac arm64. The amd64 image runs with emulation.
+
+| Check | linux/arm64 | linux/amd64 (emulated) |
+|---|---|---|
+| `scripts/docker-checks.sh` (all steps) | All passed, 56 s | All passed, 80 s |
+| Build of the runtime image, `--no-cache` (base image and uv cache present) | 19 s | 21 s |
+| Size: unpacked layers / compressed / `docker image ls` | 682 MB / 202 MB / 884 MB | 671 MB / 206 MB / 878 MB |
+| Unit tests in the test image, `--network none` | 979 passed, 9 deselected, 32 s | 979 passed, 9 deselected, 50 s |
+| `id -u` and the files in the image | 10001. No `.env`, key, ADC file, `CLAUDE.local.md`, `.claude/`, `.git/`, `docs/`, `tests/`. `/app/data` is empty. | Same |
+| `opsfleet-agent --help`, `opsfleet-eval --help`, `--network none` | Exit 0 | Exit 0 |
+| Start messages: no `-it` / unknown user / no key / no ADC | Exit 2 / 2 / 2 / 3, one line each | Same |
+| Chat start with `-it` (fake key, `--network none`, ADC mount, cached schema and values) | Greeting after 1.1 s | Greeting after 2.0 to 4.0 s |
+| `/exit`, Ctrl-D, Ctrl-C two times | Stop after 0.19 to 0.27 s | Stop after 0.24 to 0.25 s |
+| UI: `ui --host 0.0.0.0`, `-p 127.0.0.1:8000:8000` | `GET /` 200 after 1.6 s. Ctrl-C: 0.4 s. | `GET /` 200 after 4.6 s. Ctrl-C: 0.5 s. |
+| pip path (`pip install -r requirements.txt`, both CLIs `--help`) | Passed, 29 s | Passed, 36 s |
+
+Checks on arm64 only:
+
+- **ADC.** With the gcloud folder mounted read only and `CLOUDSDK_CONFIG=/gcloud`, `google.auth.default()` finds the user credentials. UID 10001 can read the file on macOS. The ADC file gives no project. `GOOGLE_CLOUD_PROJECT` gives it.
+- **`--env-file .env`.** `GOOGLE_API_KEY` and `GOOGLE_CLOUD_PROJECT` are set, without quotes. `GOOGLE_APPLICATION_CREDENTIALS` is empty. The check printed only these facts, not the values.
+- **Bind mount on macOS.** In the container the files belong to UID 10001. On the host they belong to the host user (501). The result is the same with `--user 501:20`.
+- **Linux file owner (simulation).** The check used Docker volumes owned by UID 1000 (`volume-nocopy`: Docker does not copy the image content into them). The ADC file had mode 600. With `--user 1000:1000`: the ADC file is readable, and the new files belong to 1000. Without `--user`: the data check stops the start with its message. The ADC file is not readable. A real Linux host is not tested.
+- **UI.** The page loads in a browser (Playwright) with no console errors. The `Host: evil.example` header gives 400. Docker publishes the port only on `127.0.0.1`. `docker stop` takes 0.8 s.
+- **Compose.** An override file set a fake key and a scratch data folder. Results: `build`, `run --rm cli stats --user maya`, the chat greeting, `up -d ui` healthy after about 8 s, `GET /` 200, port on `127.0.0.1` only, `down` in 0.6 s.
+- **Clean clone.** `git clone`, then `docker build`: passed in 12 s (no `.env`, no `data/`).
+- **Repository.** `uv run pre-commit run --all-files` passed. `git ls-files` shows no `.env`, no `CLAUDE.local.md` and no `docs/local/`.
+
+**Observations:**
+
+- With emulation, two Ctrl-C keys 0.3 s apart counted as one signal. The chat showed "Press Ctrl-C again" and continued. A second Ctrl-C after the hint stopped it. A person types more slowly. This is not a problem of the image.
+- On OrbStack, `docker image ls` adds the compressed content to the unpacked layers (884 MB). The files take 682 MB.
+- The test image is 1.1 GB, because it has the dev tools and uv. It is only for the checks.
+- The checks did not use the `data/` folder of the repository, because an evaluation run used it. The README tells the reviewer to run one assistant at a time on one `data/` folder. SQLite does not support two writers through the file sharing of Docker on macOS and Windows.
+
+**Not done yet (the live demo, after the owner approves the Gemini calls):**
+
+1. The live smoke test of spec 01 in both images: 2 Gemini calls and 1 query for each image.
+2. The demo of B4, part 2, steps 1 to 11, on both images: about 30 Gemini calls for each image. Steps 3 and 10 also check the report files in the host `data/` folder and the second run.
+3. A question with `--network none` (step 11). It makes no successful call, but it is a part of the demo.
+4. The Windows PowerShell commands. No Windows computer is available.
+5. A real Linux host (the simulation above only).
+6. `gitleaks git` on the full history. The `gitleaks` program is not installed. The pre-commit hook scans only the staged changes.
+7. The owner's check of `.claude/` before the repository becomes public, and a person who follows the README on a clean clone (spec 54).

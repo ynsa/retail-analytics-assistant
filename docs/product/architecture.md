@@ -269,15 +269,15 @@ What we accept: we write more code ourselves. We build our own evaluation harnes
 ## 3. Infrastructure & Deployment
 
 - **Prototype, during development:** runs locally with uv (`uv sync`, `uv run`). [repo: `uv.lock`] _(decision 2026-11-11)_
-- **Prototype, for reviewers and final checks:** a Docker image, because we do not know the operating system of the reviewers. _(decision 2026-11-11)_ [repo: `.dockerignore` exists, no Dockerfile yet]
+- **Prototype, for reviewers and final checks:** a Docker image, because we do not know the operating system of the reviewers. _(decision 2026-11-11)_ [repo: `Dockerfile`, `compose.yaml`, `.dockerignore`, `scripts/docker-checks.sh`]
   - Base image `python:3.12-slim`. uv installs the locked dependencies (`uv sync --frozen --no-dev`), so the image uses the same versions as local development.
   - The container runs as a user without root rights.
-  - The CLI needs an interactive terminal: `docker run -it`. The local web UI publishes one port, for example `-p 8000:8000`.
+  - The CLI needs an interactive terminal: `docker run -it`. The local web UI listens on `0.0.0.0` inside the container, and Docker publishes the port only on the host loopback: `-p 127.0.0.1:8000:8000`.
   - Secrets come from `--env-file .env`. The image does not contain them.
   - BigQuery credentials: the container mounts the host's gcloud folder read-only at `/gcloud`, and `CLOUDSDK_CONFIG=/gcloud` points the Google libraries to it. The host folder is `~/.config/gcloud` on macOS and Linux, and `%APPDATA%\gcloud` on Windows. On Linux, the container runs with the host user ID, because the ADC file has mode 600. Spec 53 gives the commands. A service-account key file is the alternative.
   - One volume keeps the `data/` folder between runs: the SQLite files, the traces and the report files.
   - We build and test the image for both `linux/arm64` and `linux/amd64`. Our machine is arm64, and many reviewers use amd64.
-  - A `compose.yaml` can start the CLI or the UI with the right mounts in one command. _(assumption)_
+  - A `compose.yaml` starts the CLI or the UI with the same mounts in one command. _(decision 2026-11-12)_
 - **Fallback without Docker:** uv, or `pip install -r requirements.txt` from `uv export`, as the brief describes. [repo: `requirements.txt`]
 - **Cloud provider (production):** Google Cloud, region US, because the dataset is in the US multi-region. _(assumption)_
 - **Agent API (production):** a FastAPI app on Cloud Run. _(assumption)_

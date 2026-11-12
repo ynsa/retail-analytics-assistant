@@ -63,7 +63,7 @@ The full CLI (spec 37) is active:
 - The delete confirmation is a red panel, and the prompt changes to `confirm>`.
 - With piped input, the CLI prints plain text without colors and without the status line. A real session is in [docs/images/cli-session.txt](docs/images/cli-session.txt).
 
-With spec 37, the command-line prototype of Phase 2 is complete. The local test UI (specs 40 and 52) is also ready: see [Local test UI](#local-test-ui). Phase 3 runs the evaluation on the real agent and builds the Docker image (specs 50, 51 and 53–55).
+With spec 37, the command-line prototype of Phase 2 is complete. The local test UI (specs 40 and 52) is also ready: see [Local test UI](#local-test-ui). Phase 3 runs the evaluation on the real agent (specs 50 and 51). The Docker image is ready (spec 53): see [Run with Docker](#run-with-docker).
 
 The production design document and the diagrams (specs 10 and 11) are ready for review.
 
@@ -74,6 +74,108 @@ The production design document and the diagrams (specs 10 and 11) are ready for 
 Source: [prototype.drawio](docs/design/diagrams/prototype.drawio). The production design on Google Cloud is in the [design document](docs/design/hld.md).
 
 The evaluation is ready (specs 20–23): the test sets, the reference results and the runner. The runs on the finished agent follow in Phase 3 (spec 50).
+
+## Run with Docker
+
+With Docker, the prototype runs the same way on each operating system. You do not need Python or uv. The image builds on Intel and AMD computers (`linux/amd64`) and on ARM computers (`linux/arm64`, for example Apple silicon). The image contains no key and no credentials. They stay on your computer, and the container reads them at run time.
+
+### Before the first run
+
+1. Install Docker: Docker Desktop, OrbStack, or Docker Engine on Linux.
+2. Install the [Google Cloud CLI](https://cloud.google.com/sdk/docs/install). Then run `gcloud auth application-default login`. This command writes the credentials file (ADC) into your gcloud folder: `~/.config/gcloud` on macOS and Linux, `%APPDATA%\gcloud` on Windows.
+3. In the repository folder, copy `.env.example` to `.env`. Set `GOOGLE_API_KEY` (a Gemini key from Google AI Studio) and `GOOGLE_CLOUD_PROJECT` (the project for the BigQuery jobs).
+   - Write the values without quotes. Docker keeps the quotes as a part of the value.
+   - Keep `GOOGLE_APPLICATION_CREDENTIALS` empty. A path on your computer does not exist in the container.
+4. In the repository folder, make the data folder: `mkdir data`. If Docker makes this folder, its owner on Linux is root.
+
+### Build the image
+
+Run this command in the repository folder. The first build downloads about 200 MB and can take a few minutes. Later builds use the cache.
+
+```bash
+docker build -t opsfleet-agent .
+```
+
+### Start the chat
+
+Run the command for your operating system in the repository folder. Users: `ceo`, `maya`, `alex` (`config/users.yaml`). `/exit`, Ctrl-D or Ctrl-C (two times) ends the chat and stops the container.
+
+macOS:
+
+```bash
+docker run --rm -it --env-file .env \
+  -v "$HOME/.config/gcloud:/gcloud:ro" \
+  -v "$PWD/data:/app/data" \
+  opsfleet-agent chat --user maya
+```
+
+Linux: the same command with `--user "$(id -u):$(id -g)"`. Then the files in `data/` belong to you, and the container can read your credentials file (mode 600).
+
+```bash
+docker run --rm -it --user "$(id -u):$(id -g)" --env-file .env \
+  -v "$HOME/.config/gcloud:/gcloud:ro" \
+  -v "$PWD/data:/app/data" \
+  opsfleet-agent chat --user maya
+```
+
+Windows: use PowerShell, not Git Bash. Git Bash changes the paths of the mounts.
+
+```powershell
+docker run --rm -it --env-file .env `
+  -v "$env:APPDATA\gcloud:/gcloud:ro" `
+  -v "${PWD}\data:/app/data" `
+  opsfleet-agent chat --user maya
+```
+
+With WSL, use the Linux command and the gcloud folder inside WSL.
+
+The reports, the report files, the databases and the traces go to `data/` on your computer. Open `data/reports/<user>/<report ID>.html` in your browser. The next run shows the same reports.
+
+### Other commands
+
+- Replace `chat --user maya` with another command of [Run the prototype](#run-the-prototype), for example `conversations --user maya` or `stats --user maya`. These commands do not need `-it`.
+- For the evaluation, put `--entrypoint opsfleet-eval` before the image name, for example `... --entrypoint opsfleet-eval opsfleet-agent plan --set smoke`.
+- Local test UI: publish the port only on your computer (`127.0.0.1`), and let the UI listen on all addresses inside the container. Then open <http://127.0.0.1:8000>. Ctrl-C stops the server.
+
+  ```bash
+  docker run --rm -it --env-file .env \
+    -v "$HOME/.config/gcloud:/gcloud:ro" \
+    -v "$PWD/data:/app/data" \
+    -p 127.0.0.1:8000:8000 \
+    opsfleet-agent ui --host 0.0.0.0
+  ```
+
+- A service-account key instead of the gcloud login: replace the gcloud mount with `-v /path/key.json:/secrets/key.json:ro -e GOOGLE_APPLICATION_CREDENTIALS=/secrets/key.json`.
+
+### Docker Compose (alternative)
+
+`compose.yaml` has the same image, mounts and settings. It needs the Compose plugin (`docker compose version`).
+
+```bash
+docker compose build
+docker compose run --rm cli chat --user maya   # the chat
+docker compose up ui                           # the local test UI on http://127.0.0.1:8000
+```
+
+- Linux: first run `export HOST_UID="$(id -u)" HOST_GID="$(id -g)"`.
+- Windows (PowerShell): first run `$env:GCLOUD_CONFIG_DIR = "$env:APPDATA\gcloud"`.
+
+### Messages at the start
+
+| Problem | Message |
+|---|---|
+| `docker run` without `-it` | The chat needs an interactive terminal. Run docker with -it. |
+| No `GOOGLE_API_KEY` in `.env` | GOOGLE_API_KEY is not set. See the setup guide. |
+| No gcloud mount, or no `gcloud auth application-default login` | The assistant could not start. BigQuery refused access. Run `gcloud auth application-default login` and check GOOGLE_CLOUD_PROJECT. |
+| Linux without `--user` | Cannot write to the data folder /app/data (Permission denied). With Docker on Linux, add --user "$(id -u):$(id -g)" to the docker run command. |
+
+### Notes
+
+- Run only one assistant at a time on the same `data/` folder. Do not use `uv run` on your computer and the container at the same time. The SQLite databases do not support two writers through the file sharing of Docker on macOS and Windows.
+- On macOS and Windows, Docker Desktop must share the repository folder and the gcloud folder. The default settings share your home folder.
+- The image is about 680 MB unpacked and about 200 MB compressed. It runs as a user without root rights (UID 10001). It writes only to `/app/data` and `/tmp`.
+- Unit tests in the image (no network): `docker build --target test -t opsfleet-agent-test .`, then `docker run --rm --network none opsfleet-agent-test`.
+- `scripts/docker-checks.sh arm64` (or `amd64`) builds both images and runs the automatic checks of spec 53: the tests, the user, the files in the image and the start messages. It makes no Gemini call and no BigQuery query.
 
 ## Run the prototype
 
@@ -129,7 +231,7 @@ uv run opsfleet-agent ui                   # then open http://127.0.0.1:8000
 - A long answer shows the current step with the texts of the CLI status line, and a clock. The input is locked until the answer is ready.
 - A delete shows the list of reports. Confirm works only for the exact text `delete N`. Undo works for 30 days.
 - A report shows its chart and its action items. "Open HTML" and "Download Markdown" give the files of `data/reports/<user>/`.
-- The server listens only on `127.0.0.1`. The page loads no file from the internet.
+- The server listens only on `127.0.0.1`. The page loads no file from the internet. In Docker, see [Other commands](#other-commands).
 
 ![Local test UI: a report in the chat](docs/images/ui/05-report.png)
 
@@ -177,4 +279,4 @@ gcloud auth application-default login
 
 The checks before each commit are ruff (Python), Biome (JavaScript and CSS), a secret scan (gitleaks), and checks that `uv.lock` and `requirements.txt` are up to date.
 
-A Docker image and the full setup guide follow with the prototype.
+To run the prototype without a development setup, see [Run with Docker](#run-with-docker). The full setup guide follows (spec 54).
