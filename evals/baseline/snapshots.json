@@ -1980,6 +1980,72 @@
   "period_key": null,
   "needs_review": false
  },
+ "PP-09/alt1": {
+  "case_id": "PP-09",
+  "ref": "alt1",
+  "user": "ceo",
+  "params": {
+   "all_brands": true,
+   "brands": []
+  },
+  "sql_sha256": "2f4453802a2bf36d023c4d0729a9157152ed656331e0e1a0381419640d6876f3",
+  "created_at": "2026-11-13T20:11:45+00:00",
+  "table_modified": {
+   "orders": "2026-11-13T03:45:58.556000+00:00",
+   "order_items": "2026-11-13T03:45:58.965000+00:00",
+   "products": "2026-11-13T03:45:56.765000+00:00",
+   "users": "2026-11-13T03:46:16.963000+00:00"
+  },
+  "bytes_billed": 20971520,
+  "columns": [
+   "distribution_center_id",
+   "items_shipped"
+  ],
+  "rows": [
+   [
+    1,
+    3368
+   ],
+   [
+    2,
+    3367
+   ],
+   [
+    3,
+    3298
+   ],
+   [
+    8,
+    2698
+   ],
+   [
+    4,
+    2496
+   ],
+   [
+    7,
+    2406
+   ],
+   [
+    6,
+    2389
+   ],
+   [
+    9,
+    2280
+   ],
+   [
+    5,
+    1776
+   ],
+   [
+    10,
+    1690
+   ]
+  ],
+  "row_count": 10,
+  "period_key": null
+ },
  "PP-09/main": {
   "case_id": "PP-09",
   "ref": "main",

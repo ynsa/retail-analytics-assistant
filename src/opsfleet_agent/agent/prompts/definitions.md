@@ -144,3 +144,8 @@ ORDER BY month
 - **Footer:** Items sold = items that were not cancelled or returned.
 - **Excludes:** Cancelled, Returned
 - **SQL:** `COUNT(*)` of order items with the revenue filter
+
+### items_shipped
+- **Meaning:** Order items with a shipping date (`shipped_at`). Shipments in a period have the shipping date in the period. Not the same as items sold: a returned item was also shipped.
+- **Footer:** Items shipped = order items with a shipping date in the period.
+- **SQL:** `COUNT(*)` of order items with `oi.shipped_at >= TIMESTAMP('<start>') AND oi.shipped_at < TIMESTAMP('<end>')`

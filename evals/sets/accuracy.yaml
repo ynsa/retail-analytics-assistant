@@ -533,6 +533,21 @@ cases:
       columns:
         distribution_center_id: {role: key, kind: id}
         items_shipped: {role: value, kind: count}
+    alt_references:
+      - sql: |
+          SELECT p.distribution_center_id, COUNT(*) AS items_shipped
+          FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+          JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+          WHERE oi.shipped_at >= TIMESTAMP '2025-01-01' AND oi.shipped_at < TIMESTAMP '2026-01-01'
+            AND (@all_brands OR p.brand IN UNNEST(@brands))
+          GROUP BY p.distribution_center_id
+          ORDER BY items_shipped DESC
+        expected:
+          mode: top_k
+          k: 1
+          columns:
+            distribution_center_id: {role: key, kind: id}
+            items_shipped: {role: value, kind: count}
     facts:
       - {column: distribution_center_id, where: {distribution_center_id: "@rank1"}}
     scoring: [execution_match, answer_facts]
@@ -541,6 +556,9 @@ cases:
       The table distribution_centers is not one of the four allowed tables, so the answer can give
       only the distribution center ID. Items of 2025 sales with a shipped_at date count as shipped.
       The column items_sold shows that the ranking is the same with the items_sold definition.
+      Round 2 of spec 50: alt1 counts the items with a shipping date in 2025. This is the rule of
+      write_sql.md ("shipments" use shipped_at), the glossary entry items_shipped and the form of
+      TM-08 (deliveries by delivered_at). Both readings of "shipped in 2025" pass.
     reviewed_by: claude-draft
     reviewed_at: "2026-11-11"
 

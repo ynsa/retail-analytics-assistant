@@ -618,3 +618,5 @@ Tests: `tests/test_sql_checks.py`: the date forms (`>=`/`<`, `EXTRACT(YEAR …)`
 2. `check_sql`: a report query now gets the definition check. The period check stays off for it (point 9 above), because a report often reads a trend outside the report period. For a report query, the keys of the report also count as cited for the customer rule. A mismatch goes back to `write_sql` for that one query, with the normal attempt budget.
 
 A replay of the rule on the recorded queries of all evaluation runs (no model call) found 16 queries with a customer count and without the purchase filter. Most were report queries with the revenue filter only. Tests: `tests/test_sql_checks.py` (the rule, the two correct forms, spend per customer, the report keys) and `tests/test_reports_flow.py` (a report query is written again after the feedback, and the wrong SQL never runs).
+
+**Items shipped (PP-09).** "Which distribution center shipped the most items in 2025?" got a count of items sold. The glossary has a new entry `items_shipped`: the order items with a shipping date in the period. The reference of PP-09 now accepts both readings (spec 21, B7).

@@ -36,6 +36,7 @@ GLOSSARY_KEYS = {
     "cancellation_rate",
     "orders",
     "items_sold",
+    "items_shipped",
 }
 
 
