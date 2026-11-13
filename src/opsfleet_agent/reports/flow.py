@@ -410,6 +410,7 @@ def next_query(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, An
         "sql": query["sql"],
         "final": True,
         "definitions_used": query.get("definitions_used") or [],
+        "report_definitions": list(report.get("definitions") or []),
         "active_filters": {
             "period": f"{period['start']}..{period['end']}" if period else None,
             "brands": [],

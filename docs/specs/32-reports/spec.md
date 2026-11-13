@@ -385,3 +385,7 @@ Changes:
 - Rule 4 of `plan_report.md`: "Write 2 to N queries".
 
 Tests: `tests/test_reports_flow.py` (one more call, two empty plans, the schema).
+
+#### Round 2 of spec 50: the definition check
+
+- **RP-05.** A report query now gets the definition check of spec 31 (B7, round 2). The period check stays off for report queries.

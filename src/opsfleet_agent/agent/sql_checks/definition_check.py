@@ -7,10 +7,19 @@ cites the keys of `definitions_used`, so each such key needs its filter.
 One more case: an output column named like a metric (`orders`, `total_revenue`, `items_sold_prev`)
 in a query with no status condition at all. The Docker check of 2026-11-12 had this query: an
 `orders` count without a status filter.
+
+A count of customers (an output column with the word `customers`, for example
+`active_customers`) when `customer_of_brand` is cited: the query needs the purchase filter, a
+filter that leaves out only `Cancelled`. A stricter filter does not count here, also when another
+cited key explains it. In round 2 of spec 50 (RP-05), a report cited "Customer of a brand = at least
+one purchase" but counted the customers with the revenue filter only (697, not 783). With only a
+revenue filter in the query, the count cannot use the purchase filter. A customer count without
+this citation (for example the denominator of spend per customer) keeps the normal rule.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from opsfleet_agent.agent.context import Definition
@@ -20,6 +29,15 @@ from opsfleet_agent.agent.sql_checks.status_filters import StatusFilters
 _NEUTRAL_PARTS = frozenset(
     {"total", "all", "groups", "prev", "previous", "current", "cur", "change", "pct"}
 )
+
+
+CUSTOMER_COUNT_KEY = "customer_of_brand"
+
+
+def is_customer_count(name: str) -> bool:
+    """`customers`, `active_customers`, `customers_prev`: a count of customers. Not `spend_per_…`."""
+    parts = name.lower().split("_")
+    return "customers" in parts and "per" not in parts
 
 
 @dataclass(frozen=True)
@@ -47,7 +65,9 @@ def check_definitions(
     definitions: dict[str, Definition],
     filters: StatusFilters | None,
     reads_order_items: bool = True,
+    also_cited: Iterable[str] = (),
 ) -> DefinitionVerdict:
+    """`also_cited`: the keys of the report (spec 32). They apply only to the customer count."""
     with_rule = {k for k, d in definitions.items() if d.excludes}
     keys = list(dict.fromkeys(k for k in cited if k in definitions))
     required = [k for k in keys if k in with_rule]
@@ -56,6 +76,16 @@ def check_definitions(
             key = metric_of_column(column, with_rule)
             if key and key not in required:
                 required.append(key)
+    strict: set[str] = set()  # keys whose exact filter must be in the query
+    if (
+        reads_order_items
+        and CUSTOMER_COUNT_KEY in with_rule
+        and CUSTOMER_COUNT_KEY in {*cited, *also_cited}
+        and any(is_customer_count(c) for c in output_columns)
+    ):
+        strict.add(CUSTOMER_COUNT_KEY)
+        if CUSTOMER_COUNT_KEY not in required:
+            required.append(CUSTOMER_COUNT_KEY)
     if not required:
         return DefinitionVerdict("none", applied=tuple(keys))
     if filters is None:
@@ -64,7 +94,11 @@ def check_definitions(
         )
     explained = frozenset(definitions[k].excludes for k in required)
     missing = tuple(
-        k for k in required if not filters.applies(definitions[k].excludes, explained)
+        k
+        for k in required
+        if not filters.applies(
+            definitions[k].excludes, frozenset() if k in strict else explained
+        )
     )
     if missing and filters.unreadable:
         # A status condition that code cannot read may apply the definition: cannot verify.

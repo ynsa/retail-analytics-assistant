@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import pandas as pd
 import pytest
 
 from opsfleet_agent.errors import ErrorType
-from tests.conftest import FakeBQ, FakeLLM, read_spans, route_reply, sql_reply
+from tests.conftest import (
+    FakeBQ,
+    FakeLLM,
+    frame_result,
+    read_spans,
+    route_reply,
+    sql_reply,
+)
 from tests.report_helpers import (
     BRAND_SQL,
     CATEGORY_SQL,
@@ -411,3 +419,56 @@ def test_report_plan_schema_requires_the_queries():
     from opsfleet_agent.reports.models import ReportPlan
 
     assert "queries" in ReportPlan.model_json_schema()["required"]
+
+
+# --- spec 50 round 2 (RP-05): the definition check also runs on a report query --------------------
+CUSTOMERS_REVENUE_FILTER_SQL = (
+    "SELECT COUNT(DISTINCT oi.user_id) AS active_customers, SUM(oi.sale_price) AS revenue "
+    "FROM `bigquery-public-data.thelook_ecommerce.order_items` oi "
+    "WHERE oi.status NOT IN ('Cancelled', 'Returned') "
+    "AND oi.created_at >= TIMESTAMP('2026-01-01') AND oi.created_at < TIMESTAMP('2026-04-01')"
+)
+CUSTOMERS_PURCHASE_FILTER_SQL = (
+    "SELECT COUNT(DISTINCT oi.user_id) AS active_customers, "
+    "SUM(IF(oi.status != 'Returned', oi.sale_price, 0)) AS revenue "
+    "FROM `bigquery-public-data.thelook_ecommerce.order_items` oi "
+    "WHERE oi.status != 'Cancelled' "
+    "AND oi.created_at >= TIMESTAMP('2024-06-01') AND oi.created_at < TIMESTAMP('2026-04-01')"
+)
+
+
+def test_a_report_query_with_a_wrong_customer_filter_is_written_again(
+    make_session, config
+):
+    """The period check stays off for a report query: the rewritten SQL reads from June 2024."""
+    plan = plan_reply(
+        [("Revenue by month", MONTHLY_SQL), ("Customers", CUSTOMERS_REVENUE_FILTER_SQL)]
+    )
+    plan["definitions_used"] = ["revenue", "customer_of_brand"]  # the report cites it
+    llm = report_llm(
+        sql_reply(CUSTOMERS_PURCHASE_FILTER_SQL, purpose="Customers"),
+        plan=plan,
+        draft=plain_draft(),
+    )
+    customers = frame_result(
+        pd.DataFrame({"active_customers": [783], "revenue": [45718.72]})
+    )
+    session, llm, bq = start(make_session, llm, FakeBQ([monthly_frame(), customers]))
+    result = session.ask("Create a report on the customers of my brands for Q1")
+    assert result.report_id and result.error_type is None
+    assert [c["purpose"] for c in llm.calls] == [
+        "route",
+        "plan_report",
+        "write_sql",
+        "write_report",
+    ]
+    assert "definition of customer_of_brand" in llm.calls[2]["prompt"]
+    assert len(bq.queries) == 2  # the wrong SQL never ran
+    assert "WHERE oi.status <> 'Cancelled'" in bq.queries[1]
+    spans = [r for r in read_spans(config) if r["name"] == "node.check_sql"]
+    assert [s["attributes"]["period_check"] for s in spans] == ["skipped"] * 3
+    assert [s["attributes"]["definition_check"] for s in spans] == [
+        "match",
+        "mismatch",
+        "match",
+    ]

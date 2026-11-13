@@ -589,9 +589,9 @@ def test_unreadable_status_condition_is_unverified():
 
 def test_one_revenue_filter_with_revenue_and_purchase_keys():
     """Code cannot tell which figure uses which filter, so the stricter filter passes when a
-    cited key explains it."""
+    cited key explains it. (A column named `customers` has its own rule: see below.)"""
     sql = (
-        "SELECT SUM(oi.sale_price) AS revenue, COUNT(DISTINCT oi.user_id) AS customers "
+        "SELECT SUM(oi.sale_price) AS revenue, COUNT(DISTINCT oi.order_id) AS purchases "
         f"FROM {OI} AS oi WHERE {REVENUE_FILTER} "
         "AND oi.created_at >= '2024-01-01' AND oi.created_at < '2025-01-01'"
     )
@@ -599,6 +599,62 @@ def test_one_revenue_filter_with_revenue_and_purchase_keys():
     assert check.definitions.status == "match"
     alone = run_check(sql, plan(definitions=["purchase"]))
     assert alone.definitions.missing == ("purchase",)
+
+
+def test_a_customer_count_with_only_the_revenue_filter_gives_feedback():
+    """Spec 50 round 2, RP-05: a report counted customers with the revenue filter (697, not 783)."""
+    sql = (
+        "SELECT SUM(oi.sale_price) AS revenue, COUNT(DISTINCT oi.user_id) AS active_customers "
+        f"FROM {OI} AS oi WHERE {REVENUE_FILTER} "
+        "AND oi.created_at >= '2024-01-01' AND oi.created_at < '2025-01-01'"
+    )
+    check = run_check(sql, plan(definitions=["revenue", "customer_of_brand"]))
+    assert check.definitions.status == "mismatch"
+    assert check.definitions.missing == ("customer_of_brand",)
+    assert "definition of customer_of_brand" in check.feedback
+    assert "oi.status != 'Cancelled'" in check.feedback
+    report = run_check(  # the key of the report applies to its customer counts
+        sql,
+        {**plan(definitions=["revenue"]), "report_definitions": ["customer_of_brand"]},
+    )
+    assert report.definitions.missing == ("customer_of_brand",)
+    # without the citation, the normal rule: for example the denominator of spend per customer
+    assert run_check(sql, plan(definitions=["revenue"])).definitions.status == "match"
+
+
+@pytest.mark.parametrize(
+    "select",
+    [
+        # the reference form of RP-05: the purchase filter in WHERE, revenue in IF
+        (
+            "SUM(IF(oi.status != 'Returned', oi.sale_price, 0)) AS revenue, "
+            "COUNT(DISTINCT oi.user_id) AS customers"
+        ),
+        # revenue in CASE WHEN, customers with the purchase filter in CASE WHEN
+        (
+            "SUM(CASE WHEN oi.status NOT IN ('Cancelled', 'Returned') THEN oi.sale_price END) "
+            "AS revenue, COUNT(DISTINCT CASE WHEN oi.status != 'Cancelled' THEN oi.user_id END) "
+            "AS customers"
+        ),
+    ],
+)
+def test_a_customer_count_with_the_purchase_filter_passes(select):
+    sql = (
+        f"SELECT {select} FROM {OI} AS oi WHERE oi.status != 'Cancelled' "
+        "AND oi.created_at >= '2024-01-01' AND oi.created_at < '2025-01-01'"
+    )
+    check = run_check(sql, plan(definitions=["revenue", "customer_of_brand"]))
+    assert check.definitions.status == "match", check.feedback
+
+
+def test_spend_per_customer_is_not_a_customer_count():
+    sql = (
+        "SELECT SUM(oi.sale_price) / COUNT(DISTINCT oi.user_id) AS spend_per_customer "
+        f"FROM {OI} AS oi WHERE {REVENUE_FILTER} "
+        "AND oi.created_at >= '2024-01-01' AND oi.created_at < '2025-01-01'"
+    )
+    check = run_check(sql, plan(definitions=["spend_per_customer"]))
+    assert check.definitions.status == "match", check.feedback
 
 
 def test_metric_name_on_the_orders_table_is_not_a_glossary_figure():

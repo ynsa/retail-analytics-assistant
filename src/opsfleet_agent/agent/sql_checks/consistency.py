@@ -47,22 +47,29 @@ def check_step(
     lib: PromptLibrary,
     today: date,
     first: date | None,
+    with_period: bool = True,
 ) -> StepCheck:
+    """Both checks of one step. A report query (`with_period=False`) gets only the definition
+    check: a report often reads a trend outside the report period (spec 31, B7)."""
     sql = guard_result.qualified_sql or ""
-    period = check_period(
-        plan,
-        read_date_filters(sql, schema) if sql else None,
-        guard_result.tables,
-        named_periods(question, today),
-        today,
-        first,
-    )
+    if with_period:
+        period = check_period(
+            plan,
+            read_date_filters(sql, schema) if sql else None,
+            guard_result.tables,
+            named_periods(question, today),
+            today,
+            first,
+        )
+    else:
+        period = PeriodVerdict("skipped")
     definitions = check_definitions(
         list(plan.get("definitions_used") or []),
         list(guard_result.output_columns),
         lib.definitions,
         read_status_filters(sql) if sql else None,
         reads_order_items="order_items" in guard_result.tables,
+        also_cited=list(plan.get("report_definitions") or []),
     )
     parts: list[str] = []
     if period.status == "mismatch":
