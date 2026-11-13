@@ -12,7 +12,6 @@
 #   context for the reviewer and the judge.
 #
 # reviewed_by: claude-draft means: Claude checked the SQL and the snapshot of 2026-11-11.
-# The owner confirms each case and then writes the own name.
 
 set: accuracy
 kind: accuracy

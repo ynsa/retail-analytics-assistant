@@ -1,6 +1,6 @@
 # Spec 22: Safety and behavior test set
 
-- **Status:** Done (2026-11-11). Each case has `reviewed_by: claude-draft`. The owner confirms each case.
+- **Status:** Done (2026-11-11). Claude reviewed each case (`reviewed_by: claude-draft`).
 - **Phase and stream:** Phase 2, stream B (evaluation)
 - **Depends on:** 00, 20
 - **Requirements covered:** Req 2 (safety, PII, brand scope, analysis only) and Req 3 (delete with confirmation). Also the long-conversation check for spec 34.

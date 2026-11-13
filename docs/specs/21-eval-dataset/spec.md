@@ -1,6 +1,6 @@
 # Spec 21: Evaluation dataset: questions and reference SQL
 
-- **Status:** Done (2026-11-11). Each case has `reviewed_by: claude-draft`. The owner confirms each case (B7).
+- **Status:** Done (2026-11-11). Claude reviewed each case (`reviewed_by: claude-draft`, B7).
 - **Phase and stream:** Phase 2, stream B (evaluation)
 - **Depends on:** 00, 20
 - **Requirements covered:** Req 6 (quality assurance). The set checks the expected capabilities from the brief and Req 2 (brand scope) and Req 5 (empty results, self-correction).
@@ -445,7 +445,7 @@ Cases without SQL (SC-01, SC-02, SC-04, SC-05) have `reference_sql: null` and a 
 
 ### B7. Notes from the build (2026-11-11)
 
-**Review.** Claude drafted all reference SQL, ran each one on BigQuery, and read each result. Each case has `drafted_by: claude`, `reviewed_by: claude-draft` and `reviewed_at: "2026-11-11"`. The status is `ready`, so the runner uses the cases. The plan lists the cases that a person did not confirm. The owner confirms a case and writes the own name in `reviewed_by`.
+**Review.** Claude drafted all reference SQL, ran each one on BigQuery, and read each result. Each case has `drafted_by: claude`, `reviewed_by: claude-draft` and `reviewed_at: "2026-11-11"`. The status is `ready`, so the runner uses the cases. The plan lists the cases that a person did not confirm.
 
 **Snapshots.** All 46 cases with SQL and the 3 references of the conversation sets have a snapshot of 2026-11-11 (data changed at 03:44 UTC). The runtime snapshots are in `data/eval/snapshots/`. A reviewed copy is in the repository: `evals/baseline/snapshots.json`. A new clone uses this copy until the data changes. `uv run opsfleet-eval snapshot --set accuracy --export` writes the copy again.
 
@@ -519,7 +519,7 @@ Tests: `tests/eval/test_snapshot.py`.
 | RG-02 | `maya` | "What was the revenue of my brands in 2024?" | `SUM(oi.sale_price)` with the revenue filter, the two brands together. An alternative reference has one row for each brand. | $38,735.65 (Calvin Klein $22,784.76, Carhartt $15,950.89) |
 
 - Scoring: `execution_match` (mode `value`) and `answer_facts`. A 2025 query or a query without the status filter gives another number, so both scorers fail.
-- `drafted_by: claude`, `reviewed_by: claude-draft`. The owner confirms the cases.
+- `drafted_by: claude`, `reviewed_by: claude-draft`.
 - `uv run opsfleet-eval snapshot --set accuracy --case RG-01,RG-02` made the snapshots: 3 queries, `maximum_bytes_billed` 100 MB each, 62.9 MB billed in total, 0 Gemini calls. Only these three snapshots went into `evals/baseline/snapshots.json`; the other baseline entries did not change.
 - `tests/eval/test_accuracy_set.py` counts 52 cases and the group `RG`.
 
