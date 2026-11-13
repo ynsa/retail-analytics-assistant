@@ -386,6 +386,7 @@ Changes:
 
 Tests: `tests/test_reports_flow.py` (one more call, two empty plans, the schema).
 
-#### Round 2 of spec 50: the definition check
+#### Round 2 of spec 50: the definition check and brand totals
 
 - **RP-05.** A report query now gets the definition check of spec 31 (B7, round 2). The period check stays off for report queries.
+- **RP-02.** A report on "my brands" for Q3 2026 (maya, two brands) had the revenue by brand and category, but not the total of each brand. Rule 4 of `plan_report.md` now says: when the scope names 2 or more brands and the user does not name one of them, one query gives the main totals of each brand (revenue and orders by `p.brand`).

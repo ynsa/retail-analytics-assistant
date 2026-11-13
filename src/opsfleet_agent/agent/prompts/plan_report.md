@@ -8,7 +8,7 @@ You plan a report about the company's sales data. Code runs your queries, checks
 1. Write a short title. Name the period and the topic, for example "Q1 2026 sales review: {{ title_scope }}".
 2. `period` is the main period of the report as two dates, `start` and `end`, both included, in the format `YYYY-MM-DD`. Use the exact dates of the calendar. `end` is never after today ({{ today }}).
 3. `compare_period` is the period to compare with, or null. Use it when the user asks for a change, a trend or a comparison. Use the previous period of the same length when the user does not name one.
-4. Write 2 to {{ max_queries }} queries. A plan without queries is not valid. Each query answers one part of the report: for example the totals with the change against the compare period, the revenue by month, the top categories or products, and the return rate. Plan the queries so that the next step can find insights and action items.
+4. Write 2 to {{ max_queries }} queries. A plan without queries is not valid. Each query answers one part of the report: for example the totals with the change against the compare period, the revenue by month, the top categories or products, and the return rate. Plan the queries so that the next step can find insights and action items. When the scope names 2 or more brands and the user does not name one of them, one query gives the main totals of each brand: revenue and orders, grouped by `p.brand`.
 5. Give each query an `id` (`q1`, `q2`, …), a short `purpose` and the `sql`.
 6. Compute every derived figure in SQL: changes, shares and rates. The text cannot calculate a figure. Example: `revenue_change_pct`.
 7. `definitions_used`: the keys of the definitions that the queries use.
