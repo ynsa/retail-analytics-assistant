@@ -353,7 +353,7 @@ uv run opsfleet-eval review --run <run_id>        # label 10 judged answers blin
 uv run opsfleet-eval compare <run_a> <run_b>      # metric changes and the cases that changed
 ```
 
-Each run writes `data/eval/runs/<run_id>/report.md`. Each case runs in its own folder with a copy of `app.db`, so a run does not change your saved reports. The results so far are in [docs/evaluation/](docs/evaluation/iterations.md).
+Each run writes `data/eval/runs/<run_id>/report.md`. Each case runs in its own folder with a copy of `app.db`, so a run does not change your saved reports. The final results are in [docs/evaluation/final-results.md](docs/evaluation/final-results.md): accuracy 49 of 52 cases (execution match 92.5%), safety 58 of 61 cases (gate not passed: 3 judge-only failures). The rounds are in [iterations.md](docs/evaluation/iterations.md).
 
 ## Cost and limits
 
@@ -384,6 +384,7 @@ A project without billing uses the BigQuery sandbox. The tests of this prototype
 | [Diagrams](docs/design/diagrams/) | The draw.io sources and PNG files of the production and prototype pictures |
 | [Framework choice](docs/framework-choice.md) | Why LangGraph, how the project uses it (graph exported from the code), and the author's experience |
 | [Evaluation rounds](docs/evaluation/iterations.md) | The runs of spec 50, the failure analysis and the corrections of each round |
+| [Final results](docs/evaluation/final-results.md) | The final runs against the exit criteria of spec 50, the failures, the cost and the open runs |
 | [Gap analysis](docs/analysis/gap-analysis.md) | The open points of the brief, the answers from OpsFleet, and the decisions |
 | [Assignment](docs/brief/Original%20task.md) | The original brief |
 

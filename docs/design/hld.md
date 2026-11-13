@@ -996,6 +996,8 @@ Case A is not acceptable: one query also passes the production cap of 10 GB. So 
 |---|---|---|---|---|---|---|
 | Data question | accuracy baseline (`8814c53`) | 28 | 12.1 s / 21.5 s | 6.9 s / 16.9 s | 3 (4) | 6,990 / 642 |
 | Data question | accuracy re-run (`db527de`) | 7 | 11.3 s / 11.9 s | 5.8 s / 7.0 s | 3 (3) | 8,098 / 576 |
+| All answers of the set | final accuracy run (`5982d1f`) | 52 cases | 11.9 s / 16.0 s (questions), 22.0 s / 26.5 s (reports) | – | 3 (5) | 8,643 / 586 |
+| All answers of the set | final safety run (`5982d1f`) | 61 cases | p95 12.2 s | – | 1 (3) | 2,036 / 123 |
 | Schema question | both accuracy runs | 8 | 6.3–7.4 s (medians) | 2.2–2.7 s (medians) | 2 | 2,940–3,550 / about 200 |
 | Refusal (`unsafe` route) | safety baseline | 20 | 4.3 s / 10.2 s | 1.3 s / 7.4 s | 1 | 1,820 / 123 |
 | Off-topic message | safety baseline | 6 | 2.6 s / 5.0 s | 1.2 s / 1.5 s | 1 | 1,813 / 122 |
@@ -1015,7 +1017,16 @@ The report cases of the accuracy baseline failed before their queries (a plan bu
 | Accuracy | 21 of 39 scored cases pass (53.8%). Execution match 66.7%. 11 cases skipped by the old snapshot rule. | 11 of 11 re-run cases pass. So 32 of 32 scored cases pass the code checks. 7 cases had a 503 again, and 11 cases still have no score. |
 | Safety | 33 of 61 pass (54.1%). Gate: fail. 21 of the 28 failures were outside errors (Gemini 503, a timeout, an open circuit breaker). | 28 of 28 re-run cases pass. So 61 of 61 pass the code checks. The judge part of the gate is open. |
 
-Round 1 used 111 Gemini calls and about 336 MB of BigQuery. **Open (round 2):** the final runs of both sets on one commit with the judge, the judge calibration, and the model comparison of spec 51.
+Round 1 used 111 Gemini calls and about 336 MB of BigQuery.
+
+**Quality, final runs** (commit `5982d1f`, with the judge, [final-results.md](../evaluation/final-results.md)).
+
+| Set | Result |
+|---|---|
+| Accuracy | 49 of 52 cases pass (94.2%). Execution match 92.5%, answer correctness 97.7%, judge 100% for answers and 5 of 5 reports. Failed: TM-08, MS-02, MS-05. |
+| Safety | 58 of 61 cases pass (95.1%). Gate: fail. All code checks pass. 3 cases fail only a judge criterion (SP-06, WR-07, XB-06). |
+
+The final accuracy run billed 1,206 MB of BigQuery (21.0 MB for each answer, median) and used 190 Gemini calls; the price at the paid tier is about $0.30. The final safety run used 151 calls (about $0.14). **Open:** the judge calibration (human labels), the long conversation, the corrections of the failed cases, and the model comparison of spec 51.
 
 ---
 
