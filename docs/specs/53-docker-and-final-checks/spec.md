@@ -75,7 +75,7 @@ The "user" is an OpsFleet reviewer with Docker, a Gemini key and Google Cloud cr
 - [x] The pip path works: in a clean `python:3.12-slim` container, `pip install -r requirements.txt` and `opsfleet-agent --help` pass.
 - [x] `uv run pre-commit run --all-files` passes.
 - [ ] A secret scan of the full git history (`gitleaks git`) finds nothing.
-- [ ] `git ls-files` shows no `.env`, no `CLAUDE.local.md` and no `docs/local/`. The owner checked the content of `.claude/` before the repository becomes public.
+- [x] `git ls-files` shows no `.env`, no `CLAUDE.local.md`, no `docs/local/` and no `.claude/`.
 - [ ] A person follows the README (spec 54) on a clean clone and gets the first answer.
 
 ---
@@ -280,7 +280,7 @@ The `.dockerignore` file in the repository already excludes `.env`, the key file
 - **Docker Desktop file sharing.** On macOS and Windows, Docker Desktop must share the folders of the mounts. The default settings share the home folder.
 - **WSL.** A Windows user who runs Docker from WSL must use the Linux command and the gcloud folder inside WSL.
 - **Base image updates.** `python:3.12-slim` changes over time. A digest pin keeps the build the same. The implementation decides about the pin.
-- **The `.claude/` folder is in git** (commit `a913918`). `.dockerignore` excludes it, but `.gitignore` does not. The owner decides whether it stays in the public repository.
+- **The `.claude/` folder is not in git.** `.gitignore` and `.dockerignore` exclude it. The settings and the skills of the development tool stay on the developer's computer.
 
 ### B7. Implementation notes (2026-11-12)
 

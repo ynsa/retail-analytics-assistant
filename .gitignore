@@ -30,3 +30,6 @@ data/
 # Sketch tool sources and previews (only .excalidraw and .svg go to git)
 docs/specs/*/mocks/.previews/
 docs/specs/*/mocks/*.mjs
+
+# Claude Code settings and skills (local tooling)
+.claude/
