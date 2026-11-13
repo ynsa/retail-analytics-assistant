@@ -166,10 +166,10 @@ class GeminiClient:
         prompt_version: str | None = None,
         allow_fallback: bool = True,
     ) -> LlmResponse:
-        """One logical model call. The budget is charged first. The timeout never exceeds the
-        time left in the turn."""
+        """One logical model call. The budget is charged before the first attempt, so a call
+        that no breaker allows costs nothing. The timeout never exceeds the time left in the
+        turn."""
         budget.check_time_left(self._resilience.min_time_left_s)
-        budget.charge_llm()
         main = self._settings.default
         fallback = self.fallback_model if allow_fallback else None
         request = _Request(system, prompt, schema, temperature)
@@ -185,13 +185,17 @@ class GeminiClient:
                 sp.set_attribute(
                     "prompt_masked", cut(mask_prompt(prompt, prompt_version))
                 )
-            charged = [False]  # the first attempt is in charge_llm()
+            charged = [False]
 
             def charge() -> None:
+                """The first attempt charges the logical call. A retry or a fallback attempt
+                charges only the daily ledger (spec 36, B2.2)."""
                 if charged[0]:
                     budget.check_time_left(self._resilience.min_time_left_s)
                     budget.charge_attempt()
-                charged[0] = True
+                else:
+                    budget.charge_llm()
+                    charged[0] = True
 
             failure: ServiceFailure | None = None
             circuit_open = False

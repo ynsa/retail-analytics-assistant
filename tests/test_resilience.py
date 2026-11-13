@@ -287,6 +287,20 @@ def test_after_a_daily_quota_both_models_down_give_the_daily_message(
     assert sdk.calls == [MAIN, FALLBACK, FALLBACK]
 
 
+def test_a_call_that_no_breaker_allows_charges_nothing(config, ledger, clock):
+    """An open breaker with no fallback refuses the call before the budget is charged. So the
+    turn and the daily ledger do not count a call that never went out."""
+    client, sdk = gemini(config, {MAIN: [rate_limited(daily=True)]}, clock)
+    with pytest.raises(AgentError):
+        call(client, TurnBudget(config.settings.limits, ledger), allow_fallback=False)
+    before = ledger.today()
+    budget = TurnBudget(config.settings.limits, ledger)
+    with pytest.raises(AgentError):
+        call(client, budget, allow_fallback=False)
+    assert sdk.calls == [MAIN]  # the second call never reached the SDK
+    assert budget.llm_calls == 0 and ledger.today() == before
+
+
 def test_5_main_fails_three_times_and_the_fallback_answers(
     config, budget, clock, sleeps
 ):
