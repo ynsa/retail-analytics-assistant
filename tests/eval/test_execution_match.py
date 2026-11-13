@@ -253,3 +253,48 @@ def test_wide_row_with_a_wrong_value_or_a_wrong_meaning_fails():
     assert not execution_match(
         YEARS, ["year", "revenue"], YEAR_ROWS, [same_column]
     ).passed
+
+
+# --- A comparison with a full outer join (spec 50 round 2, MS-04) ----------------------------------
+CATS = exp("rows", category={"role": "key"}, revenue={"role": "value", "kind": "money"})
+CAT_ROWS = [["Jeans", 6118.11], ["Pants & Capris", 246.95]]  # the 2024 reference
+
+
+def test_a_row_with_an_empty_value_of_the_reference_period_is_not_an_extra_row():
+    agent = q(
+        ["category", "revenue_2025", "revenue_2024"],
+        [
+            ["Jeans", 6397.96, 6118.11],
+            ["Skirts", 264.93, None],  # no sale in 2024
+            ["Pants & Capris", None, 246.95],
+        ],
+    )
+    result = execution_match(CATS, ["category", "revenue"], CAT_ROWS, [agent])
+    assert result.passed, result.details
+    assert result.details["rule"] == "empty_rows_left_out"
+    assert result.details["mapping"]["revenue"] == "revenue_2024"
+
+
+def test_an_extra_row_with_a_value_still_fails():
+    agent = q(
+        ["category", "revenue_2025", "revenue_2024"],
+        [
+            ["Jeans", 6397.96, 6118.11],
+            ["Skirts", 264.93, 12.0],
+            ["Pants & Capris", None, 246.95],
+        ],
+    )
+    result = execution_match(CATS, ["category", "revenue"], CAT_ROWS, [agent])
+    assert not result.passed and result.reason == "wrong_rows"
+
+
+def test_empty_extra_rows_do_not_hide_a_missing_row_or_a_wrong_value():
+    missing = q(["category", "revenue"], [["Jeans", 6118.11], ["Skirts", None]])
+    assert not execution_match(
+        CATS, ["category", "revenue"], CAT_ROWS, [missing]
+    ).passed
+    wrong = q(
+        ["category", "revenue"],
+        [["Jeans", 6000.0], ["Pants & Capris", 246.95], ["Skirts", None]],
+    )
+    assert not execution_match(CATS, ["category", "revenue"], CAT_ROWS, [wrong]).passed

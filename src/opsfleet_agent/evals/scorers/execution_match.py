@@ -266,6 +266,38 @@ def _score_wide_row(
     return ScoreResult.ok(rule="wide_row", mapping=mapping)
 
 
+def _score_without_empty_extra_rows(
+    ref_index: dict[tuple[str | None, ...], dict[str, Any]],
+    ref_keys: list[tuple[str | None, ...]],
+    table: _Table,
+    agent_keys: list[tuple[str | None, ...]],
+    key_map: dict[str, str],
+    expected: Expected,
+) -> ScoreResult | None:
+    """A comparison with a full outer join (spec 50 round 2, MS-04). The agent result has one row
+    for each key of both periods. A key with no sale in the reference period has an empty (NULL)
+    value there, and the reference has no row for it. Such a row is not an extra row. All other
+    rows must match the reference exactly. None when this rule does not apply."""
+    inside = [i for i, key in enumerate(agent_keys) if key in ref_index]
+    extra = [i for i, key in enumerate(agent_keys) if key not in ref_index]
+    if not extra or sorted(str(agent_keys[i]) for i in inside) != sorted(
+        map(str, ref_keys)
+    ):
+        return None
+    pairs = [(ref_index[agent_keys[i]], i) for i in inside]
+    value_map, wrong = _map_values(pairs, table, expected, set(key_map.values()))
+    if wrong or not value_map:
+        return None
+    columns = [table.column(c) for c in value_map.values()]
+    if not all(is_missing(values[i]) for values in columns for i in extra):
+        return None
+    return ScoreResult.ok(
+        rule="empty_rows_left_out",
+        left_out=len(extra),
+        mapping={**key_map, **value_map},
+    )
+
+
 def score_table(
     ref: list[dict[str, Any]], table: _Table, expected: Expected
 ) -> ScoreResult:
@@ -303,6 +335,15 @@ def score_table(
         compare = [agent_keys.index(key) for key in ref_keys]
     else:
         if sorted(map(str, agent_keys)) != sorted(map(str, ref_keys)):
+            empty = (
+                _score_without_empty_extra_rows(
+                    ref_index, ref_keys, table, agent_keys, key_map, expected
+                )
+                if expected.mode == "rows"
+                else None
+            )
+            if empty is not None:
+                return empty
             return ScoreResult.fail(
                 "wrong_rows",
                 missing=[k for k in ref_keys if k not in agent_keys][:10],
