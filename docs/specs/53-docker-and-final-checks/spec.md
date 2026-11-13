@@ -350,3 +350,12 @@ Checks on arm64 only:
 5. A real Linux host (the simulation above only).
 6. `gitleaks git` on the full history. The `gitleaks` program is not installed. The pre-commit hook scans only the staged changes.
 7. The owner's check of `.claude/` before the repository becomes public, and a person who follows the README on a clean clone (spec 54).
+
+**Live smoke test on the final code (commit `5982d1f`).** Both images were built again (`docker buildx build --builder orbstack --platform linux/<p> --load -t opsfleet-agent:<p> .`, exit 0). Each image got one question: `printf 'How many orders were placed in 2024?\n/exit\n' | docker run --rm -i --platform linux/<p> --env-file .env -v "$HOME/.config/gcloud:/gcloud:ro" -v <data>:/app/data opsfleet-agent:<p> chat --user ceo`.
+
+| Image | Answer | Footer | Calls, queries, time |
+|---|---|---|---|
+| linux/arm64 | "The company had 14,097 orders placed in 2024." | "Period: 1 Jan – 31 Dec 2024 · Brands: all brands · Orders = orders with at least one item that was not cancelled or returned." | 3 model calls, 1 query, 5.3 s |
+| linux/amd64 (emulated) | The same answer | The same footer | 3 model calls, 1 query, 5.8 s |
+
+14,097 is the RG-01 snapshot of the same data. The live check of spec 31 on the host gave the same answer two times. BigQuery billed 0 MB, because BigQuery returned its cached result for the same query. Deviation: the data folder was a copy of `data/` (a SQLite backup of `app.db` and the two cache files), not `$PWD/data`. The local UI ran on `data/app.db` at the same time, and SQLite does not support two writers through the file sharing of Docker on macOS. The 6 calls were then added to `usage_daily` of `data/app.db`, so the daily limit stays correct. Total: 6 Gemini calls (16,926 tokens in, 703 out), 0 bytes.
