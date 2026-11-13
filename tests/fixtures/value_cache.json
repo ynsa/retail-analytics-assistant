@@ -1,0 +1,15 @@
+{
+ "built_at": "2026-11-10",
+ "values": {
+  "orders.status": ["Cancelled", "Complete", "Processing", "Returned", "Shipped"],
+  "orders.gender": ["F", "M"],
+  "order_items.status": ["Cancelled", "Complete", "Processing", "Returned", "Shipped"],
+  "products.department": ["Men", "Women"],
+  "products.category": ["Accessories", "Active", "Jeans", "Outerwear & Coats", "Sweaters", "Tops & Tees"],
+  "products.brand": ["Calvin Klein", "Calvin Klein Jeans", "Calvin Klein Performance", "Carhartt", "Levi's", "Nike", "O'Neill"],
+  "users.gender": ["F", "M"],
+  "users.traffic_source": ["Display", "Email", "Facebook", "Organic", "Search"],
+  "users.country": ["Brasil", "China", "France", "United States"]
+ },
+ "date_min": {"orders": "2019-01-06", "order_items": "2019-01-06", "users": "2019-01-01"}
+}

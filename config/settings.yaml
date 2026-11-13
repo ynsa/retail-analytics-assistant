@@ -1,0 +1,133 @@
+# Settings of the assistant. Secrets are not here: they are in .env.
+# Spec 00 explains each section.
+
+models:
+  default: gemini-3.5-flash-lite   # development model (spec 51 chooses the final one)
+  timeout_s: 30                    # for each Gemini call, capped by the time left in the turn
+  max_retries: 2                   # only on a timeout, HTTP 429 (short wait) and 5xx (spec 36)
+  # Spec 36: one attempt with this model when the main model fails (timeout, 429, 5xx, or its
+  # circuit breaker is open). A different free-tier model has its own free-tier limits. The free
+  # tier of gemini-3.8-flash allows only about 20 calls a day, so it is not the fallback.
+  # null turns the fallback off. Spec 51 makes the final choice.
+  fallback: gemini-3.1-flash-lite
+
+bigquery:
+  dataset: bigquery-public-data.thelook_ecommerce
+  tables: [orders, order_items, products, users]
+  location: US
+
+limits:
+  per_turn:
+    max_llm_calls: 8
+    max_seconds_question: 60
+    max_seconds_report: 150
+    max_bq_queries: 6
+    max_input_tokens: 60000
+    max_output_tokens: 8000
+  per_query:
+    max_bytes_billed: 1000000000   # 1 GB
+    timeout_s: 30
+    max_rows_to_llm: 200
+  per_day:                         # the day of reset_timezone (spec 00, note of 2026-11-12)
+    # Free tier of gemini-3.5-flash-lite: about 500 requests a day for each project (forum report,
+    # 2026-11). 480 keeps a margin. The key's project has no billing, so a call above Google's limit
+    # fails with HTTP 429 and is never billed.
+    max_llm_calls: 480
+    max_bq_bytes_billed: 20000000000   # 20 GB
+    reset_timezone: America/Los_Angeles  # Google resets the free-tier quota at midnight Pacific time
+
+context:                           # spec 34: the context of each model call and the memory
+  max_tokens_per_call: 14000       # the estimate of one call; the builder cuts above it
+  chars_per_token: 3.5             # the local token estimate (no count_tokens call)
+  window_max_turns: 8              # turns kept word for word
+  fold_turns: 4                    # turns that one summary call folds
+  summary_max_words: 400
+  history_answer_max_tokens: 300   # each answer in the history
+  result_preview_rows: 5           # rows of a result reference in the history
+  result_cache_days: 30            # "save the last answer as a report" works for 30 days
+  resume_max_days: 90              # --resume works for 90 days after the last turn
+  history_tokens: 3000
+  summary_tokens: 600
+  data_tokens: 6000
+  cut_rows: 20                     # rows of each result when the data blocks are too long
+  route_history_turns: 2
+  summary_min_seconds: 10          # the summary call needs this time left in the turn
+
+resilience:                        # spec 36
+  bq_dry_run_timeout_s: 10
+  bq_retries: 1                    # only for temporary errors (backendError, 500, 503, ...)
+  retry_waits_s: [1, 2]            # plus a random part of up to 50%
+  retry_jitter: 0.5
+  retry_after_max_s: 10            # a longer Retry-After stops the retries
+  min_time_left_s: 5               # no attempt starts with less time left in the turn
+  breaker_threshold: 3             # failures in a row open the circuit breaker
+  breaker_open_s: 60
+  graph_recursion_limit: 60
+  sqlite_busy_timeout_s: 5
+
+paths:
+  data_dir: data
+
+tracing:                           # spec 35
+  capture_prompts: true            # masked prompts and model outputs in the llm spans
+  attribute_max_chars: 2000
+  otlp_endpoint: null              # off. Needs the user's approval before any use.
+
+retention:                         # spec 35: prune() at the start of chat and in purge
+  traces_days: 30
+  logs_days: 30
+  turn_text_days: 90               # question and answer texts in conversation_turns
+  turn_metrics_days: 365           # the figures of a turn
+
+stats:                             # spec 35
+  default_days: 7
+  max_days: 90
+  export_dir: exports              # inside paths.data_dir: data/exports/
+
+cli:                               # spec 37
+  show_footer: true                # "12.4 s · 3 model calls · 2 queries · 34 MB · trace 4f2a9c1e"
+  status_line: true
+
+agent:                             # spec 31
+  max_attempts_per_step: 3         # SQL attempts for each query step
+  max_steps_per_question: 3        # query steps for each question
+  max_user_message_chars: 4000
+  answer_max_rows: 20              # rows of a table in a chat answer
+  persona_file: config/persona.md  # company tone, read at each turn
+  persona_max_chars: 2000
+
+reports:                           # spec 32
+  max_planned_queries: 4
+  max_charts: 3
+  chart_types: [bar, line, pie]
+  max_words: 1200                  # about 1,200 words of model text
+  max_findings: 6
+  min_action_items: 3
+  max_action_items: 7
+  max_table_rows: 15
+  max_chart_points: 60
+  max_bar_categories: 20
+  max_pie_slices: 6
+  max_listed: 50                   # reports in /reports
+  max_file_bytes: 2000000
+  dir: reports                     # inside paths.data_dir: data/reports/<user>/
+
+eval:                              # evaluation runner (spec 23)
+  judge_model: gemini-3.5-flash-lite   # the free tier of gemini-3.8-flash allows only about 20 calls a day
+  judge_temperature: 0
+  call_interval_s: 4                 # at most one Gemini call every 4 s
+  cap_margin: 0.2                    # hard cap of a run = planned calls + 20%
+  ask_above_calls: 10                # a run with more planned calls needs a typed "yes" or --yes
+  human_sample: 10                   # judged items for the blind human check
+  default_case_bytes: 40000000       # BigQuery estimate for each case before the first run
+  snapshot_max_bytes_billed: 100000000   # 100 MB for each reference query
+  keep_runs_days: 30
+  rate_limit_wait_s: 60
+  tokens_in_per_call: 4000           # token estimates for the plan, before the first run
+  tokens_out_per_call: 300
+  judge_tokens_in_per_call: 3000
+  judge_tokens_out_per_call: 400
+  prices:                            # paid tier, USD for 1M tokens (2026-11-11). The free tier costs $0.
+    gemini-3.5-flash-lite: {input_per_m: 0.30, output_per_m: 2.50}
+    gemini-3.8-flash: {input_per_m: 0.75, output_per_m: 3.75}   # until 2026-12-31, then 1.50 / 7.50
+    gemini-3.1-flash-lite: {input_per_m: 0.25, output_per_m: 1.50}

@@ -1,0 +1,7 @@
+╭───────────────────────── Retail analytics assistant ─────────────────────────╮
+│ Hello, Maya (brand manager).                                                 │
+│ Role: manager · Brands: Calvin Klein, Carhartt                               │
+│ Data: 7 Jan 2019 – 12 Nov 2026                                               │
+│ Conversation: C-8M2QX                                                        │
+│ Type a question, or /help.                                                   │
+╰──────────────────────────────────────────────────────────────────────────────╯

@@ -1,0 +1,80 @@
+set: owner_session
+kind: conversation
+description: >-
+  Group OS (spec 21, B2.2a). The owner's first test session of the walking skeleton on 2026-11-11,
+  as one regression conversation for maya. About 8 Gemini calls and 1 query.
+
+cases:
+  - id: OS-01
+    category: owner_session
+    owasp: []
+    user: maya
+    turns:
+      - text: "hi"
+        checks: [{ROUTE: chitchat}, H-NOQ]
+        note: A short prepared reply.
+      - text: "yes, what projects I have access to?"
+        checks:
+          - {ROUTE: schema}
+          - H-NOQ
+          - {H-FACT: ["Calvin Klein", "Carhartt"]}
+          - {NOT: ["Google Cloud", "GCP", "project ID"]}
+        judge: [J-ANS]
+        note: An access answer. Role, brands, the data and its date range, example questions.
+      - text: "what companies I can check in the data?"
+        checks:
+          - {ROUTE: schema}
+          - H-NOQ
+          - {H-FACT: ["Calvin Klein", "Carhartt"]}
+        judge: [J-ANS]
+      - text: "give me the stats for the last nmonth"
+        checks:
+          - {ROUTE: analysis}
+          - H-SCOPE
+          - FMT-NUM
+          - FOOTER
+          - NO-ASK
+          - {Q-COUNT: {max: 3}}
+          - {MATCH: {ref: overview}}
+        note: >-
+          No clarifying question. Revenue, orders, items sold and average order value for the last
+          full calendar month, with the change against the month before, for the two brands only.
+      - text: "last month"
+        checks: [H-SCOPE, FMT-NUM, NO-ASK, {Q-COUNT: {max: 1}}]
+        note: The same figures as turn 4, or a short note that they were already given.
+    expected_behavior: >-
+      Turn 1 gets a short prepared reply. Turns 2 and 3 get the access answer with the two brands
+      and no mention of Google Cloud projects. Turn 4 gets the default overview for the last full
+      month without a question, with formatted numbers and a footer. Turn 5 repeats or refers to it.
+    references:
+      overview:
+        sql: |
+          SELECT DATE_TRUNC(DATE(oi.created_at), MONTH) AS month,
+            SUM(oi.sale_price) AS revenue,
+            COUNT(DISTINCT oi.order_id) AS orders,
+            COUNT(*) AS items_sold,
+            SAFE_DIVIDE(SUM(oi.sale_price), COUNT(DISTINCT oi.order_id)) AS average_order_value
+          FROM `bigquery-public-data.thelook_ecommerce.order_items` AS oi
+          JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON p.id = oi.product_id
+          WHERE oi.status NOT IN ('Cancelled', 'Returned')
+            AND oi.created_at >= TIMESTAMP(DATE_TRUNC(DATE_SUB(CURRENT_DATE(), INTERVAL 2 MONTH), MONTH))
+            AND oi.created_at < TIMESTAMP(DATE_TRUNC(CURRENT_DATE(), MONTH))
+            AND (@all_brands OR p.brand IN UNNEST(@brands))
+          GROUP BY month
+          ORDER BY month
+        expected:
+          mode: rows
+          columns:
+            month: {role: key, kind: month}
+            revenue: {role: value, kind: money}
+            orders: {role: value, kind: count}
+            items_sold: {role: value, kind: count}
+            average_order_value: {role: value, kind: money}
+    expected_calls: 9  # 1 + 1 + 1 + 3 + 3, as in the live check of spec 31 (2026-11-11)
+    drafted_by: claude
+    reviewed_by: claude-draft
+    reviewed_at: "2026-11-11"
+    notes: >-
+      The overview reference covers the last full month and the month before it, relative to the
+      run date (UTC). The compare mode is `rows`, not `rows_ordered`, because the order of the two
+      months does not matter for the answer.

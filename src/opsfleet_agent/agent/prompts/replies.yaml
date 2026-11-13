@@ -1,0 +1,253 @@
+# Prepared texts (spec 31, B1 and B2.2). They cost no model call and cannot leak data.
+# Each value is a Jinja2 template. Code fills the variables. Keep the texts in plain English.
+
+capabilities: >-
+  I can help with the analysis of the company's sales data: orders, products, customers and
+  reports.
+
+chitchat:
+  greeting: >-
+    Hello, {{ first_name }}. I can answer questions about the sales data: revenue, orders,
+    products, customers and trends. Do you want to know what data you can check?
+  thanks: You are welcome. Ask me another question about the sales data when you are ready.
+  acknowledgement: OK. Ask me a question about the sales data when you are ready.
+  format_only: OK. I will use this format for the next answers.
+
+off_topic: >-
+  I can only help with the analysis of the company's sales data: orders, products, customers and
+  reports.
+
+unsafe:
+  prompt_request: >-
+    I cannot share my instructions, my tool definitions or my configuration. In plain words, I can
+    answer questions about orders, products, customers and revenue with read-only queries, write
+    reports, and list, open, export or delete your saved reports after you confirm.
+  identity_change: >-
+    Your user and your access come from the start of this session. A message cannot change them.
+    You are {{ name }}, {{ role_text }}.
+  rule_change: My rules stay the same for the full conversation. I am glad to help with a question about the sales data.
+  personal_data: >-
+    I cannot show or use personal data such as names, email addresses, street addresses, postal
+    codes or exact locations. I can show customer IDs with their orders and spend, or totals.
+  other_user: >-
+    I can only work with your own reports and your own access. I cannot see, change or delete the
+    reports of another user.
+  data_change: >-
+    The sales data is read-only. I cannot change, delete, add or export it. I can show figures
+    from it, for example the monthly revenue.
+  other: I cannot do that. I can help with the analysis of the company's sales data.
+
+clarify: |-
+  {{ question }}
+
+  {% for option in options %}
+  {{ loop.index }}. {{ option }}
+  {% endfor %}
+
+too_long: Your message is too long. Please keep it under {{ limit }} characters.
+
+not_built: This part is not built yet. You can ask questions about the sales data now. Reports and the delete of saved items come in a later version.
+
+give_up: >-
+  I could not get a valid result after {{ attempts }} attempts. I tried to answer this:
+  {{ purpose }}. {{ reason }} {{ help }}
+
+give_up_reasons:
+  guard_parse_error: The query did not pass the safety checks.
+  bq_syntax: The data service did not accept the query.
+  bq_not_found: The query used a field that does not exist.
+  bq_bytes_cap: The query had to read too much data.
+  empty_result: The query found no rows because of a wrong filter.
+  sql_mismatch: >-
+    The query did not use the period or the metric definitions that the answer must state, so I
+    do not show a figure that could be wrong.
+  default: The query failed.
+
+give_up_help:
+  bq_bytes_cap: A shorter period or fewer fields can help.
+  empty_result: Other filter values or another period can help.
+  sql_mismatch: A question with exact dates, for example "from 2024-01-01 to 2024-12-31", can help.
+  default: A simpler question, another period or other fields can help.
+
+# Feedback to the model on a retry (spec 31, B2.4).
+retry:
+  bq_bytes_cap: The query reads too much data. Filter by date or select fewer columns.
+  # The period and definition checks before the query runs (spec 31, B7). The SQL did not run.
+  period:
+    outside: >-
+      The period of the question is {{ period }}, but the SQL filters {{ column }} from
+      {{ sql_range }}. Use the dates of the period: {{ condition }}. If the SQL also reads a
+      comparison period, write it in active_filters.other, for example
+      "compared with 2023-01-01..2023-12-31".
+    not_covered: >-
+      The period of the question is {{ period }}, but the SQL filters {{ column }} only from
+      {{ sql_range }}, so it leaves out a part of the period. Use: {{ condition }}. A TIMESTAMP
+      column with "<= TIMESTAMP('YYYY-MM-DD')" or "BETWEEN ... AND 'YYYY-MM-DD'" leaves out the
+      last day.
+    no_end: >-
+      The period of the question is {{ period }}, but the SQL filters {{ column }} from
+      {{ sql_range }}, so it also counts the rows after the period. Add the end date:
+      {{ column }} < TIMESTAMP('{{ end }}').
+    no_date_filter: >-
+      active_filters.period is {{ period }}, but the SQL has no date filter, so it counts all
+      dates. Add the date filter, for example {{ condition }}. Set period to null only when the
+      question asks for all the data.
+    question: >-
+      The question names {{ named }}, but active_filters.period is {{ period }}. A year, a quarter
+      or a month in the question is that calendar period: {{ named }} is {{ named_period }}. Use
+      {{ condition }}, and write this period in active_filters.period. Do not use last_year for a
+      named year.
+  definition: >-
+    The SQL does not apply the definition of {{ key }}: {{ meaning }} It needs a status filter on
+    oi.status (order_items.status) that leaves out {{ statuses }}, for example {{ example }}.
+    Keep a key in definitions_used only when the query computes that figure.
+
+notes:
+  steps_missing: >-
+    The question needed more than {{ max_steps }} query steps. The answer uses only the results
+    above. Say which part is missing.
+  cannot_answer: "The data cannot answer this part: {{ reason }}"
+
+figure_removed: "[figure removed: not traceable]"
+
+footer:
+  all_brands: all brands
+  no_period: all data up to {{ today }}
+  # A manager's query read `users`: the figures cover only the customers of the brands (XB-06).
+  users_scope: User and customer figures cover only the customers who bought {{ brands }}
+
+scope_phrase:
+  manager: >-
+    Write "Your brands had …" or "{{ brands }} had …", never "our store". Customer and user
+    figures cover only the customers who bought these brands. Say so when the question is about
+    users, sign-ups or all customers.
+  ceo: 'Write "The company had …", never "our store".'
+
+scope_rule:
+  manager: >-
+    The user is a brand manager for {{ brands }}. All figures cover only these brands. Customer
+    statistics cover only the customers who bought these brands.
+  ceo: The user is the CEO and can see all brands.
+
+# The user format layer of the system instruction (spec 31, B2.7). The route sets the key.
+formats:
+  table: Show figures in Markdown tables when the answer has more than one figure.
+  bullets: Use short bullet points.
+  short: Keep the answer to at most three sentences.
+  detailed: Give more detail, up to about 250 words.
+
+roles:
+  manager: brand manager
+  ceo: CEO with access to all brands
+
+examples:
+  manager:
+    - What was the revenue of {{ first_brand }} last month, and how did it change against the month before?
+    - Which {{ first_brand }} products sold best in the last quarter?
+    - "How do {{ brands }} compare on orders and average order value this year?"
+  manager_single:
+    - What was the revenue of {{ first_brand }} last month, and how did it change against the month before?
+    - Which {{ first_brand }} products sold best in the last quarter?
+    - What was the return rate of {{ first_brand }} for each month this year?
+  ceo:
+    - Which 10 brands had the highest revenue last month?
+    - How did revenue and orders change month by month this year?
+    - Why do customers in Texas spend less than customers in California?
+
+# Reports (spec 32).
+reports:
+  saved: "Saved as {{ report_id }}."
+  file_written: "File: {{ path }}"
+  missing_part: "{{ purpose }}: no result. {{ reason }}"
+  missing_reasons:
+    give_up: The query failed after {{ attempts }} attempts.
+    policy_block: The query did not pass the data access rules.
+    limit_exceeded: The report reached its limit of queries or model calls.
+    default: The data service returned an error.
+  period_moved: The planned period ended after today. The report uses the data up to today, {{ today }}.
+  no_result: >-
+    I could not get a result for any part of the report after {{ attempts }} attempts for each
+    query, so nothing was saved. A shorter period or fewer topics can help.
+  plan_retry: >-
+    <retry>The plan had no queries. Write the full plan again with 2 to {{ max_queries }} queries.
+    Each query has an id, a purpose and the sql.</retry>
+  no_plan: I could not plan queries for this report. Please name the period and the topics, for example "a report for Q1 2026 on revenue and returns".
+  no_last_data: >-
+    There is no earlier answer with data to save. Ask a question about the data first, or ask
+    for a new report.
+  no_id: Please give the report ID, for example R-7K2PQ. Type /reports to see your reports.
+  empty_list: You have no saved reports.
+  list_header: "Your reports:"
+  list_more: "Showing the newest {{ shown }} of {{ total }} reports."
+  exported: "Saved: {{ path }}"
+
+# Delete with confirmation (spec 33). Code writes every text. The model only gives the scope.
+delete:
+  which: >-
+    Which reports? For example: 'the reports of this conversation' or 'the reports about
+    Levi's'.
+  no_match_entity: No report matches '{{ entity }}'. Nothing was deleted.
+  no_match: No report matches this request. Nothing was deleted.
+  not_found: "Not found: {{ ids }}."
+  close_names: >-
+    No report names '{{ entity }}'. Close names in your reports: {{ names }}. Please name one
+    exactly.
+  too_many: >-
+    This request matches {{ count }} reports. I can delete at most {{ max }} at a time. Please
+    narrow it, for example by brand.
+  list_header_one: "This report will be deleted:"
+  list_header: "These {{ count }} reports will be deleted:"
+  ask: "To delete {{ 'it' if count == 1 else 'them' }}, type: {{ expected }}"
+  ask_note: Any other answer cancels. You can undo the delete for 30 days with /undo.
+  deleted: >-
+    Deleted {{ count }} {{ 'report' if count == 1 else 'reports' }}. You can undo this for 30
+    days with /undo (batch {{ batch_id }}).
+  files_moved: >-
+    The report files moved out of {{ folder }}. I cannot delete copies in other folders.
+  files_missing: "These files were not found: {{ files }}."
+  wrong_number: >-
+    The number does not match the list ({{ count }} {{ 'report' if count == 1 else 'reports' }}).
+    Nothing was deleted. Ask again if you want to delete.
+  not_exact: Nothing was deleted. To delete, ask again and type the exact text.
+  cancelled: Delete cancelled. Nothing was deleted.
+  expired: The delete request expired. Nothing was deleted.
+  changed: The list changed. Nothing was deleted. Please ask again.
+  internal: The delete check failed. Nothing was deleted. Please ask again.
+  undone: >-
+    Restored {{ count }} {{ 'report' if count == 1 else 'reports' }} of batch {{ batch_id }}.
+  undone_files: "{{ count }} report {{ 'file is' if count == 1 else 'files are' }} back in {{ folder }}."
+  nothing_to_undo: Nothing to undo.
+  undo_too_old: This delete is older than 30 days. The reports cannot be restored.
+
+# Failures of outside services and of the assistant (spec 36, B2.5). Code adds "Trace: <8
+# characters>." to each failure message. The chat continues after each one.
+errors:
+  llm_timeout: The AI service did not answer in time. Please try again.
+  llm_busy: The AI service is busy. Please wait a minute and try again.
+  llm_daily: The daily Gemini free-tier limit is reached. Please try again tomorrow.
+  llm_key: The Gemini API key is not valid. Check GOOGLE_API_KEY in the .env file.
+  llm_billing: >-
+    The Gemini key belongs to a project with billing and no credit. Use a key from a project
+    without billing (see the setup guide).
+  llm_refused: The AI service refused to answer this message. Please rephrase the question.
+  llm_down: >-
+    The AI service is not available now. Your saved reports still work: /reports, /open,
+    /export, /undo. Please try again in a minute.
+  bq_down: >-
+    BigQuery is not available now. You can still use /reports, /open and /export. Please try
+    again in a minute.
+  bq_permission: >-
+    BigQuery refused access. Run `gcloud auth application-default login` and check
+    GOOGLE_CLOUD_PROJECT.
+  bq_timeout: >-
+    The query took longer than {{ seconds }} s. Please ask for a shorter period or fewer details.
+  internal: Something went wrong on my side. The chat continues.
+  stopped: Stopped.
+  not_saved: This turn is not saved.
+  trace: "Trace: {{ trace }}."
+
+# Long conversations (spec 34).
+memory:
+  noted: "OK. I will use this for the next answers of this conversation: {{ facts }}."
+  filters_cleared: no standing filters
+  filter_removed: "no filter on {{ field }}"

@@ -1,0 +1,179 @@
+# Live CLI session, 2026-11-12, user maya (brand manager).
+# Plain mode: the input comes from a pipe, so the CLI shows each input line after the prompt.
+
+# Session 1: 4 Gemini calls, 1 BigQuery query, 21.0 MB billed.
+$ printf 'What was the revenue of my brands in Q3 2026, by month?\n/trace\nWhat is the weather in Paris today?\n/stats\n/reports\n/exit\n' \
+    | opsfleet-agent chat --user maya
+╭───────────────────────── Retail analytics assistant ─────────────────────────╮
+│ Hello, Maya (brand manager).                                                 │
+│ Role: manager · Brands: Calvin Klein, Carhartt                               │
+│ Data: 7 Jan 2019 – 12 Nov 2026                                               │
+│ Conversation: C-M5DJP                                                        │
+│ Type a question, or /help.                                                   │
+╰──────────────────────────────────────────────────────────────────────────────╯
+maya> What was the revenue of my brands in Q3 2026, by month?
+Your brands generated a total revenue of $29,581.03 in Q3 2026.
+
+Here is the monthly breakdown for your brands in Q3 2026:
+
+
+ Month    Revenue
+ ───────────────────
+ 2026-07  $9,639.81
+ 2026-08  $8,552.36
+ 2026-09  $11,388.86
+
+
+The data shows that September was the strongest month of the quarter for your
+brands, while August recorded the lowest monthly revenue.
+
+Period: 1 Jul – 30 Sep 2026 · Brands: Calvin Klein, Carhartt · Revenue = sale
+price of items that were not cancelled or returned.
+14.2 s · 3 model calls · 1 query · 21.0 MB · trace 8d936a2b
+
+maya> /trace
+Trace 8d936a2b (17 steps)
+└── turn · 14.2 s · intent=analysis · status=ok · turn_no=1
+    ├── node.load_context · 0 ms
+    ├── node.route · 1.9 s · tokens_estimated=1976
+    │   └── llm.route · 1.9 s · model=gemini-3.5-flash-lite · tokens_in=1826 ·
+    │       tokens_out=120
+    ├── node.write_sql · 9.1 s · tokens_estimated=3824
+    │   └── llm.write_sql · 9.1 s · model=gemini-3.5-flash-lite · tokens_in=3827
+    │       · tokens_out=349
+    ├── node.guard · 26 ms
+    │   └── guard.check · 19 ms · outcome=pass · rewritten=True
+    │       └── SQL: WITH monthly_data AS (SELECT FORMAT_TIMESTAMP('<s:5>',
+    │           oi.created_at) AS month_name, SUM(oi.sale_price) AS revenue FROM
+    │           `bigquery-public-data.thelook_ecommerce.order_items` AS oi INNER
+    │           JOIN `bigquery-public-data.thelook_ecommerce.products` AS p ON
+    │           oi.product_id = p.id WHERE p.brand IN ('Calvin Klein',
+    │           'Carhartt') AND NOT oi.status IN ('Cancelled', 'Returned') AND
+    │           oi.created_at >= TIMESTAMP('2026-…
+    ├── node.run_query · 1.9 s
+    │   └── bq.query · 1.9 s · job_id=1bf8eed6-4b86-4c8c-ad50-e54618dc5dca ·
+    │       bytes_billed=21.0 MB · rows=3 · bytes_estimated=6.8 MB
+    ├── node.mask_result · 2 ms
+    │   └── guard.mask · 0 ms
+    ├── node.write_answer · 1.2 s · tokens_estimated=1372
+    │   └── llm.write_answer · 1.2 s · model=gemini-3.5-flash-lite ·
+    │       tokens_in=1398 · tokens_out=144
+    ├── node.scan_output · 2 ms
+    │   └── guard.scan · 0 ms
+    └── node.finish · 1 ms
+
+maya> What is the weather in Paris today?
+I can only help with the analysis of the company's sales data: orders, products,
+customers and reports.
+
+maya> /stats
+[The /stats and /reports output of session 1 is left out here. Session 2 shows both.]
+maya> /exit
+Conversation C-M5DJP saved. Continue it with: opsfleet-agent chat --user maya --resume C-M5DJP
+
+# Session 2: the same conversation, resumed. Commands only: 0 Gemini calls, 0 queries.
+$ printf '/trace\n/stats\n/reports\n/exit\n' | opsfleet-agent chat --user maya --resume C-M5DJP
+╭───────────────────────── Retail analytics assistant ─────────────────────────╮
+│ Hello, Maya (brand manager).                                                 │
+│ Role: manager · Brands: Calvin Klein, Carhartt                               │
+│ Data: 7 Jan 2019 – 12 Nov 2026                                               │
+│ Conversation: C-M5DJP (resumed)                                              │
+│ Type a question, or /help.                                                   │
+╰──────────────────────────────────────────────────────────────────────────────╯
+maya> What was the revenue of my brands in Q3 2026, by month?
+Your brands generated a total revenue of $29,581.03 in Q3 2026.
+
+Here is the monthly breakdown for your brands in Q3 2026:
+
+
+ Month    Revenue
+ ───────────────────
+ 2026-07  $9,639.81
+ 2026-08  $8,552.36
+ 2026-09  $11,388.86
+
+
+The data shows that September was the strongest month of the quarter for your
+brands, while August recorded the lowest monthly revenue.
+
+Period: 1 Jul – 30 Sep 2026 · Brands: Calvin Klein, Carhartt · Revenue = sale
+price of items that were not cancelled or returned.
+
+maya> What is the weather in Paris today?
+I can only help with the analysis of the company's sales data: orders, products,
+customers and reports.
+
+maya> /trace
+Trace deaa20a6 (8 steps)
+└── turn · 1.3 s · intent=off_topic · status=ok · turn_no=2
+    ├── node.load_context · 0 ms
+    ├── node.route · 1.3 s · tokens_estimated=2299
+    │   └── llm.route · 1.3 s · model=gemini-3.5-flash-lite · tokens_in=2291 ·
+    │       tokens_out=122
+    ├── node.prepared_reply · 1 ms
+    ├── node.scan_output · 2 ms
+    │   └── guard.scan · 0 ms
+    └── node.finish · 0 ms
+
+maya> /stats
+Statistics of user maya, last 7 days (since 2026-11-05): 4 turns
+
+ Volume
+   Turns                 4
+   By kind               other 2, question 2
+   By status             answered 2, refused 2
+ Time
+   Questions             median 7.1 s · p95: not enough data (n = 2)
+   Reports               no data
+ Answer length
+   Words                 median 90 · p95: not enough data (n = 2)
+ Tokens
+   In, each turn         median 2,414 · p95: not enough data (n = 4)
+   Out, each turn        median 122 · p95: not enough data (n = 4)
+   Total                 18,833 in · 2,022 out
+   Model calls           8 · 2.0 each turn
+ Routes and tools
+   Routes                analysis 2, off_topic 2
+   Nodes and tools       route 4, guard 2, mask_result 2, prepared_reply 2,
+                         run_query 2, write_answer 2, write_sql 2
+ Failures
+   Turns by error type   none
+   All errors by type    none
+   Resolved by retries   none
+ Self-correction
+   Turns with a retry    0
+   Success               no data
+   Average attempts      0.0
+ Guard
+   Policy blocks         none
+   Masker hits           0
+   Scanner hits          0
+ Empty results
+   By kind               none
+ Confirmations
+   Shown                 0
+   Confirmed             0
+   Cancelled             none
+ BigQuery
+   Queries               2
+   Bytes billed          41.9 MB
+   Each query            median 21.0 MB · p95: not enough data (n = 2)
+   Top turns             027a17dd 21.0 MB, 8d936a2b 21.0 MB
+ Resilience
+   Retries               0
+   Fallback model        0 calls in 0 turns
+   Circuit opens         0
+
+
+maya> /reports
+Your reports:
+
+
+ ID       Title                          Period               Created     Files
+ ──────────────────────────────────────────────────────────────────────────────
+ R-EXJ8A  Q1 2026 sales review: Calvin   1 Jan – 31 Mar 2026  2026-11-12  HTML
+          Klein and Carhartt
+
+
+maya> /exit
+Conversation C-M5DJP saved. Continue it with: opsfleet-agent chat --user maya --resume C-M5DJP

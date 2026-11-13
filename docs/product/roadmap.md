@@ -1,10 +1,28 @@
 # Roadmap: Retail Analytics Chat Assistant
 
-- **Version:** 1.0
-- **Status:** Proposed
+- **Version:** 1.1
+- **Status:** In progress (Phase 3). The status of the work is in the section "Status" below.
 - **Inputs:** `docs/product/product-definition.md`, `docs/product/architecture.md`, `docs/analysis/gap-analysis.md`, and the user's notes of 2026-11-11.
 
 This roadmap divides the work into parts. Each part gets its own spec in `docs/specs/<NN>-<name>/spec.md` before the work starts. A spec states the goal, the scope, the limits, the tests, and the "done when" check.
+
+---
+
+## Status (2026-11-13)
+
+**Done:**
+
+- Phase 1 and Phase 2: specs 00, 01, 10, 11, 20–23, 30–37 and 40.
+- Phase 3: the local UI (spec 52) and the Docker image with its automatic checks (spec 53, without the live demo). Also the README and setup guide (spec 54), and the graph diagrams of the framework document (spec 55, part 2).
+- Round 1 and the final runs of the evaluation (spec 50): baseline runs, failure analysis, corrections in code, and the full accuracy and safety sets on one commit with the judge. Accuracy 49 of 52 cases pass; the code checks of the safety set pass for all 61 cases. See `docs/evaluation/iterations.md`.
+- The HLD (spec 10) has the unit prices, the measured figures of the final runs and the model decision.
+
+**Left:**
+
+1. The safety gate of spec 50: the judge failed 3 cases. XB-06 is a real gap (a code reply for a manager's question about all users). SP-06 and WR-07 are probable judge errors; the human labels of the judge (30) decide. Then the corrections of TM-08, MS-02 and MS-05 (`docs/evaluation/final-results.md`).
+2. The long conversation set with the judge.
+3. The model comparison of spec 51 on the paid tier (`gemini-3.5-flash-lite` against `gemini-3.8-flash`).
+4. The live chat run of spec 53 on each operating system, and the checks of spec 54 that need a real key or another person.
 
 ---
 
@@ -109,7 +127,7 @@ These limits protect the budget while we build. The code enforces them. They are
 | Bytes billed for each query | 1 GB (`maximum_bytes_billed`) | BigQuery rejects the query |
 | Tokens for each answer | a set input and output budget | Stops and tells the user |
 | Gemini calls and BigQuery bytes for each day | a local counter with a daily maximum | All calls stop until the next day or until the user raises the limit |
-| An evaluation run | shows the planned number of calls first, and waits for a "yes" above 20 calls | Does not start |
+| An evaluation run | shows the planned calls and a cost estimate first, and waits for a "yes" above 10 calls | Does not start |
 
 The development uses the free-tier key and `gemini-3.5-flash-lite`. A call to Vertex AI or to a paid tier needs the user's approval first.
 
@@ -119,6 +137,6 @@ The development uses the free-tier key and `gemini-3.5-flash-lite`. A call to Ve
 
 - Phase 1 runs first and alone. It ends with a first git commit (after the user's approval), because the parallel streams need separate git worktrees.
 - In Phase 2, at most three streams run at the same time: A (design and UI spec), B (evaluation) and C (prototype). Each stream works in its own worktree.
-- Stream C runs its parts in this order: 30, 31, 33, 32, 34, 36, 35, 37. Safety comes first, because every other part depends on it.
+- Stream C runs its parts in this order: 30, 31, 32, 33, 34, 36, 35, 37. Safety comes first, because every other part depends on it. Reports (32) come before delete (33), because the delete uses the report tables.
 - Stream B does not need the finished agent for parts 20–22. Part 21 uses BigQuery directly to get the expected results.
 - The streams share the Gemini free-tier rate limit. Evaluation runs and live tests do not run at the same time.

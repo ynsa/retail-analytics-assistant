@@ -1,0 +1,4 @@
+- **Orders**: one row for each order, with its status (for example Complete, Shipped, Returned or Cancelled) and the dates of creation, shipment, delivery and return.
+- **Order items**: one row for each item of an order, with the product, the sale price, the status and the dates. Revenue and the date of a sale come from this table.
+- **Products**: the product catalog, with the name, brand, category, department, retail price and cost.
+- **Customers**: one row for each customer, with age, gender, city, state, country, traffic source and sign-up date. Names, email addresses and street addresses are not available.

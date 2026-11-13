@@ -171,7 +171,7 @@ How we closed the gaps:
 **Decision.**
 
 - A scope is a list of `products.brand` values for each manager. Example: `brand IN ('Calvin Klein', 'Carhartt')`. The `ceo` role has no filter.
-- The guard compares exact brand names. The data has 2,757 brands, and some are close variants, for example "Calvin Klein", "Calvin Klein Jeans", and "Calvin Klein Performance". The mapping lists each brand name in full. Some names contain an apostrophe, for example "Levi's", so the guard passes brand names as query parameters, not as text in the SQL.
+- The guard compares exact brand names. The data has 2,756 named brands (24 products have no brand), and some are close variants, for example "Calvin Klein", "Calvin Klein Jeans", and "Calvin Klein Performance". The mapping lists each brand name in full. Some names contain an apostrophe, for example "Levi's", so the guard passes brand names as query parameters, not as text in the SQL.
 - Prototype: the mapping is in `config/users.yaml`. Production: the mapping is in an access table. The HLD chooses the store.
 - The scope applies to `order_items` rows. A manager sees only the order items of products of their brands. The manager sees orders and customers only through these order items.
 - Order-level fields that mix products in and out of scope (for example `orders.num_of_item`) are not available to managers. The agent calculates totals from the order items in scope.
@@ -200,7 +200,7 @@ How we closed the gaps:
 
 - Never shown in the output: first and last name, email, street address, postal code, and exact coordinates.
 - IP address is also PII. It appears only in the `events` table, which is outside the prototype scope. The design document must list it.
-- City, state, country, age, gender, and traffic source can appear only in aggregates.
+- City, state, country, age, gender, and traffic source can appear only in aggregates. This also applies to the `gender` column of `orders`.
 - The answers can refer to customers by `user_id`, or by a stable pseudonymous ID such as a salted hash.
 - PII must never reach the LLM. The system masks it before it sends data to the model.
 
@@ -244,7 +244,7 @@ How we closed the gaps:
 
 - A report is a record with these fields: `report_id`, `owner_id`, `conversation_id`, `title`, `created_at`, `question`, `sql` (a list), `body_markdown`, `entities` (brands, categories, products, and states that the report names), `deleted_at`.
 - The agent saves a report only when the user asks to create or save a report. The agent does not save plain answers.
-- Storage: a SQLite file in the prototype. Firestore or Cloud SQL (PostgreSQL) in production.
+- Storage: a SQLite file in the prototype. Cloud SQL (PostgreSQL) in production (decided in `docs/product/architecture.md`).
 - A user sees and deletes only their own reports.
 - "Client X" is a business entity that the report names, for example a brand. It cannot be an end customer, because reports never contain customer names (B3). The search uses the `entities` field first and a full-text search of the title and body second.
 - A delete is a soft delete with a 30-day restore period. A scheduled job then purges the record. The user can undo the delete.
@@ -269,7 +269,7 @@ How we closed the gaps:
 ### N1. Production cloud platform
 
 - **Gap.** The brief asks for cloud services but does not name a cloud.
-- **Assumption.** Google Cloud. Cloud Run for the agent API. Vertex AI Gemini (paid tier) for the LLM. BigQuery for data. Cloud Storage for the Golden Bucket. Firestore or Cloud SQL for app state. Secret Manager for keys. Cloud Logging, Monitoring, and Trace for observability.
+- **Assumption.** Google Cloud. Cloud Run for the agent API. Vertex AI Gemini (paid tier) for the LLM. BigQuery for data. Cloud Storage for the Golden Bucket. Cloud SQL (PostgreSQL) for app state (decided in `docs/product/architecture.md`). Secret Manager for keys. Cloud Logging, Monitoring, and Trace for observability.
 - **Evidence.** Brief: BigQuery, Gemini, and a "bucket". Practice: one cloud gives one IAM model and no data egress cost.
 
 ### N2. Production user channel
@@ -303,7 +303,10 @@ How we closed the gaps:
   - Churned customer = a customer with at least one purchase and no purchase in the last 90 days.
   - Monthly churn rate = customers who reached 90 days without a purchase in that month, divided by active customers at the start of the month.
   - Underspending = average spend per customer below the company average or below the compared group.
-  - Quarters are calendar quarters. "Last month" is the last full calendar month before the latest date in the data.
+  - The date of a sale is `order_items.created_at`. All period metrics use this column.
+  - "Today" is the current UTC date. The data contains some dates after today, because Google generates it. Period metrics leave out rows with a date after today.
+  - Quarters are calendar quarters. "Last month" is the last full calendar month before today.
+  - Spec 21 adds more definitions: purchase, return rate, cancellation rate, average order value, and spend per customer. The agent glossary (spec 31) contains all of them.
   - Each answer states the date range and the definitions that it used.
 - **Evidence.** Brief: the example questions. Data: no subscription field. Practice: e-commerce churn uses an inactivity window.
 
@@ -337,7 +340,7 @@ How we closed the gaps:
 
 - **Gap.** The brief says "without inflating costs" but gives no limits.
 - **Assumption.**
-  - A maximum of 3 self-correction attempts for each query.
+  - A maximum of 3 self-correction attempts for each query step, and 3 query steps for each question (spec 31).
   - A BigQuery dry run before each query, and a `maximum_bytes_billed` cap (for example 1 GB).
   - A maximum of 200 rows to the LLM. The SQL must aggregate the data.
   - A token budget for each turn.
@@ -350,7 +353,7 @@ How we closed the gaps:
 
 - **Gap.** The brief asks for metrics and deep-dive analysis. It does not name tools or say if a dashboard is necessary in the prototype.
 - **Assumption.**
-  - Prototype: structured JSON logs and one trace for each turn, in a local JSONL or SQLite file. Each trace has a `trace_id` and spans for LLM calls, tool calls, SQL text, BigQuery job ID, tokens, latency, retries, and guard decisions. A CLI command (for example `/trace last`) shows the trace.
+  - Prototype: structured JSON logs and one trace for each turn, in a local JSONL or SQLite file. Each trace has a `trace_id` and spans for LLM calls, tool calls, SQL text, BigQuery job ID, tokens, latency, retries, and guard decisions. A CLI command (`/trace`) shows the trace.
   - Production: OpenTelemetry to Cloud Trace and Cloud Logging, plus an LLM trace tool (for example Langfuse). Dashboards and alerts in Cloud Monitoring.
   - Metrics: turn success rate, SQL error rate, self-correction success rate, empty-result rate, guard blocks, delete confirmations (asked / confirmed / cancelled), latency p50 / p95, tokens and cost for each turn, BigQuery bytes billed, user feedback.
   - Logs and traces mask PII.
@@ -366,7 +369,7 @@ How we closed the gaps:
 
 - **Gap.** The brief does not say who edits the persona, where, or how the persona interacts with safety rules and user preferences.
 - **Assumption.**
-  - A user with the `persona_editor` role edits a versioned prompt configuration (a Firestore document or a YAML file in Cloud Storage) through a small admin page.
+  - A user with the `persona_editor` role edits a versioned prompt configuration (versioned YAML files in Cloud Storage, decided in `docs/product/architecture.md`) through a small admin page.
   - The agent reads the configuration at each turn, with a 60-second cache.
   - Each version records the author and the time. An editor can roll back to an earlier version.
   - Priority: safety rules first, then the company tone, then user format preferences.
@@ -402,7 +405,7 @@ How we closed the gaps:
 ### N15. Report format and export
 
 - **Gap.** The brief does not define the report structure or the output format.
-- **Assumption.** Markdown in the terminal with these sections: summary, findings with numbers, action items, data range and caveats, and a method / SQL appendix. The agent saves it to the library. Optional export to a `.md` file.
+- **Decision (2026-11-11, replaces the first assumption).** The agent shows the report in the chat and saves it in the library. On request, it also saves a file: HTML (the main format) or Markdown, with charts from the real figures. Sections: summary, findings with numbers, reasons, action items, date range and definitions, and method. Spec 32 gives the details.
 - **Evidence.** Brief: "create a report for Q1 including insights and actions items for Q2".
 
 ### N16. Conversation sessions
@@ -444,7 +447,7 @@ How we closed the gaps:
 
 - **Gap.** Deliverable 6 asks us to choose a framework and to state our experience with it. The brief prefers "one of the newer Google Gemini models" but does not name one. `pyproject.toml` has `google-genai` but no agent framework.
 - **Why non-blocking.** This is our decision, not a question for OpsFleet. We make it in the architecture decisions. Work on the product documents and on the SQL guard does not depend on it. Reclassified from B5 on 2026-11-08.
-- **Status.** Closed on 2026-11-11. Decision: **LangGraph**. The reasons are in `docs/product/architecture.md`, section 1.1. The default model is still an assumption until a test call succeeds.
+- **Status.** Closed on 2026-11-11. Decision: **LangGraph**. The reasons are in `docs/product/architecture.md`, section 1.1. Development model: `gemini-3.5-flash-lite`. A test call succeeded on 2026-11-11. Spec 51 chooses the final model.
 - **Assumption.**
   - Candidates: **LangGraph** or **Google ADK**.
   - The framework must give: native Gemini support, a pause step for human approval (Req 3), state between turns, and tracing hooks (Req 7).

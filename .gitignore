@@ -24,5 +24,12 @@ application_default_credentials.json
 CLAUDE.local.md
 docs/local/
 
-# Generated report files (may contain business data)
-reports/
+# Runtime data: databases, traces, report files (may contain business data)
+data/
+
+# Sketch tool sources and previews (only .excalidraw and .svg go to git)
+docs/specs/*/mocks/.previews/
+docs/specs/*/mocks/*.mjs
+
+# Claude Code settings and skills (local tooling)
+.claude/

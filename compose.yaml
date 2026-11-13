@@ -1,0 +1,56 @@
+# Docker Compose: the same image, mounts and settings as the `docker run` commands in the README
+# ("Run with Docker"). Run the commands in the repository folder, after `mkdir data`.
+#
+#   docker compose build
+#   docker compose run --rm cli chat --user maya     # the chat (users: ceo, maya, alex)
+#   docker compose run --rm cli stats --user maya    # any other opsfleet-agent command
+#   docker compose up ui                             # the local test UI: http://127.0.0.1:8000
+#
+# Linux: run as your user, so that the files in data/ belong to you and the gcloud folder
+# (mode 600) is readable:  export HOST_UID="$(id -u)" HOST_GID="$(id -g)"
+# Windows (PowerShell):    $env:GCLOUD_CONFIG_DIR = "$env:APPDATA\gcloud"
+
+name: opsfleet-agent
+
+x-assistant: &assistant
+  build: .
+  image: opsfleet-agent
+  env_file: .env
+  environment:
+    # A host path in .env does not exist in the container. To use a service-account key,
+    # mount the key file and set this variable to the path in the container.
+    GOOGLE_APPLICATION_CREDENTIALS: ""
+  user: "${HOST_UID:-10001}:${HOST_GID:-10001}"
+  volumes:
+    - type: bind
+      source: ${GCLOUD_CONFIG_DIR:-~/.config/gcloud}
+      target: /gcloud
+      read_only: true
+    - type: bind
+      source: ./data
+      target: /app/data
+
+services:
+  cli:
+    <<: *assistant
+    stdin_open: true
+    tty: true
+    command: ["--help"]
+
+  ui:
+    <<: *assistant
+    # 0.0.0.0 inside the container only. The host publishes the port on 127.0.0.1, so other
+    # machines on the network cannot open the UI.
+    command: ["ui", "--host", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/users', timeout=3)
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 3

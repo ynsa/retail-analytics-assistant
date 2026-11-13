@@ -1,0 +1,15 @@
+# Demo users of the prototype. This file simulates an identity provider.
+# role: ceo (all brands) or manager (only the listed brands, exact names from products.brand).
+
+users:
+  - id: ceo
+    name: Daniel (CEO)
+    role: ceo
+  - id: maya
+    name: Maya (brand manager)
+    role: manager
+    brands: ["Calvin Klein", "Carhartt"]
+  - id: alex
+    name: Alex (brand manager)
+    role: manager
+    brands: ["Levi's"]

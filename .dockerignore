@@ -1,30 +1,43 @@
-# Secrets and credentials
-.env
-*.json.key
-*-key.json
-service-account*.json
-application_default_credentials.json
+# The build copies only pyproject.toml, uv.lock, README.md, .python-version, src/, config/,
+# evals/ and tests/ (Dockerfile). This file keeps everything else out of the build context.
+
+# Secrets and credentials, in any folder (a pattern without **/ matches only the top folder)
+**/.env
+**/.env.*
+!.env.example
+**/*.json.key
+**/*-key.json
+**/service-account*.json
+**/application_default_credentials.json
+**/*.pem
 
 # Personal local files (Claude instructions and notes)
 CLAUDE.local.md
 docs/local/
 .claude/
 
+# Not necessary in the image: documents, diagrams, screenshots, scripts, Docker files
+docs/
+scripts/
+Dockerfile
+compose.yaml
+.dockerignore
+
 # Git, Python, and tool caches
 .git/
 .venv/
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.ruff_cache/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.ruff_cache/
 dist/
 build/
 *.egg-info/
 
 # OS / editor
-.DS_Store
+**/.DS_Store
 .vscode/
 .idea/
 
-# Generated report files (may contain business data)
-reports/
+# Runtime data: databases, traces, report files (may contain business data)
+data/
