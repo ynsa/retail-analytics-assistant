@@ -118,7 +118,7 @@ The prototype runs on one machine, with Docker or with uv. It has the same assis
 - **Inputs and outputs:** in: the message, the conversation ID, the verified identity header. Out: progress events and the final answer, or a confirmation request.
 - **Where it runs:** a FastAPI app on Cloud Run. The same FastAPI app serves the local UI in the prototype (spec 40).
 
-The graph has one node for each step. Each node writes a span to the trace. The code below is the turn graph of `architecture.md` section 0.2.
+The graph has one node for each step. Each node writes a span to the trace. The graph below is the turn graph of `architecture.md` section 0.2, plus the `call_tool` node of the design (section 10).
 
 ```mermaid
 flowchart TD
@@ -152,7 +152,11 @@ flowchart TD
     masked --> more{"More data needed?"}
     more -->|"yes"| plan
     more -->|"no"| write["Write the answer or the report<br/>Gemini"]
-    write --> scan["Output scanner"]
+    write --> toolq{"Tool call requested?<br/>design only"}
+    toolq -->|"read or write tool"| tool["Run the tool from the registry<br/>for example make_chart"]
+    toolq -->|"destructive or external_send"| pause
+    tool --> write
+    toolq -->|"no"| scan["Output scanner"]
     scan --> kind{"Report?"}
     kind -->|"no"| answer(["Answer to the user"])
     kind -->|"yes"| save["Save in the library"]
@@ -169,6 +173,7 @@ The main nodes (spec 31):
 3. `write_sql` writes one `SELECT` with full table names. It returns `final: true` or `false`, so one call also decides "more data needed".
 4. `guard`, `check_sql`, `run_query`, `check_empty` and `mask_result` form the subgraph `data_loop`. `check_sql` compares the SQL with the stated period and with the status filter of each cited definition, before the query runs (spec 31, B7). The report flow uses the same subgraph for each report query.
 5. `write_answer` writes the answer from the masked results. `scan_output` runs the output scanner and the prompt-leak check.
+   - `call_tool` (**design only**) runs a tool that the answer step requested, through the tool registry of section 10. A `read` or `write` tool runs at once, and the answer step continues with its result. A `destructive` or `external_send` tool goes to the same confirmation pause as the delete flow. In the prototype, the registry has one tool (`delete_reports`), the delete flow calls it from code, and the answer step requests no tools.
 6. `finish` updates the memory. Then `summarize` shortens the old turns when the window is full. The session writes the turn record.
 
 Two rules keep the figures correct:
@@ -380,6 +385,7 @@ sequenceDiagram
     participant ADM as Admin page
     participant LLM as Vertex AI Gemini
     participant GCS as Persona config (Cloud Storage)
+    participant CI as CI run (safety set)
     participant API as Agent API
 
     E->>IAP: open the admin page
@@ -389,10 +395,13 @@ sequenceDiagram
     ADM->>LLM: preview: 3 answers in the new tone (3 calls)
     ADM-->>E: show the 3 previews
     E->>ADM: publish
-    ADM->>GCS: write version n+1, then move the active pointer
-    ADM->>GCS: write the audit record (author, time)
+    ADM->>GCS: write version n+1 with the state "staged"
+    ADM->>CI: run the safety set with version n+1 (section 4.6)
+    CI-->>ADM: pass, or the failed cases
+    ADM->>GCS: on pass: move the active pointer to version n+1
+    ADM->>GCS: write the audit record (author, time, CI result)
     API->>GCS: read the active version (cache expires after 60 s)
-    Note over API: The next turns use the new tone. No new release.
+    Note over API: The next turns use the new tone. No new release of the code.
 ```
 
 ### 3.6. Data stores
@@ -798,7 +807,7 @@ The availability objective is 99.5% in business hours (gap analysis N3, Our assu
 - **Format.** The persona is a versioned YAML file in Cloud Storage. A schema allows only tone fields: `tone`, `reading_level`, `summary_length`, `words_to_use`, `words_to_avoid`. The text has at most 2,000 characters.
 - **Editor.** A user with the `persona_editor` role edits it on a small admin page behind Identity-Aware Proxy (flow 7).
 - **Preview.** Before the editor publishes, the admin page shows the answers to 3 sample questions from a set list, in the new tone. The preview reruns only the answer-writing step on stored, masked results of the 3 questions. One preview costs 3 Gemini calls and 0 BigQuery queries.
-- **Publish.** The admin page writes a new version and then moves the "active" pointer. The agent reads the active version at each turn, with a 60-second cache. The change needs no new release.
+- **Publish.** The admin page writes version n+1 with the state "staged" and starts the CI run of the safety set with it (section 4.6, about 10 minutes). When the run passes, the page moves the "active" pointer to version n+1. When it fails, the version stays staged and the editor sees the failed cases. The agent reads the active version at each turn, with a 60-second cache. A tone change needs no new release of the code.
 - **Rollback.** The editor selects an earlier version and publishes it again. This is a new publish with the old content, so the history stays complete.
 - **Audit.** Each version records the author and the time. Each publish writes an audit event.
 - **Safety.** The persona cannot change the safety rules or the SQL rules. Those parts of the prompt are in the code. The schema check rejects any other field. The persona text goes into the prompt under the heading "Tone guidance", after the safety layer.
@@ -814,7 +823,7 @@ The availability objective is 99.5% in business hours (gap analysis N3, Our assu
 
 - Unit tests: the schema rejects a field outside the list. The prompt order is safety, persona, user format, task.
 - The safety set runs with a test persona that contains an instruction ("ignore the rules"). The expected result is no change of behavior.
-- Each persona publish runs the safety set in CI, like any prompt change (section 4.6).
+- Each persona publish runs the safety set in CI before the active pointer moves (the publish step above), like any prompt change (section 4.6).
 
 ---
 
@@ -1102,7 +1111,7 @@ The Gemini rows use the token volumes of section 7.1, which are an upper value. 
 
 ## 10. Extensibility
 
-New capabilities are tools in the tool registry. Each tool declares a name, a description, an input schema (a pydantic model that becomes the Gemini function declaration), and a side-effect class:
+New capabilities are tools in the tool registry. Each tool declares a name, a description, an input schema (a pydantic model; in the design, the answer step sends it to Gemini as a function declaration), and a side-effect class:
 
 | Class | Meaning | Gate |
 |---|---|---|
@@ -1112,6 +1121,15 @@ New capabilities are tools in the tool registry. Each tool declares a name, a de
 | `external_send` | Sends data outside the system, for example an email | The typed confirmation of section 4.3 |
 
 `ToolRegistry.run()` refuses a `destructive` or an `external_send` tool without a valid grant from the confirmation gate.
+
+**How a new tool enters the graph** (the `call_tool` node of section 2.1, design only):
+
+1. Register the tool in the registry with its side-effect class.
+2. The answer step receives the declarations of the registered tools and can request one.
+3. The `call_tool` node runs the tool with the gate of its class. A `destructive` or `external_send` tool goes to the confirmation pause first.
+4. Add the test cases of the tool to the accuracy set and the safety set.
+
+A `read` or `write` tool needs no change to the graph. In the prototype, the registry exists with one tool (`delete_reports`), and the delete flow calls it from code (section 4.3).
 
 **Example 1: charts in chat answers.**
 
