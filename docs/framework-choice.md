@@ -169,9 +169,6 @@ graph TD;
 
 ## 3. My experience with LangGraph
 
-> **Placeholder for the author.** Claude does not write this part. The author answers these questions in their own words:
->
-> 1. Which projects used LangGraph?
-> 2. For how long?
-> 3. Which features were used before this project?
-> 4. What was new in this project?
+I have used LangGraph on multiple projects before this one.
+
+I selected it because it gives more control over the flow of the agent. It also works with different types of models, not only with Google models. So the agent is not locked to one model provider.

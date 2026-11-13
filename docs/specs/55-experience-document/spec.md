@@ -1,6 +1,6 @@
 # Spec 55: Framework choice and experience document
 
-- **Status:** Approved (owner review, 2026-11-11)
+- **Status:** Done (2026-11-13)
 - **Phase and stream:** Phase 3
 - **Depends on:** the architecture decision N21 (LangGraph)
 - **Requirements covered:** deliverable 6 of the brief: "Use a framework of your choice, explain why you choose it and your level of experience with it."
@@ -32,9 +32,9 @@ One page.
 
 ### A5. Done when
 
-- [ ] The document exists and the README links to it.
-- [ ] Part 3 contains only the author's own words.
-- [ ] The graph diagram in part 2 comes from the real code (`draw_mermaid()`), not from a drawing by hand.
+- [x] The document exists and the README links to it.
+- [x] Part 3 contains only the author's own words.
+- [x] The graph diagram in part 2 comes from the real code (`draw_mermaid()`), not from a drawing by hand.
 
 ---
 
@@ -46,11 +46,7 @@ None. The framework decision is closed (N21).
 
 ### B2. Design
 
-Claude drafts parts 1 and 2 and leaves part 3 as a placeholder with questions for the author:
-- Which projects used the framework?
-- For how long?
-- Which features were used before this project?
-- What was new in this project?
+Claude drafts parts 1 and 2. The author gives the facts for part 3 (2026-11-13): LangGraph on multiple projects, more control, and support for models from different providers. Claude writes these facts as text and adds no other claims.
 
 ### B3. Files and interfaces
 
@@ -66,4 +62,4 @@ None.
 
 ### B6. Risks and open points
 
-- The author must write part 3 before the submission.
+None.
