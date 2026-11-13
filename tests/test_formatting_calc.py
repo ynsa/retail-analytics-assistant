@@ -18,6 +18,7 @@ from opsfleet_agent.agent.calc import (
     numbers_in,
     resolve_placeholders,
     result_numbers,
+    result_texts,
 )
 from opsfleet_agent.agent.formatting import (
     ColumnKind,
@@ -265,3 +266,28 @@ def test_negative_and_signed_figures(results):
     allowed = result_numbers(results) + [-10.0]
     check = check_figures("Change: -10.0%, -$1,000.00, +$1,100.00", allowed, REMOVED)
     assert check.unverified == 0
+
+
+def test_a_number_inside_a_copied_product_name_is_not_a_figure():
+    """Spec 50 round 2, PP-07: the check removed the model number of a product name."""
+    name = "Mens Nike AirJordan Varsity Hoodie Jacket Grey / Black 451582-066"
+    products = [
+        _result(["product_name", "revenue"], [[name, 1806.0], ["Plain Tee", 20.0]])
+    ]
+    text = f"The top product was the {name} with $1,806.00."
+    check = check_figures(
+        text, result_numbers(products), REMOVED, result_texts(products)
+    )
+    assert check.text == text and check.unverified == 0
+    assert result_texts(products) == [name]
+
+
+def test_a_number_outside_the_copied_name_is_still_checked():
+    name = "Black 451582-066"
+    products = [_result(["product_name", "revenue"], [[name, 1806.0]])]
+    text = f"The {name} sold 451582 units for $1,806.00."
+    check = check_figures(
+        text, result_numbers(products), REMOVED, result_texts(products)
+    )
+    assert check.unverified == 1
+    assert check.text == f"The {name} sold {REMOVED} units for $1,806.00."

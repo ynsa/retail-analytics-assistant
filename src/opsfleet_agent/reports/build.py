@@ -23,6 +23,7 @@ from opsfleet_agent.agent.calc import (
     numbers_in,
     resolve_placeholders,
     result_numbers,
+    result_texts,
 )
 from opsfleet_agent.agent.context import PromptLibrary
 from opsfleet_agent.agent.formatting import ResultData, format_value
@@ -135,7 +136,9 @@ def check_slots(
         calc = resolve_placeholders(
             clean_model_text(raw), results, on_error=on_calc_error
         )
-        check = check_figures(calc.text, allowed + calc.computed, removed_text)
+        check = check_figures(
+            calc.text, allowed + calc.computed, removed_text, result_texts(results)
+        )
         out.texts[key] = check.text
         out.calculated += len(calc.computed)
         out.calc_errors += calc.errors

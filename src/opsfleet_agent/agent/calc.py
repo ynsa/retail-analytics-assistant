@@ -32,6 +32,7 @@ _DATE_SPANS = re.compile(
     rf"|\b{_MONTH}\s+\d{{4}}\b"
     r"|\b(?:19|20)\d{2}\b"  # a year
 )
+_DIGIT = re.compile(r"\d")
 _NUMBER = re.compile(
     r"(?<![\w.,$])(?P<sign>[-+−])?(?P<cur>\$)?(?P<sign2>[-−])?"
     r"(?P<num>\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)"
@@ -230,6 +231,18 @@ def result_numbers(results: Iterable[ResultData]) -> list[float]:
     return values
 
 
+def result_texts(results: Iterable[ResultData]) -> list[str]:
+    """The text cells of the results that contain a digit, for example a product name with a model
+    number ("Grey / Black 451582-066"). A number inside such a copied name is not a figure."""
+    texts: set[str] = set()
+    for result in results:
+        for row in result["rows"]:
+            for value in row:
+                if isinstance(value, str) and len(value) >= 3 and _DIGIT.search(value):
+                    texts.add(value)
+    return sorted(texts, key=len, reverse=True)
+
+
 def _decimals(num: str) -> int:
     return len(num.partition(".")[2])
 
@@ -242,11 +255,17 @@ def _traceable(num: str, scale: float, allowed: list[float]) -> bool:
 
 
 def check_figures(
-    text: str, allowed: Iterable[float], removed_text: str
+    text: str,
+    allowed: Iterable[float],
+    removed_text: str,
+    texts: Iterable[str] = (),
 ) -> FigureCheck:
-    """Replace each number that no allowed value explains. Dates and years are not figures."""
+    """Replace each number that no allowed value explains. Dates and years are not figures, and a
+    number inside a copied text cell of the results (`texts`, see `result_texts`) is not one."""
     allowed_list = [abs(v) for v in allowed]
     protected = [m.span() for m in _DATE_SPANS.finditer(text)]
+    for cell in texts:
+        protected += [m.span() for m in re.finditer(re.escape(cell), text)]
     check = FigureCheck(text=text)
 
     def inside_date(start: int, end: int) -> bool:

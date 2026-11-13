@@ -22,6 +22,7 @@ from opsfleet_agent.agent.calc import (
     numbers_in,
     resolve_placeholders,
     result_numbers,
+    result_texts,
 )
 from opsfleet_agent.agent.footer import build_footer
 from opsfleet_agent.agent.formatting import strip_data_markup
@@ -103,6 +104,7 @@ def finalize(
         calc.text,
         allowed_numbers(state, ctx, turn, calc.computed),
         lib.reply("figure_removed"),
+        result_texts(results),
     )
     sp.set_attribute("calculated_figures", len(calc.computed))
     sp.set_attribute("calc_errors", calc.errors)
