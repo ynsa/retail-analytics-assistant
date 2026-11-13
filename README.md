@@ -11,6 +11,7 @@ Source: [prototype.drawio](docs/design/diagrams/prototype.drawio). The productio
 ## Contents
 
 - [Deliverables](#deliverables)
+- [For a reviewer with one hour](#for-a-reviewer-with-one-hour)
 - [What you need](#what-you-need)
 - [1. Google Cloud credentials](#1-google-cloud-credentials)
 - [2. A free-tier Gemini key](#2-a-free-tier-gemini-key)
@@ -37,6 +38,25 @@ Source: [prototype.drawio](docs/design/diagrams/prototype.drawio). The productio
 | 4. CLI | `opsfleet-agent chat` ([Run with Docker](#4-run-with-docker)) |
 | 5. Runs on another machine | Docker, uv or pip (this README) |
 | 6. Framework, reasons and experience | [Framework choice](docs/framework-choice.md) |
+
+### For a reviewer with one hour
+
+1. This README: [Example run](#example-run) and [What to try](#what-to-try). About 10 minutes.
+2. The [HLD](docs/design/hld.md): section 0 (traceability), section 1 (architecture), and the requirement sections 4.2 (safety), 4.3 (destructive operations), 4.5 (resilience) and 4.7 (observability). About 35 minutes.
+3. [Framework choice](docs/framework-choice.md) and [Evaluation rounds](docs/evaluation/iterations.md). About 15 minutes.
+
+The code of the four prototype requirements. All paths are under `src/opsfleet_agent/`. A turn starts in `session.py` and runs the graph of `agent/graph.py`.
+
+| Requirement | Where the code enforces it |
+|---|---|
+| Req 2: PII and brand scope | `guard/sql_guard.py` (`SqlGuard`: the checks before every query), `guard/scope.py` (`rewrite_scope`, `verify_scope`: the brand filter as SQL parameters), `guard/masker.py` (`ResultMasker`) and `agent/nodes/scan_output.py`. `agent/nodes/run_query.py` refuses SQL without a guard result. |
+| Req 3: Delete with confirmation | `reports/delete_flow.py` (the exact text `delete N`, the hash of the IDs, `interrupt()`), `agent/tools.py` (`ToolRegistry`: a destructive tool needs a `ConfirmationGrant`) and `reports/deletion.py` (soft delete, undo, purge). |
+| Req 5: Resilience | `agent/subgraphs/data_loop.py` and `agent/nodes/loop_control.py` (the self-correction and its limits), `llm.py` and `bq.py` (retries, fallback model, circuit breakers, dry run, byte cap) and `limits.py` (the caps for each turn and each day). |
+| Req 7: Observability | `tracing.py` (spans to `data/traces/`), `observability/trace_view.py` (`/trace`) and `observability/turn_metrics.py` (`/stats`). |
+
+The folders `evals/`, `ui/` and `memory/` go beyond the four prototype requirements: the evaluation harness (Req 6), the local test UI, and the conversation memory (Req 4, user level).
+
+**Quick start** (the details are in steps 1 to 5): `gcloud auth application-default login`, then a free-tier Gemini key and your project ID in `.env`, then `uv sync --no-dev && uv run opsfleet-agent chat --user maya`, or the Docker command of step 4.
 
 ## What you need
 
