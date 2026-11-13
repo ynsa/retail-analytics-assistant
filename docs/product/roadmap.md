@@ -8,22 +8,21 @@ This roadmap divides the work into parts. Each part gets its own spec in `docs/s
 
 ---
 
-## Status (2026-11-12)
+## Status (2026-11-13)
 
 **Done:**
 
 - Phase 1 and Phase 2: specs 00, 01, 10, 11, 20–23, 30–37 and 40.
 - Phase 3: the local UI (spec 52) and the Docker image with its automatic checks (spec 53, without the live demo). Also the README and setup guide (spec 54), and the graph diagrams of the framework document (spec 55, part 2).
-- Round 1 of the evaluation (spec 50): baseline runs, failure analysis, corrections in code, and re-runs of the failed cases. All re-run cases pass the code checks. See `docs/evaluation/iterations.md`.
-- The HLD (spec 10) has the unit prices and the measured figures of round 1.
+- Round 1 and the final runs of the evaluation (spec 50): baseline runs, failure analysis, corrections in code, and the full accuracy and safety sets on one commit with the judge. Accuracy 49 of 52 cases pass; the code checks of the safety set pass for all 61 cases. See `docs/evaluation/iterations.md`.
+- The HLD (spec 10) has the unit prices, the measured figures of the final runs and the model decision.
 
 **Left:**
 
-1. Round 2 of the evaluation: the 7 accuracy cases with outside errors and the 11 cases without a score. Also BM-02 and XB-06 with the real model, and the judge calibration (30 labels).
-2. The final runs of spec 50: the full accuracy set and the full safety set on one commit, with the judge.
-3. The model comparison of spec 51 (`gemini-3.5-flash-lite` against `gemini-3.8-flash`), and the choice of the production model in the HLD.
-4. The live demo of spec 53 in Docker, and the checks of spec 54 that need a real key or another person.
-5. The author's experience text (spec 55, part 3 of `docs/framework-choice.md`).
+1. The safety gate of spec 50: the judge failed 3 cases. XB-06 is a real gap (a code reply for a manager's question about all users). SP-06 and WR-07 are probable judge errors; the human labels of the judge (30) decide. Then the corrections of TM-08, MS-02 and MS-05 (`docs/evaluation/final-results.md`).
+2. The long conversation set with the judge.
+3. The model comparison of spec 51 on the paid tier (`gemini-3.5-flash-lite` against `gemini-3.8-flash`).
+4. The live chat run of spec 53 on each operating system, and the checks of spec 54 that need a real key or another person.
 
 ---
 

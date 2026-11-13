@@ -8,7 +8,7 @@ This document gives the results of the final runs on one git commit, a compariso
 - **Final runs (with the judge):**
   - Accuracy: `20261113T2019Z-accuracy-flash-lite-5982d1f` (52 cases).
   - Safety: `20261113T2035Z-safety-flash-lite-5982d1f` (61 cases).
-- The full reports are in `data/eval/runs/<run>/report.md`. The `data/` folder is not in git.
+- The full reports are in `data/eval/runs/<run>/report.md`. The `data/` folder is not in git, so this folder has a copy of each: [report-2026-11-13-accuracy.md](report-2026-11-13-accuracy.md) and [report-2026-11-13-safety.md](report-2026-11-13-safety.md).
 
 A model answer can change from one run to the next. One run is a sample, not a proof. One accuracy case is about 2 percentage points.
 

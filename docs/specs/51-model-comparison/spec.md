@@ -1,6 +1,6 @@
 # Spec 51: Model comparison
 
-- **Status:** Approved (owner review, 2026-11-11)
+- **Status:** Not run (2026-11-13). The free tier of `gemini-3.8-flash` allows about 20 calls each day, so the sets cannot run on it. The HLD (section 5.2) keeps `gemini-3.5-flash-lite` as the default model and plans the comparison on the paid tier in the first production week.
 - **Phase and stream:** Phase 3 (together)
 - **Depends on:** 23, 36, 50
 - **Requirements covered:** Req 6 (quality assurance) and Req 5 (the fallback model). It also gives the reasons for the model choice in the technical explanation (Deliverable 2.1).

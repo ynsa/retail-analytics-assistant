@@ -1,6 +1,6 @@
 # Spec 53: Docker and final checks
 
-- **Status:** Approved (owner review, 2026-11-11)
+- **Status:** Partly done (2026-11-13). The image and its automatic checks pass (A5, part 1). Open: the live chat run of B2 on each operating system.
 - **Phase and stream:** Phase 3 (together)
 - **Depends on:** 00, 01, all parts of stream C (30–37), 50, 51. Spec 52 (local UI) only if it exists.
 - **Requirements covered:** deliverable 5 (runs on another machine). The final checks cover Req 2, 3, 5 and 7 in the prototype.

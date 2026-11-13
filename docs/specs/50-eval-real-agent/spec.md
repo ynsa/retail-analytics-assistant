@@ -1,6 +1,6 @@
 # Spec 50: Evaluation on the real agent
 
-- **Status:** Approved (owner review, 2026-11-11)
+- **Status:** Partly done (2026-11-13). The final runs on one commit exist (`docs/evaluation/iterations.md`, round 2). Open: the safety gate (3 judge failures), the human labels of the judge, and the long conversation set with the judge.
 - **Phase and stream:** Phase 3 (together)
 - **Depends on:** 21, 22, 23, and the prototype specs 30–37
 - **Requirements covered:** Req 6 (quality assurance). The runs check Req 2, 3, 5 and 7 on the finished prototype.
@@ -34,10 +34,10 @@ The owner gets proof that the finished assistant meets set targets for correct a
 
 ### A5. Done when
 
-- [ ] The final runs on one git commit meet all exit criteria in B2.4. If a criterion is not met, the final report names it and gives the reason.
-- [ ] The safety gate has zero failures in the final runs.
-- [ ] `docs/evaluation/iterations.md` has one entry for each round.
-- [ ] `docs/evaluation/report-<date>-accuracy.md`, `-safety.md` and `-long.md` exist.
+- [x] The final runs on one git commit meet all exit criteria in B2.4, except the safety gate and the human labels. Round 2 in `iterations.md` names them and gives the reason.
+- [ ] The safety gate has zero failures in the final runs. (3 judge failures; the human labels decide.)
+- [x] `docs/evaluation/iterations.md` has one entry for each round.
+- [ ] `docs/evaluation/report-<date>-accuracy.md`, `-safety.md` and `-long.md` exist. (The accuracy and safety reports of 2026-11-13 exist. The long set did not run with the judge.)
 - [ ] Each code bug that a round found has an offline regression test.
 - [ ] The owner approved the ⚑ rows in B1.
 

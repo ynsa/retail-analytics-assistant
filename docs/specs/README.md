@@ -29,9 +29,9 @@ Each part of the work has one spec. The phases and the order are in [the roadmap
 | 36 | [Resilience](36-resilience/spec.md) | 2 / C | 00, 31 | 3 | Done |
 | 37 | [CLI](37-cli/spec.md) | 2 / C | 31–36 | 2 | Done |
 | 40 | [Local test UI: screens and behavior](40-local-ui/spec.md) | 2 / A | 31–35 | 2 | Done |
-| 50 | [Evaluation on the real agent](50-eval-real-agent/spec.md) | 3 | 21–23, 30–37 | 2 | Approved |
-| 51 | [Model comparison](51-model-comparison/spec.md) | 3 | 50 | 2 | Approved |
+| 50 | [Evaluation on the real agent](50-eval-real-agent/spec.md) | 3 | 21–23, 30–37 | 2 | Partly done: the final runs exist; the safety gate and the human labels are open |
+| 51 | [Model comparison](51-model-comparison/spec.md) | 3 | 50 | 2 | Not run: the free tier of `gemini-3.8-flash` allows about 20 calls each day |
 | 52 | [Local test UI: build](52-local-ui-build/spec.md) | 3 | 40 | 0 | Done |
-| 53 | [Docker and final checks](53-docker-and-final-checks/spec.md) | 3 | 37 | 3 | Approved |
+| 53 | [Docker and final checks](53-docker-and-final-checks/spec.md) | 3 | 37 | 3 | Partly done: the live chat run of B2 on each operating system is open |
 | 54 | [README and setup guide](54-readme-and-setup-guide/spec.md) | 3 | 53 | 3 | Done |
 | 55 | [Framework choice and experience document](55-experience-document/spec.md) | 3 | – | 0 | Done |

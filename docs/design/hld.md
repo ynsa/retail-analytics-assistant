@@ -1,8 +1,8 @@
 # High-Level Design and Technical Explanation: Retail Analytics Chat Assistant
 
-- **Version:** 1.1 (Phase 3)
-- **Status:** For review. The measured figures come from round 1 of the evaluation (prototype, free tier, one run each). The model comparison of spec 51 is still **Open**.
-- **Date:** 2026-11-12
+- **Version:** 1.2 (Phase 3, final for the submission)
+- **Status:** Final. The measured figures come from the final evaluation runs of 2026-11-13 on one commit (prototype, free tier, one run each, section 7.4). The model comparison of spec 51 did not run on the free tier; section 5.2 states the decision.
+- **Date:** 2026-11-13
 - **Sources:** `docs/brief/Original task.md`, `docs/analysis/gap-analysis.md`, `docs/product/product-definition.md`, `docs/product/architecture.md`, and the specs in `docs/specs/`.
 
 This document is the production design (HLD) and the detailed technical explanation in one file. The decision records with their history stay in [architecture.md](../product/architecture.md). This document summarizes each decision and links to the record.
@@ -11,7 +11,7 @@ This document is the production design (HLD) and the detailed technical explanat
 
 - Each requirement section has one label: **Built in the prototype** or **Design only**.
 - Each number has one label: **From OpsFleet**, **Measured**, **Our assumption**, or **Derived**. "From OpsFleet" is an answer from the client. "Measured" comes from the prototype: the evaluation runs (spec 50) and the live checks of the specs. Section 7.4 has all measured figures. "Derived" is a formula from labelled numbers.
-- **Open** marks a value that a later step fills in. The text says which step.
+- **Not measured** marks a value that the prototype could not measure on the free tier. The text says why and when it is measured.
 
 ---
 
@@ -737,7 +737,7 @@ Code checks parts of the rubric directly: the period in the plan, the figure che
 
 **Checks.** The evaluation report (`docs/evaluation/`, spec 50) is the check. The CI run of the full sets is the production check.
 
-**Results of the prototype so far** (section 7.4 has the details). Round 1 (2026-11-12) found 20 agent bugs, 1 scorer problem, 1 wrong case and 24 failures from outside errors (mostly Gemini 503). After the corrections, all re-run cases pass the code checks: safety 61 of 61, accuracy 32 of 32 scored cases. The judge part, 18 accuracy cases without a score, and the final run on one commit are **Open** (round 2).
+**Results of the prototype** (section 7.4 has the figures, [iterations.md](../evaluation/iterations.md) has the rounds). Round 1 (2026-11-12) found 20 agent bugs, 1 scorer problem, 1 wrong case and 24 failures from outside errors (mostly Gemini 503). The final runs (2026-11-13, one commit, with the judge) meet the exit targets for correct answers, reports, latency and dead ends: accuracy 49 of 52 cases pass. The safety gate is not met: the code checks pass for all 61 cases, but the judge failed 3 cases. Two are probable judge errors (SP-06, WR-07: the critique contradicts the verdict) and one is a real gap against the case (XB-06: a manager asked about all users and got the scoped figure with a note, where the case expects a refusal with an offer). The human labels of the judge (spec 50: 30 labels) and the correction of XB-06 are the open steps; without them, the gate stays "not met".
 
 ### 4.7. Req 7: Observability
 
@@ -861,15 +861,15 @@ The nodes call Gemini through `google-genai` directly, without LangChain model w
 
 - **Development model:** `gemini-3.5-flash-lite`. All development runs and tests use it.
 - **Fallback model in the prototype:** `gemini-3.1-flash-lite` on the same free-tier key, one attempt for each failed call (spec 36). A different model has its own free-tier limits.
-- **Default and fallback models for production:** **Open.** Spec 51 runs the same test sets on `gemini-3.5-flash-lite` and `gemini-3.8-flash`. A set rule chooses: safety first, then a paired count of the correct answers, then the cost for each answer.
+- **Default model for production:** `gemini-3.5-flash-lite`, the measured model: it meets the targets of spec 50 for correct answers, reports, latency and dead ends (section 7.4). **Fallback for production:** `gemini-3.1-flash-lite`, as in the prototype. **Candidate:** `gemini-3.8-flash`. The comparison of spec 51 did not run, because the free tier of `gemini-3.8-flash` allows about 20 calls each day (section 5.3). It runs on the paid tier in the first production week, with the rule of spec 51: safety first, then a paired count of the correct answers, then the cost for each answer. The default model changes only when the comparison shows a real difference.
 
-| Metric | `gemini-3.5-flash-lite` (Measured, round 1, section 7.4) | `gemini-3.8-flash` |
+| Metric | `gemini-3.5-flash-lite` (Measured, final runs, section 7.4) | `gemini-3.8-flash` |
 |---|---|---|
-| Safety pass rate | 54.1% in the baseline (21 of 28 failures were outside errors, mostly Gemini 503). 61 of 61 pass the code checks after round 1. Judge part open. | Open (spec 51) |
-| SQL execution-match rate | 66.7% in the baseline. 11 of 11 in the re-run of the failed cases. Full run open. | Open |
-| Agent time for a data question, median and p95 | 6.9 s and 16.9 s | Open |
-| Tokens for a data question, median (in and out) | about 7,000 and 640 | Open |
-| Cost for a data question at paid prices | about $0.004 | Open |
+| Safety pass rate | 61 of 61 cases pass the code checks. The judge failed 3 of 61 (95.1%); see section 4.6. | Not measured (spec 51) |
+| SQL execution-match rate | 92.5% (52 cases). Answer correctness 97.7%. | Not measured |
+| Agent time for a data question, median and p95 | 6.9 s and 16.9 s (round 1, agent time without the runner waits). Final run: 11.9 s and 16.0 s with the waits. | Not measured |
+| Tokens for an answer, median (in and out) | 8,643 and 586 (final accuracy run) | Not measured |
+| Cost for a data question at paid prices | about $0.004 | Not measured |
 
 **Why a Flash-class model fits the 10–30 s target.** A simple question needs 3 model calls in sequence. In round 1, the model time of a data question had a median of 5.3 s (Measured, section 7.4). The rest of the budget is for the queries (section 7.2). A larger model with a longer time for each call leaves less room for one self-correction inside 30 s. Flash-class models are also the lower-cost models, and the free tier gives access for the OpsFleet tests.
 
@@ -997,7 +997,7 @@ Case A is not acceptable: one query also passes the production cap of 10 GB. So 
 
 ### 7.4. Measured figures of the prototype
 
-**Label: Measured.** Prototype, free tier, `gemini-3.5-flash-lite`, BigQuery public dataset, 2026-11-12, one run each. The samples are small: they show the size of a value, not a stable value. Sources: the run reports `data/eval/runs/<run>/report.md` (not in git), [round-1-analysis.md](../evaluation/round-1-analysis.md), the live check of spec 33 and [cli-session.txt](../images/cli-session.txt).
+**Label: Measured.** Prototype, free tier, `gemini-3.5-flash-lite`, BigQuery public dataset, 2026-11-12 (round 1) and 2026-11-13 (final runs), one run each. The samples are small: they show the size of a value, not a stable value. Sources: the final run reports [report-2026-11-13-accuracy.md](../evaluation/report-2026-11-13-accuracy.md) and [report-2026-11-13-safety.md](../evaluation/report-2026-11-13-safety.md), [round-1-analysis.md](../evaluation/round-1-analysis.md), the live check of spec 33 and [cli-session.txt](../images/cli-session.txt).
 
 **Latency.** The evaluation runner starts at most one Gemini call every 4 s (free-tier rate limit), so the turn time of a run includes waits. The agent time is the turn time minus these waits (the node spans minus their model-call spans). Turns that ended with an error are left out.
 
@@ -1013,29 +1013,20 @@ Case A is not acceptable: one query also passes the production cap of 10 GB. So 
 | Data question in the CLI (no waits) | `cli-session.txt` | 1 | – | 14.2 s (SQL writing 9.1 s) | 3 | 7,051 / 613 |
 | Report with 4 queries, HTML file (no waits) | live check of spec 33 | 1 | – | 18 s | 3 | – |
 
-The report cases of the accuracy baseline failed before their queries (a plan bug, corrected in round 1). So the evaluation has no report latency yet. The baseline report shows a p95 of 21.7 s for a question and 22.4 s for a report, with the waits. The targets of spec 50 are 30 s and 120 s.
+The report cases of the accuracy baseline failed before their queries (a plan bug, corrected in round 1). The final accuracy run has the first report latency: a median of 22.0 s and a p95 of 26.5 s for 5 reports, with the waits. The targets of spec 50 are 30 s and 120 s.
 
 **BigQuery.** A data query billed 21.0 MB (median) and 31.5 MB (maximum). BigQuery bills at least 10 MB for each table, and most queries read 2 tables. The report with 4 queries billed 83.9 MB. The value cache costs about 40 MB once each day. The reference snapshots of the accuracy set cost 1,090 MB.
 
 **Cost for each answer at paid-tier prices** (section 9, Derived). Gemini: 6,990 × $0.30/1M + 642 × $2.50/1M ≈ $0.0037 for a data question. BigQuery: about $0.0001. Total: about $0.004.
 
-**Quality, baseline and round 1** (spec 50, code checks). The judge did not run in the re-runs.
+**Quality** (spec 50). The judge ran only in the final runs. The results against the exit criteria, the causes of each failure and the next steps are in [final-results.md](../evaluation/final-results.md).
 
-| Set | Baseline (`8814c53`) | After the round 1 corrections |
-|---|---|---|
-| Accuracy | 21 of 39 scored cases pass (53.8%). Execution match 66.7%. 11 cases skipped by the old snapshot rule. | 11 of 11 re-run cases pass. So 32 of 32 scored cases pass the code checks. 7 cases had a 503 again, and 11 cases still have no score. |
-| Safety | 33 of 61 pass (54.1%). Gate: fail. 21 of the 28 failures were outside errors (Gemini 503, a timeout, an open circuit breaker). | 28 of 28 re-run cases pass. So 61 of 61 pass the code checks. The judge part of the gate is open. |
+| Set | Baseline (`8814c53`, 2026-11-12) | After the round 1 corrections (re-runs) | Final runs (`5982d1f`, 2026-11-13, with the judge) |
+|---|---|---|---|
+| Accuracy | 21 of 39 scored cases pass (53.8%). Execution match 66.7%. 11 cases skipped by the old snapshot rule. | 11 of 11 re-run cases pass. 32 of 32 scored cases pass the code checks. 11 cases without a score. | 52 of 52 scored. 49 pass (94.2%). Execution match 92.5%, answer correctness 97.7%, judge 100% for answers and reports. Failed: TM-08, MS-02, MS-05. |
+| Safety | 33 of 61 pass (54.1%). Gate: fail. 21 of the 28 failures were outside errors (Gemini 503, a timeout, an open circuit breaker). | 28 of 28 re-run cases pass. 61 of 61 pass the code checks. | 61 of 61 scored. Code checks: 61 of 61 pass. Judge: 3 failures (SP-06, XB-06, WR-07), so the gate is not met (section 4.6). |
 
-Round 1 used 111 Gemini calls and about 336 MB of BigQuery.
-
-**Quality, final runs** (commit `5982d1f`, with the judge, [final-results.md](../evaluation/final-results.md)).
-
-| Set | Result |
-|---|---|
-| Accuracy | 49 of 52 cases pass (94.2%). Execution match 92.5%, answer correctness 97.7%, judge 100% for answers and 5 of 5 reports. Failed: TM-08, MS-02, MS-05. |
-| Safety | 58 of 61 cases pass (95.1%). Gate: fail. All code checks pass. 3 cases fail only a judge criterion (SP-06, WR-07, XB-06). |
-
-The final accuracy run billed 1,206 MB of BigQuery (21.0 MB for each answer, median) and used 190 Gemini calls; the price at the paid tier is about $0.30. The final safety run used 151 calls (about $0.14). **Open:** the judge calibration (human labels), the long conversation, the corrections of the failed cases, and the model comparison of spec 51.
+Round 1 used 111 Gemini calls and about 336 MB of BigQuery. The final accuracy run billed 1,206 MB (21.0 MB for each answer, median) and used 190 Gemini calls (177 agent, 13 judge; about $0.30 at paid-tier prices). The final safety run billed 189 MB and used 151 calls (106 agent, 45 judge; about $0.14). On the free tier, both cost $0. **Not done:** the judge calibration (human labels), the long conversation set, the corrections of the 6 failed cases ([final-results.md](../evaluation/final-results.md), sections 2 and 3), and the model comparison of spec 51 (section 5.2).
 
 ---
 
@@ -1078,7 +1069,7 @@ The final accuracy run billed 1,206 MB of BigQuery (21.0 MB for each answer, med
 
 **This is an estimate, not a quote.** It uses the list prices that the official pricing pages showed on 2026-11-12 (USD, US or Tier 1 regions, without committed-use discounts). The prices change. The volumes come from section 7 (Our assumption). Each monthly cost is Derived: volume × unit price, minus the free tier where one applies.
 
-Basis: 22 working days each month. The model row uses `gemini-3.5-flash-lite`, the development model. The production model is still **Open** (spec 51), so the table also shows `gemini-3.8-flash`.
+Basis: 22 working days each month. The model row uses `gemini-3.5-flash-lite`, the default model of section 5.2. The table also shows `gemini-3.8-flash`, the candidate of the comparison of spec 51.
 
 | Service | Unit price (source) | Volume each month | Monthly cost (estimate) |
 |---|---|---|---|
