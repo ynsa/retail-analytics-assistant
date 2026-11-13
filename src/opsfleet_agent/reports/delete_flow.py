@@ -420,7 +420,7 @@ def apply_delete(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, 
         )
     grant = ConfirmationGrant(pending["ids_hash"], tuple(report_ids), ctx.user.id)
     tool_ctx = ToolContext(
-        user=ctx.user, budget=ctx.budget, bq=None, store=ctx.store, grant=grant
+        user=ctx.user, budget=ctx.budget, store=ctx.store, grant=grant
     )
     result = ctx.services.tools.run(
         "delete_reports",

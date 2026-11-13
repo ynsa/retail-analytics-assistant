@@ -26,13 +26,7 @@ from opsfleet_agent import capabilities
 from opsfleet_agent.agent.nodes.common import turn_of
 from opsfleet_agent.agent.nodes.finish import finish
 from opsfleet_agent.agent.nodes.load_context import load_context
-from opsfleet_agent.agent.nodes.replies import (
-    delete_flow,
-    explain_block,
-    give_up,
-    prepared_reply,
-    report_flow,
-)
+from opsfleet_agent.agent.nodes.replies import explain_block, give_up, prepared_reply
 from opsfleet_agent.agent.nodes.route import next_after_route, route
 from opsfleet_agent.agent.nodes.scan_output import scan_output
 from opsfleet_agent.agent.nodes.schema_answer import schema_answer
@@ -41,23 +35,18 @@ from opsfleet_agent.agent.state import AgentState, TurnContext
 from opsfleet_agent.agent.subgraphs.data_loop import build_data_loop, next_after_loop
 from opsfleet_agent.memory.summary import summarize
 
-# The flows of the `report` and `delete` intents. Specs 32 and 33 pass their own nodes or
-# subgraphs to `build_graph(flows=...)`. Each flow must set `turn.answer`.
-DEFAULT_FLOWS: dict[str, Callable[..., Any]] = {
-    "report": report_flow,
-    "delete": delete_flow,
-}
-
 
 def _after_load(state: AgentState) -> str:
     return "finish" if turn_of(state).get("answer") else "route"
 
 
 def build_graph(
-    checkpointer: Any | None = None,
-    flows: Mapping[str, Callable[..., Any] | Any] | None = None,
+    checkpointer: Any | None,
+    flows: Mapping[str, Callable[..., Any] | Any],
 ) -> Any:
-    flow_nodes = {**DEFAULT_FLOWS, **(flows or {})}
+    """`flows` holds the `report` and `delete` subgraphs of specs 32 and 33. Each flow must set
+    `turn.answer`."""
+    flow_nodes = dict(flows)
     g = StateGraph(AgentState, context_schema=TurnContext)
     g.add_node("load_context", load_context)
     g.add_node("route", route)

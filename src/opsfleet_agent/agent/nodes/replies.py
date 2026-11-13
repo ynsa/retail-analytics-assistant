@@ -144,12 +144,3 @@ def give_up(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any]:
         help=helps.get(error_type, helps["default"]),
     )
     return end_turn(turn, text, turn.get("error_type"))
-
-
-def _not_built(state: AgentState, runtime: Runtime[TurnContext]) -> dict[str, Any]:
-    return end_turn(turn_of(state), runtime.context.services.prompts.reply("not_built"))
-
-
-# Extension points: specs 32 and 33 pass their own flows to `build_graph(flows=...)`.
-report_flow = node("report_flow")(_not_built)
-delete_flow = node("delete_flow")(_not_built)

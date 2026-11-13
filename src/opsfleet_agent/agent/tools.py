@@ -41,7 +41,6 @@ class ConfirmationGrant:
 class ToolContext:
     user: Any  # identity.UserContext
     budget: Any  # limits.TurnBudget
-    bq: Any  # bq.BigQueryService
     store: Any  # sqlite3.Connection
     grant: ConfirmationGrant | None = None  # spec 33: the confirmation for this call
 
@@ -57,7 +56,9 @@ class ToolResult:
 class Tool(Protocol):
     name: str
     description: str
-    args_model: type[BaseModel]  # becomes the Gemini function declaration
+    args_model: type[
+        BaseModel
+    ]  # the input schema; the HLD (section 10) sends it to Gemini as a function declaration
     side_effect: SideEffect
 
     def run(self, ctx: ToolContext, args: BaseModel) -> ToolResult: ...

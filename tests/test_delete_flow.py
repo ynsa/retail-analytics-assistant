@@ -251,7 +251,7 @@ def test_delete_n_in_the_first_request_is_not_a_confirmation(setup):
 def test_the_tool_without_a_grant_is_rejected(setup):
     session, _, _, _, three = setup
     three(files=())
-    ctx = ToolContext(user=session.user, budget=None, bq=None, store=session.conn)
+    ctx = ToolContext(user=session.user, budget=None, store=session.conn)
     args = {"report_ids": ["R-00001"], "ids_hash": "x" * 64}
     with pytest.raises(AgentError) as err:
         session.services.tools.run("delete_reports", ctx, args)
@@ -271,7 +271,7 @@ def test_each_tool_call_writes_a_tool_span_with_its_side_effect(setup, config):
     confirmed delete both have one span with `side_effect = destructive`."""
     session, llm, _, _, three = setup
     three(files=())
-    ctx = ToolContext(user=session.user, budget=None, bq=None, store=session.conn)
+    ctx = ToolContext(user=session.user, budget=None, store=session.conn)
     with pytest.raises(AgentError):
         session.services.tools.run(
             "delete_reports", ctx, {"report_ids": ["R-00001"], "ids_hash": "x" * 64}
