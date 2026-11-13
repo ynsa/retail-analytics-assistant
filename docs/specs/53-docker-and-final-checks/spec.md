@@ -100,7 +100,7 @@ The "user" is an OpsFleet reviewer with Docker, a Gemini key and Google Cloud cr
 
 | Check | Result |
 |---|---|
-| `docker --version` | Docker 29.8.2, from OrbStack (`/Users/sapush/.orbstack/bin/docker`) |
+| `docker --version` | Docker 29.8.2, from OrbStack (the `docker` binary of OrbStack) |
 | `docker buildx ls` | Builder `orbstack` runs. Platforms include `linux/amd64` and `linux/arm64`. The builder `default` gives an error (no `/var/run/docker.sock`). Use the `orbstack` context. |
 | `uv --version` | uv 0.13.7 (aarch64-apple-darwin) |
 | `uname -m` | `arm64` |
